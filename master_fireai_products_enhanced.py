@@ -1265,7 +1265,7 @@ class ProductionBOMGenerator:
                     subcategory="Pipe",
                     description=f"{size} {material.upper()} Schedule {schedule} Pipe",
                     manufacturer=catalog_item['manufacturer'],
-                    model_number=f"{catalog_item['model_prefix']}-{size.replace('\"', '')}-{schedule}",
+                    model_number=f"{catalog_item['model_prefix']}-{size.replace('"', '')}-{schedule}",
                     quantity=int(math.ceil(total_length)),  # Round up to nearest foot
                     unit="foot",
                     unit_price=unit_price,
@@ -1326,7 +1326,7 @@ class ProductionBOMGenerator:
                     subcategory="Valves",
                     description=f"{size} {valve_type.replace('_', ' ').title()}",
                     manufacturer=catalog_item['manufacturer'],
-                    model_number=f"{catalog_item['model_prefix']}-{size.replace('\"', '')}-{valve_type[:3].upper()}",
+                    model_number=f"{catalog_item['model_prefix']}-{size.replace('"', '')}-{valve_type[:3].upper()}",
                     quantity=count,
                     unit="each",
                     unit_price=unit_price,
@@ -1371,12 +1371,12 @@ class ProductionBOMGenerator:
                     labor_rate = 68.0  # $68/hr pipe fitter
                     
                     item = BOMItem(
-                        id=f"fitting_{fitting_type}_{size.replace('\"', 'in')}",
+                        id=f"fitting_{fitting_type}_{size.replace('"', 'in')}",
                         category="Piping System",
                         subcategory="Fittings",
                         description=f"{size} {fitting_type.replace('_', ' ').title()}",
                         manufacturer=catalog_item['manufacturer'],
-                        model_number=f"{catalog_item['model_prefix']}-{size.replace('\"', '')}",
+                        model_number=f"{catalog_item['model_prefix']}-{size.replace('"', '')}",
                         quantity=quantity,
                         unit="each",
                         unit_price=unit_price,
@@ -1430,12 +1430,12 @@ class ProductionBOMGenerator:
                 labor_rate = 48.0  # $48/hr helper
                 
                 item = BOMItem(
-                    id=f"hanger_clevis_{size.replace('\"', 'in')}",
+                    id=f"hanger_clevis_{size.replace('"', 'in')}",
                     category="Support System",
                     subcategory="Hangers",
                     description=f"{size} Clevis Hanger",
                     manufacturer=catalog_item['manufacturer'],
-                    model_number=f"{catalog_item['model_prefix']}-{size.replace('\"', '')}",
+                    model_number=f"{catalog_item['model_prefix']}-{size.replace('"', '')}",
                     quantity=hangers_needed,
                     unit="each",
                     unit_price=unit_price,
