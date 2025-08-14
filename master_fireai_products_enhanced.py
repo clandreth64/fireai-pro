@@ -1603,63 +1603,63 @@ class ProductionBOMGenerator:
         
         return False
     
-    def _generate_supplier_summary(self, supplier_quotes: Dict[str, dict]) -> dict:
-        """Generate comprehensive supplier summary"""
-        
-        # Extract metadata if available
-        metadata = supplier_quotes.get('_metadata', {})
-        
-        summary = {
-            'total_suppliers': metadata.get('total_suppliers', len([k for k in supplier_quotes.keys() if k != '_metadata'])),
-            'successful_quotes': metadata.get('successful_quotes', 0),
-            'failed_quotes': metadata.get('failed_quotes', 0),
-            'success_rate': metadata.get('success_rate', 0.0),
-            'offline_fallback_used': metadata.get('offline_fallback_used', False),
-            'supplier_details': {},
-            'cost_comparison': {},
-            'availability_summary': {},
-            'recommendations': []
+def _generate_supplier_summary(self, supplier_quotes: Dict[str, dict]) -> dict:
+    """Generate comprehensive supplier summary"""
+    
+    # Extract metadata if available
+    metadata = supplier_quotes.get('_metadata', {})
+    
+    summary = {
+        'total_suppliers': metadata.get('total_suppliers', len([k for k in supplier_quotes.keys() if k != '_metadata'])),
+        'successful_quotes': metadata.get('successful_quotes', 0),
+        'failed_quotes': metadata.get('failed_quotes', 0),
+        'success_rate': metadata.get('success_rate', 0.0),
+        'offline_fallback_used': metadata.get('offline_fallback_used', False),
+        'supplier_details': {},
+        'cost_comparison': {},
+        'availability_summary': {},
+        'recommendations': []
+    }
+    
+    for supplier_id, quote in supplier_quotes.items():
+        if supplier_id == '_metadata':
+            continue
+            
+        supplier_detail = {
+            'status': 'success' if quote.get('normalized_items') else 'failed',
+            'quote_type': quote.get('quote_type', 'unknown'),
+            'item_count': len(quote.get('normalized_items', [])),
+            'total_quoted': 0,
+            'avg_lead_time': 0,
+            'availability_rate': 0
         }
         
-        for supplier_id, quote in supplier_quotes.items():
-            if supplier_id == '_metadata':
-                continue
-                
-            supplier_detail = {
-                'status': 'success' if quote.get('normalized_items') else 'failed',
-                'quote_type': quote.get('quote_type', 'unknown'),
-                'item_count': len(quote.get('normalized_items', [])),
-                'total_quoted': 0,
-                'avg_lead_time': 0,
-                'availability_rate': 0
-            }
+        if quote.get('normalized_items'):
+            items = quote['normalized_items']
             
-            if quote.get('normalized_items'):
-                items = quote['normalized_items']
-                
-                # Calculate metrics
-                supplier_detail['total_quoted'] = sum(item.get('total_price', 0) for item in items)
-                lead_times = [item.get('lead_time_days', 0) for item in items if item.get('lead_time_days')]
-                supplier_detail['avg_lead_time'] = sum(lead_times) / len(lead_times) if lead_times else 0
-                
-                available_items = [item for item in items if item.get('availability') in ['available', 'in_stock', 'estimated_available']]
-                supplier_detail['availability_rate'] = len(available_items) / len(items) if items else 0
-                
-                summary['cost_comparison'][supplier_id] = supplier_detail['total_quoted']
-        
-            summary['supplier_details'][supplier_id] = supplier_detail
-        
-        # Generate recommendations
-        if summary['cost_comparison']:
-            lowest_cost_supplier = min(summary['cost_comparison'].keys(), 
-                                     key=lambda x: summary['cost_comparison'][x])
-            summary['recommendations'].append({
-                'type': 'cost_optimization',
-                'message': f"Lowest cost option: {lowest_cost_supplier}",
-                'savings': max(summary['cost_comparison'].values()) - min(summary['cost_comparison'].values())
-            })
-        
-        return summary
+            # Calculate metrics
+            supplier_detail['total_quoted'] = sum(item.get('total_price', 0) for item in items)
+            lead_times = [item.get('lead_time_days', 0) for item in items if item.get('lead_time_days')]
+            supplier_detail['avg_lead_time'] = sum(lead_times) / len(lead_times) if lead_times else 0
+            
+            available_items = [item for item in items if item.get('availability') in ['available', 'in_stock', 'estimated_available']]
+            supplier_detail['availability_rate'] = len(available_items) / len(items) if items else 0
+            
+            summary['cost_comparison'][supplier_id] = supplier_detail['total_quoted']
+    
+        summary['supplier_details'][supplier_id] = supplier_detail
+    
+    # Generate recommendations
+    if summary['cost_comparison']:
+        lowest_cost_supplier = min(summary['cost_comparison'].keys(), 
+                                 key=lambda x: summary['cost_comparison'][x])
+        summary['recommendations'].append({
+            'type': 'cost_optimization',
+            'message': f"Lowest cost option: {lowest_cost_supplier}",
+            'savings': max(summary['cost_comparison'].values()) - min(summary['cost_comparison'].values())
+        })
+    
+    return summary
 
 # ================================================================================================
 # ENHANCED COST PREDICTION SERVICE WITH INTEGRATED ANALYSIS
