@@ -1,11 +1,24 @@
+from __future__ import annotations
 
-import os, uuid, json, threading, traceback, sys
+import os, uuid, json, threading, traceback, sys, time
 from pathlib import Path
 from typing import Optional, Dict, Any
+
 from fastapi import FastAPI, UploadFile, File, Form, BackgroundTasks, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 import importlib
+
+# --- NEW: shared models + job store (from fireai_schemas folder you added) ---
+from fireai_schemas import JobResult, Deliverables, Artifact, ErrorInfo
+from fireai_schemas.job_store import JobStore
+
+# --- NEW: optional Prometheus metrics (safe if not installed) ---
+try:
+    from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST  # type: ignore
+    PROM = True
+except Exception:  # pragma: no cover
+    PROM = False
 
 # ---------------- Config ----------------
 OUTPUT_ROOT = Path(os.getenv("FIREAI_LOCAL_STORAGE", "./fireai_outputs")).resolve()
@@ -13,7 +26,7 @@ OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
 ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "*").split(",")
 
 # ---------------- App ----------------
-app = FastAPI(title="FireAI Pro API", version="0.1")
+app = FastAPI(title="FireAI Pro API", version="1.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -22,10 +35,22 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ---------------- Job store (in-memory) ----------------
+# ---------------- Job store ----------------
+# Keep the in-memory dict around (not used anymore) to avoid surprises
 JOBS: Dict[str, Dict[str, Any]] = {}
+# NEW: Redis-backed store with in-memory fallback if REDIS_URL not set
+STORE = JobStore(namespace="fireai", ttl_seconds=7 * 24 * 3600)
 
-# Candidate orchestrator modules and entry points
+# NEW: metrics (optional)
+if PROM:
+    JOBS_CREATED = Counter("fireai_jobs_created_total", "Jobs created")
+    JOBS_COMPLETED = Counter("fireai_jobs_completed_total", "Jobs completed")
+    JOBS_FAILED = Counter("fireai_jobs_failed_total", "Jobs failed")
+    JOB_DURATION = Histogram("fireai_job_duration_seconds", "Job duration in seconds")
+else:  # pragma: no cover
+    JOBS_CREATED = JOBS_COMPLETED = JOBS_FAILED = JOB_DURATION = None  # type: ignore
+
+# Candidate orchestrator modules and entry points (keep your originals)
 ORCH_MODULES = [
     "master_fireai_orchestrator",
     "hardened_orchestrator",
@@ -58,6 +83,10 @@ def _load_orchestrator():
     )
 
 def _run_orchestrator(project_json: dict):
+    """
+    Keep your flexible entry-point logic exactly as-is.
+    Returns whatever the orchestrator returns; we normalize after.
+    """
     orch = _load_orchestrator()
     for fn in ORCH_FUNCS:
         f = getattr(orch, fn, None)
@@ -76,6 +105,34 @@ def _run_orchestrator(project_json: dict):
     # If nothing callable, we assume the orchestrator runs on import and writes outputs.
     return None
 
+# ---------------- Health / Readiness / Metrics (NEW) ----------------
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
+@app.get("/readiness")
+def readiness():
+    # Orchestrator importable?
+    try:
+        _ = _load_orchestrator()
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"orchestrator not ready: {e}")
+
+    # Storage writable?
+    try:
+        probe = OUTPUT_ROOT / ".__writecheck__"
+        probe.write_text("ok")
+        probe.unlink(missing_ok=True)
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"storage not writable: {e}")
+
+    return {"status": "ready"}
+
+if PROM:
+    @app.get("/metrics")
+    def metrics():
+        return generate_latest(), 200, {"Content-Type": CONTENT_TYPE_LATEST}
+
 # ---------------- API ----------------
 @app.post("/api/projects")
 async def create_project(
@@ -83,12 +140,12 @@ async def create_project(
     project_json: Optional[str] = Form(None),
     file: Optional[UploadFile] = File(None),
 ):
-    """Create a project; optional file upload (DWG/IFC/PDF)."""
+    """Create a project; optional file upload (DWG/IFC/PDF/ZIP)."""
     pid = project_id or str(uuid.uuid4())
     out_dir = (OUTPUT_ROOT / pid)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    data = {}
+    data: Dict[str, Any] = {}
     if project_json:
         try:
             data = json.loads(project_json)
@@ -98,10 +155,20 @@ async def create_project(
 
     saved_file = None
     if file:
-        ext = Path(file.filename).suffix or ""
+        # NEW: safer upload
+        allowed_ext = {".dxf", ".dwg", ".ifc", ".zip", ".pdf"}
+        ext = (Path(file.filename).suffix or "").lower()
+        if ext not in allowed_ext:
+            raise HTTPException(400, f"Unsupported file type: {ext}")
+
+        max_bytes = int(os.getenv("UPLOAD_MAX_BYTES", "209715200"))  # 200 MB default
+        blob = await file.read()
+        if len(blob) > max_bytes:
+            raise HTTPException(413, "File too large")
+
         saved_file = out_dir / f"upload{ext}"
         with saved_file.open("wb") as f_out:
-            f_out.write(await file.read())
+            f_out.write(blob)
 
     # Persist project.json
     with (out_dir / "project.json").open("w") as f:
@@ -111,32 +178,76 @@ async def create_project(
 
 @app.post("/api/projects/{project_id}/run")
 async def run_project(project_id: str, background: BackgroundTasks):
-    """Kick off the design run in a background thread."""
+    """Kick off the design run in a background thread (job state via JobStore)."""
+    proj_dir = OUTPUT_ROOT / project_id
+    if not proj_dir.exists():
+        raise HTTPException(404, "project not found")
+
     job_id = str(uuid.uuid4())
-    JOBS[job_id] = {"status": "queued", "step": "queued", "pct": 0, "errors": [], "deliverables": {}}
+
+    # NEW: seed canonical JobResult into the store
+    jr = JobResult(job_id=job_id, project_id=project_id, status="queued").model_dump()
+    STORE.set(job_id, jr)
+    if PROM and JOBS_CREATED:
+        JOBS_CREATED.inc()
 
     def _worker():
+        start = time.time()
+
+        def set_status(status: str, extra: Dict[str, Any] | None = None):
+            cur = STORE.get(job_id) or {}
+            cur["status"] = status
+            if extra:
+                cur.update(extra)
+            STORE.set(job_id, cur)
+
         try:
-            JOBS[job_id].update(status="routing", step="routing", pct=10)
-            with (OUTPUT_ROOT / project_id / "project.json").open() as f:
+            set_status("routing", {"pct": 10, "step": "routing"})
+            with (proj_dir / "project.json").open() as f:
                 pj = json.load(f)
-            _run_orchestrator(pj)
-            # Scan deliverables
-            d = {}
-            out_dir = OUTPUT_ROOT / project_id
-            if out_dir.exists():
-                for p in out_dir.glob("*"):
-                    d[p.name] = str(p)
-            JOBS[job_id].update(status="succeeded", step="done", pct=100, deliverables=d)
+
+            # Run your orchestrator (flexible entry points)
+            manifest = _run_orchestrator(pj) or {}
+
+            # ---- Normalize to a Deliverables manifest (keeps your existing file outputs) ----
+            # If orchestrator returned explicit paths, prefer them; otherwise scan.
+            dxf = manifest.get("dxf") or next((str(p) for p in proj_dir.glob("*.dxf")), None)
+            ifc = manifest.get("ifc") or next((str(p) for p in proj_dir.glob("*.ifc")), None)
+            pdfs = manifest.get("pdfs") or {p.stem.lower(): str(p) for p in proj_dir.glob("*.pdf")}
+            extras_list = manifest.get("extras") or []
+            extras = [
+                Artifact(kind=a.get("kind", "other"), name=a.get("name", ""), path=a.get("path", ""), meta=a.get("meta", {}))
+                for a in extras_list
+            ]
+
+            delivs = Deliverables(ifc=ifc, dxf=dxf, pdfs=pdfs, extras=extras)
+
+            set_status("succeeded", {"step": "done", "pct": 100, "deliverables": delivs.model_dump(), "metrics": manifest.get("metrics", {})})
+            if PROM and JOBS_COMPLETED:
+                JOBS_COMPLETED.inc()
+            if PROM and JOB_DURATION:
+                JOB_DURATION.observe(time.time() - start)
+
         except Exception as e:
-            JOBS[job_id].update(status="failed", step="error", pct=100, errors=[str(e), traceback.format_exc()])
+            if PROM and JOBS_FAILED:
+                JOBS_FAILED.inc()
+            set_status(
+                "failed",
+                {
+                    "step": "error",
+                    "pct": 100,
+                    "errors": [str(e), traceback.format_exc()],
+                    "error": ErrorInfo(code="ORCH_FAIL", message=str(e), engine="orchestrator", hint="See server logs").model_dump(),
+                },
+            )
 
     threading.Thread(target=_worker, daemon=True).start()
     return {"job_id": job_id}
 
 @app.get("/api/jobs/{job_id}")
 def get_job(job_id: str):
-    job = JOBS.get(job_id)
+    # NEW: read status from JobStore
+    job = STORE.get(job_id)
     if not job:
         raise HTTPException(404, "job not found")
     return job
