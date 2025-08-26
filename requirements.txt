@@ -12,3 +12,4 @@ psutil
 prometheus-client>=0.20.0
 redis>=5.0.0
 python-multipart>=0.0.9
+boto3>=1.34
