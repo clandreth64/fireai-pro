@@ -4,21 +4,27 @@ import os, uuid, json, threading, traceback, sys, time
 from pathlib import Path
 from typing import Optional, Dict, Any
 
-from fastapi import FastAPI, UploadFile, File, Form, BackgroundTasks, HTTPException
+from fastapi import FastAPI, UploadFile, File, Form, BackgroundTasks, HTTPException, Depends, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 import importlib
 
-# --- NEW: shared models + job store (from fireai_schemas folder you added) ---
+# Shared models + job store
 from fireai_schemas import JobResult, Deliverables, Artifact, ErrorInfo
 from fireai_schemas.job_store import JobStore
 
-# --- NEW: optional Prometheus metrics (safe if not installed) ---
+# Optional metrics
 try:
     from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST  # type: ignore
     PROM = True
 except Exception:  # pragma: no cover
     PROM = False
+
+# Optional S3 uploader (external file)
+try:
+    from s3_uploader import upload_deliverables_to_s3
+except Exception:
+    upload_deliverables_to_s3 = None  # type: ignore
 
 # ---------------- Config ----------------
 OUTPUT_ROOT = Path(os.getenv("FIREAI_LOCAL_STORAGE", "./fireai_outputs")).resolve()
@@ -26,7 +32,7 @@ OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
 ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "*").split(",")
 
 # ---------------- App ----------------
-app = FastAPI(title="FireAI Pro API", version="1.0")
+app = FastAPI(title="FireAI Pro API", version="1.1")
 
 app.add_middleware(
     CORSMiddleware,
@@ -35,13 +41,22 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ---------------- Auth (API key) ----------------
+API_KEY = os.getenv("API_KEY")
+
+def require_api_key(x_api_key: str | None = Header(None)):
+    # If API_KEY not set, leave routes open (useful for dev)
+    if not API_KEY:
+        return True
+    if not x_api_key or x_api_key != API_KEY:
+        raise HTTPException(status_code=401, detail="invalid or missing API key")
+    return True
+
 # ---------------- Job store ----------------
-# Keep the in-memory dict around (not used anymore) to avoid surprises
-JOBS: Dict[str, Dict[str, Any]] = {}
-# NEW: Redis-backed store with in-memory fallback if REDIS_URL not set
+JOBS: Dict[str, Dict[str, Any]] = {}  # not used; kept for compatibility
 STORE = JobStore(namespace="fireai", ttl_seconds=7 * 24 * 3600)
 
-# NEW: metrics (optional)
+# Metrics
 if PROM:
     JOBS_CREATED = Counter("fireai_jobs_created_total", "Jobs created")
     JOBS_COMPLETED = Counter("fireai_jobs_completed_total", "Jobs completed")
@@ -50,7 +65,7 @@ if PROM:
 else:  # pragma: no cover
     JOBS_CREATED = JOBS_COMPLETED = JOBS_FAILED = JOB_DURATION = None  # type: ignore
 
-# Candidate orchestrator modules and entry points (keep your originals)
+# Orchestrator discovery (keep your originals)
 ORCH_MODULES = [
     "master_fireai_orchestrator",
     "hardened_orchestrator",
@@ -73,7 +88,6 @@ def _load_orchestrator():
         except Exception as e:
             errors.append(f"{name}: {e}")
             continue
-    # Helpful diagnostics
     cwd = os.getcwd()
     files = [f for f in os.listdir(cwd) if f.endswith(".py")]
     raise RuntimeError(
@@ -83,10 +97,7 @@ def _load_orchestrator():
     )
 
 def _run_orchestrator(project_json: dict):
-    """
-    Keep your flexible entry-point logic exactly as-is.
-    Returns whatever the orchestrator returns; we normalize after.
-    """
+    """Flexible entry-point logic; returns orchestrator output (manifest)."""
     orch = _load_orchestrator()
     for fn in ORCH_FUNCS:
         f = getattr(orch, fn, None)
@@ -100,32 +111,26 @@ def _run_orchestrator(project_json: dict):
                     except TypeError:
                         return f()
             except Exception:
-                # Try next function if this one fails
                 continue
-    # If nothing callable, we assume the orchestrator runs on import and writes outputs.
     return None
 
-# ---------------- Health / Readiness / Metrics (NEW) ----------------
+# ---------------- Health / Readiness / Metrics ----------------
 @app.get("/health")
 def health():
     return {"status": "ok"}
 
 @app.get("/readiness")
 def readiness():
-    # Orchestrator importable?
     try:
         _ = _load_orchestrator()
     except Exception as e:
         raise HTTPException(status_code=503, detail=f"orchestrator not ready: {e}")
-
-    # Storage writable?
     try:
         probe = OUTPUT_ROOT / ".__writecheck__"
         probe.write_text("ok")
         probe.unlink(missing_ok=True)
     except Exception as e:
         raise HTTPException(status_code=503, detail=f"storage not writable: {e}")
-
     return {"status": "ready"}
 
 if PROM:
@@ -134,7 +139,7 @@ if PROM:
         return generate_latest(), 200, {"Content-Type": CONTENT_TYPE_LATEST}
 
 # ---------------- API ----------------
-@app.post("/api/projects")
+@app.post("/api/projects", dependencies=[Depends(require_api_key)])
 async def create_project(
     project_id: Optional[str] = Form(None),
     project_json: Optional[str] = Form(None),
@@ -155,28 +160,45 @@ async def create_project(
 
     saved_file = None
     if file:
-        # NEW: safer upload
         allowed_ext = {".dxf", ".dwg", ".ifc", ".zip", ".pdf"}
         ext = (Path(file.filename).suffix or "").lower()
         if ext not in allowed_ext:
             raise HTTPException(400, f"Unsupported file type: {ext}")
-
-        max_bytes = int(os.getenv("UPLOAD_MAX_BYTES", "209715200"))  # 200 MB default
+        max_bytes = int(os.getenv("UPLOAD_MAX_BYTES", "209715200"))  # 200 MB
         blob = await file.read()
         if len(blob) > max_bytes:
             raise HTTPException(413, "File too large")
-
         saved_file = out_dir / f"upload{ext}"
         with saved_file.open("wb") as f_out:
             f_out.write(blob)
 
-    # Persist project.json
     with (out_dir / "project.json").open("w") as f:
         json.dump(data, f, indent=2)
 
     return {"project_id": pid, "saved_file": str(saved_file) if saved_file else None}
 
-@app.post("/api/projects/{project_id}/run")
+@app.post("/api/projects/{project_id}/upload", dependencies=[Depends(require_api_key)])
+async def upload_file(project_id: str, file: UploadFile = File(...)):
+    allowed_ext = {".dxf", ".dwg", ".ifc", ".zip", ".pdf"}
+    ext = (Path(file.filename or "").suffix or "").lower()
+    if ext not in allowed_ext:
+        raise HTTPException(status_code=400, detail=f"Unsupported file type: {ext}")
+
+    max_bytes = int(os.getenv("UPLOAD_MAX_BYTES", "209715200"))
+    blob = await file.read()
+    if len(blob) > max_bytes:
+        raise HTTPException(status_code=413, detail="File too large")
+
+    out_dir = OUTPUT_ROOT / project_id
+    if not out_dir.exists():
+        raise HTTPException(404, "project not found")
+
+    target = out_dir / os.path.basename(file.filename)
+    with open(target, "wb") as f:
+        f.write(blob)
+    return {"ok": True, "path": str(target)}
+
+@app.post("/api/projects/{project_id}/run", response_model=JobResult, dependencies=[Depends(require_api_key)])
 async def run_project(project_id: str, background: BackgroundTasks):
     """Kick off the design run in a background thread (job state via JobStore)."""
     proj_dir = OUTPUT_ROOT / project_id
@@ -184,8 +206,6 @@ async def run_project(project_id: str, background: BackgroundTasks):
         raise HTTPException(404, "project not found")
 
     job_id = str(uuid.uuid4())
-
-    # NEW: seed canonical JobResult into the store
     jr = JobResult(job_id=job_id, project_id=project_id, status="queued").model_dump()
     STORE.set(job_id, jr)
     if PROM and JOBS_CREATED:
@@ -206,21 +226,31 @@ async def run_project(project_id: str, background: BackgroundTasks):
             with (proj_dir / "project.json").open() as f:
                 pj = json.load(f)
 
-            # Run your orchestrator (flexible entry points)
             manifest = _run_orchestrator(pj) or {}
 
-            # ---- Normalize to a Deliverables manifest (keeps your existing file outputs) ----
-            # If orchestrator returned explicit paths, prefer them; otherwise scan.
+            # Normalize to Deliverables (prefer manifest values; fall back to scanning)
             dxf = manifest.get("dxf") or next((str(p) for p in proj_dir.glob("*.dxf")), None)
             ifc = manifest.get("ifc") or next((str(p) for p in proj_dir.glob("*.ifc")), None)
             pdfs = manifest.get("pdfs") or {p.stem.lower(): str(p) for p in proj_dir.glob("*.pdf")}
             extras_list = manifest.get("extras") or []
             extras = [
-                Artifact(kind=a.get("kind", "other"), name=a.get("name", ""), path=a.get("path", ""), meta=a.get("meta", {}))
+                Artifact(
+                    kind=a.get("kind", "other"),
+                    name=a.get("name", ""),
+                    path=a.get("path", ""),
+                    meta=a.get("meta", {}),
+                )
                 for a in extras_list
             ]
-
             delivs = Deliverables(ifc=ifc, dxf=dxf, pdfs=pdfs, extras=extras)
+
+            # Upload to S3 (if configured) and replace local paths with presigned URLs
+            if upload_deliverables_to_s3:
+                try:
+                    delivs = upload_deliverables_to_s3(delivs, project_id)  # type: ignore
+                except Exception:
+                    # keep local paths if S3 upload fails
+                    pass
 
             set_status("succeeded", {"step": "done", "pct": 100, "deliverables": delivs.model_dump(), "metrics": manifest.get("metrics", {})})
             if PROM and JOBS_COMPLETED:
@@ -242,11 +272,10 @@ async def run_project(project_id: str, background: BackgroundTasks):
             )
 
     threading.Thread(target=_worker, daemon=True).start()
-    return {"job_id": job_id}
+    return JobResult(**STORE.get(job_id))
 
 @app.get("/api/jobs/{job_id}")
 def get_job(job_id: str):
-    # NEW: read status from JobStore
     job = STORE.get(job_id)
     if not job:
         raise HTTPException(404, "job not found")
@@ -258,10 +287,7 @@ def get_results(project_id: str):
     if not out_dir.exists():
         raise HTTPException(404, "project not found")
     files = {p.name: str(p) for p in out_dir.glob("*")}
-    return {
-        "deliverables": files,
-        "output_dir": str(out_dir),
-    }
+    return {"deliverables": files, "output_dir": str(out_dir)}
 
 @app.get("/api/projects/{project_id}/download/{filename}")
 def download(project_id: str, filename: str):
