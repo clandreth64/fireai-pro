@@ -1256,38 +1256,31 @@ class ProductionBOMGenerator:
                 catalog_item = self.product_catalogs['pipes'].get(material_key,
                     self.product_catalogs['pipes']['steel_schedule_40'])
                 
-                unit_price = catalog_item['base_price_per_foot'].get(size, 15.0) 
-labor_rate = 68.0  # $68/hr pipe fitter
+                                unit_price = catalog_item['base_price_per_foot'].get(size, 15.0)
+                labor_rate = 68.0  # $68/hr pipe fitter
 
-# ...
-description = f"{size} {material.upper()} Schedule {schedule} Pipe",
-manufacturer = catalog_item['manufacturer'],
+                # Normalize size like 4" -> 4 (safe for f-strings and IDs)
+                safe_size = str(size).replace('"', '').replace("'", "")
 
-# INSERT this line:
-safe_size = str(size).replace('"', '').replace("'", "")
-
-item = BOMItem(
-    id=f"pipe_{pipe_key}",
-    category="Piping System",
-    subcategory="Pipe",
-    description=f"{size} {material.upper()} Schedule {schedule} Pipe",
-    manufacturer=catalog_item['manufacturer'],
-    # REPLACE the next line:
-    model_number=f"{catalog_item['model_prefix']}-{safe_size}-{schedule}",
-    quantity=int(math.ceil(total_length)),
-    unit="foot",
-    unit_price=unit_price,
-    total_price=unit_price * math.ceil(total_length),
-    labor_hours=catalog_item['labor_hours_per_foot'] * total_length,
-    labor_cost=catalog_item['labor_hours_per_foot'] * total_length * labor_rate,
-    specifications=catalog_item['specifications'],
-    sustainability_score=catalog_item['sustainability_score'],
-    carbon_footprint_kg=catalog_item['carbon_footprint_per_foot'] * total_length
-)
-# ...
-
+                item = BOMItem(
+                    id=f"pipe_{pipe_key}",
+                    category="Piping System",
+                    subcategory="Pipe",
+                    description=f"{size} {material.upper()} Schedule {schedule} Pipe",
+                    manufacturer=catalog_item['manufacturer'],
+                    model_number=f"{catalog_item['model_prefix']}-{safe_size}-{schedule}",
+                    quantity=int(math.ceil(total_length)),  # Round up to nearest foot
+                    unit="foot",
+                    unit_price=unit_price,
+                    total_price=unit_price * math.ceil(total_length),
+                    labor_hours=catalog_item['labor_hours_per_foot'] * total_length,
+                    labor_cost=catalog_item['labor_hours_per_foot'] * total_length * labor_rate,
+                    specifications=catalog_item['specifications'],
+                    sustainability_score=catalog_item['sustainability_score'],
+                    carbon_footprint_kg=catalog_item['carbon_footprint_per_foot'] * total_length
+                )
                 items.append(item)
-        
+
         return BOMCategory(name="Pipes", items=items)
     
     async def _generate_valve_bom(self, design_data: dict, network_analysis: dict) -> BOMCategory:
@@ -1336,7 +1329,7 @@ item = BOMItem(
                     subcategory="Valves",
                     description=f"{size} {valve_type.replace('_', ' ').title()}",
                     manufacturer=catalog_item['manufacturer'],
-                    model_number=f"{catalog_item['model_prefix']}-{size.replace('"', '')}-{valve_type[:3].upper()}",
+                    model_number=f"{catalog_item['model_prefix']}-{safe_size}-{valve_type[:3].upper()}",
                     quantity=count,
                     unit="each",
                     unit_price=unit_price,
@@ -1379,14 +1372,16 @@ item = BOMItem(
                     catalog_item = self.product_catalogs['fittings'][fitting_type]
                     unit_price = catalog_item['base_price'].get(size, 50.0)
                     labor_rate = 68.0  # $68/hr pipe fitter
+
                     
                     item = BOMItem(
-                        id=f"fitting_{fitting_type}_{size.replace('"', 'in')}",
+                        safe_size = str(size).replace('"', '').replace("'", ""),
+                        id=f"fitting_{fitting_type}_{safe_size}in",
                         category="Piping System",
                         subcategory="Fittings",
                         description=f"{size} {fitting_type.replace('_', ' ').title()}",
                         manufacturer=catalog_item['manufacturer'],
-                        model_number=f"{catalog_item['model_prefix']}-{size.replace('"', '')}",
+                        model_number=f"{catalog_item['model_prefix']}-{safe_size}",
                         quantity=quantity,
                         unit="each",
                         unit_price=unit_price,
@@ -1440,12 +1435,13 @@ item = BOMItem(
                 labor_rate = 48.0  # $48/hr helper
                 
                 item = BOMItem(
-                    id=f"hanger_clevis_{size.replace('"', 'in')}",
+                    safe_size = str(size).replace('"', '').replace("'", ""),
+                    id=f"hanger_clevis_{safe_size}in",
                     category="Support System",
                     subcategory="Hangers",
                     description=f"{size} Clevis Hanger",
                     manufacturer=catalog_item['manufacturer'],
-                    model_number=f"{catalog_item['model_prefix']}-{size.replace('"', '')}",
+                    model_number=f"{catalog_item['model_prefix']}-{safe_size}",
                     quantity=hangers_needed,
                     unit="each",
                     unit_price=unit_price,
