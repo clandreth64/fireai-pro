@@ -1322,7 +1322,9 @@ class ProductionBOMGenerator:
                 
                 unit_price = catalog_item['base_price'].get(size, 500.0)
                 labor_rate = 75.0  # $75/hr fire technician
-                
+
+                safe_size = str(size).replace('"', '').replace("'", "")
+
                 item = BOMItem(
                     id=f"valve_{valve_key}",
                     category="Control Equipment",
@@ -1373,9 +1375,9 @@ class ProductionBOMGenerator:
                     unit_price = catalog_item['base_price'].get(size, 50.0)
                     labor_rate = 68.0  # $68/hr pipe fitter
 
+                    safe_size = str(size).replace('"', '').replace("'", "")
                     
                     item = BOMItem(
-                        safe_size = str(size).replace('"', '').replace("'", ""),
                         id=f"fitting_{fitting_type}_{safe_size}in",
                         category="Piping System",
                         subcategory="Fittings",
@@ -1433,9 +1435,9 @@ class ProductionBOMGenerator:
                 catalog_item = self.product_catalogs['hangers_supports']['clevis_hanger']
                 unit_price = catalog_item['base_price'].get(size, 25.0)
                 labor_rate = 48.0  # $48/hr helper
-                
+
+                safe_size = str(size).replace('"', '').replace("'", ""),
                 item = BOMItem(
-                    safe_size = str(size).replace('"', '').replace("'", ""),
                     id=f"hanger_clevis_{safe_size}in",
                     category="Support System",
                     subcategory="Hangers",
