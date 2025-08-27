@@ -1259,7 +1259,11 @@ class ProductionBOMGenerator:
                 unit_price = catalog_item['base_price_per_foot'].get(size, 15.0) 
 labor_rate = 68.0  # $68/hr pipe fitter
 
-# NEW: sanitize size to avoid quote issues inside f-strings
+# ...
+description = f"{size} {material.upper()} Schedule {schedule} Pipe",
+manufacturer = catalog_item['manufacturer'],
+
+# INSERT this line:
 safe_size = str(size).replace('"', '').replace("'", "")
 
 item = BOMItem(
@@ -1268,9 +1272,9 @@ item = BOMItem(
     subcategory="Pipe",
     description=f"{size} {material.upper()} Schedule {schedule} Pipe",
     manufacturer=catalog_item['manufacturer'],
-    # NEW: use safe_size here
+    # REPLACE the next line:
     model_number=f"{catalog_item['model_prefix']}-{safe_size}-{schedule}",
-    quantity=int(math.ceil(total_length)),  # Round up to nearest foot
+    quantity=int(math.ceil(total_length)),
     unit="foot",
     unit_price=unit_price,
     total_price=unit_price * math.ceil(total_length),
@@ -1280,6 +1284,8 @@ item = BOMItem(
     sustainability_score=catalog_item['sustainability_score'],
     carbon_footprint_kg=catalog_item['carbon_footprint_per_foot'] * total_length
 )
+# ...
+
                 items.append(item)
         
         return BOMCategory(name="Pipes", items=items)
