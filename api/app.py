@@ -81,25 +81,25 @@ ORCH_FUNCS = [
 ]
 
 # ---- Prometheus de-dupe: remove conflicting collectors before import ----
-def _prometheus_unload(names=(
-    "fireai_jobs_created", "fireai_jobs_created_total",
-    "fireai_jobs_failed", "fireai_jobs_failed_total",
-    "fireai_jobs_succeeded", "fireai_jobs_succeeded_total",
-    "fireai_run_seconds", "fireai_job_duration_seconds",
+def _prometheus_unload(prefixes=(
+    "fireai_job_duration_seconds",   # covers _bucket, _count, _sum, _created
+    "fireai_jobs_created",           # covers _total
+    "fireai_jobs_completed",
+    "fireai_jobs_failed",
+    "fireai_jobs_succeeded",
 )):
     """
-    Some orchestrators (or previous imports) register Prometheus metrics with the
-    same names. Re-importing then crashes with:
-      'Duplicated timeseries in CollectorRegistry: {...}'
-    We proactively remove those names so the next import can register cleanly.
+    Some imports register Prometheus metrics multiple times. On re-import
+    we proactively remove any existing collectors whose names start with
+    our prefixes to avoid 'Duplicated timeseries in CollectorRegistry'.
     """
     try:
-        from prometheus_client import REGISTRY  # no global dependency; safe if missing
-        # Prometheus uses this map to detect duplicates; popping is safe for ours.
-        for n in names:
-            REGISTRY._names_to_collectors.pop(n, None)
+        from prometheus_client import REGISTRY  # optional dep
+        name_map = getattr(REGISTRY, "_names_to_collectors", {})
+        for name in list(name_map.keys()):          # copy keys; we mutate the dict
+            if any(name.startswith(p) for p in prefixes):
+                name_map.pop(name, None)
     except Exception:
-        # If prometheus_client isn't installed or internals differ, ignore quietly.
         pass
 
 def _load_orchestrator():
