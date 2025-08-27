@@ -195,6 +195,22 @@ except ImportError:
     bracing_engine = None
     print("⚠️  Enhanced Bracing Engine not available - using fallback")
 
+# --- Prometheus-safe metric helper (idempotent creation) ---
+try:
+    from prometheus_client import Counter, Gauge, Histogram, Summary, REGISTRY
+    def get_or_create(metric_cls, name, documentation, **kwargs):
+        # Reuse if already registered; otherwise create & register
+        existing = REGISTRY._names_to_collectors.get(name)
+        return existing if existing is not None else metric_cls(name, documentation, **kwargs)
+except Exception:
+    # If prometheus_client isn't available, fall back to no-ops
+    class _Noop:
+        def labels(self, *a, **k): return self
+        def inc(self, *a, **k): pass
+        def observe(self, *a, **k): pass
+        def set(self, *a, **k): pass
+    def get_or_create(*a, **k): return _Noop()
+
 
 # =============================================================================
 # PRODUCTION CONFIGURATION SYSTEM
