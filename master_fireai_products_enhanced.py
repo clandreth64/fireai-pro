@@ -1256,7 +1256,7 @@ class ProductionBOMGenerator:
                 catalog_item = self.product_catalogs['pipes'].get(material_key,
                     self.product_catalogs['pipes']['steel_schedule_40'])
                 
-                                unit_price = catalog_item['base_price_per_foot'].get(size, 15.0)
+                unit_price = catalog_item['base_price_per_foot'].get(size, 15.0)
                 labor_rate = 68.0  # $68/hr pipe fitter
 
                 # Normalize size like 4" -> 4 (safe for f-strings and IDs)
