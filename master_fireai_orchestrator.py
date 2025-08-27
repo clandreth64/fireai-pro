@@ -4976,3 +4976,76 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+# ======== FireAI Pro API Adapter (append to bottom) ========
+from pathlib import Path
+import os, json
+
+def _api_out_dir(project_json: dict) -> Path:
+    """Ensure the API's expected output folder exists and stash project.json for reference."""
+    pid = (project_json or {}).get("project_id", "unknown")
+    root = Path(os.getenv("FIREAI_LOCAL_STORAGE", "./fireai_outputs"))
+    out = root / pid
+    out.mkdir(parents=True, exist_ok=True)
+    try:
+        (out / "project.json").write_text(json.dumps(project_json or {}, indent=2))
+    except Exception:
+        pass
+    return out
+
+def _pick_first(out: Path, *names):
+    for n in names:
+        p = out / n
+        if p.exists():
+            return str(p)
+    return None
+
+def orchestrate_project(project_json: dict):
+    """
+    Entry point used by the FastAPI service.
+    - Ensures the output directory exists at FIREAI_LOCAL_STORAGE/<project_id>
+    - Calls your existing pipeline (run_project/run_pipeline/process_project/handle_project/main)
+    - Returns a manifest of produced files (API will also scan the folder)
+    """
+    out = _api_out_dir(project_json)
+    pid = (project_json or {}).get("project_id", "unknown")
+
+    # 1) Call whichever real function you have available, preferring explicit run-style names.
+    #    If only `main()` exists, we'll call that.
+    for candidate in ("run_project", "run_pipeline", "process_project", "handle_project", "main"):
+        fn = globals().get(candidate)
+        if callable(fn) and fn is not orchestrate_project:
+            try:
+                # Most of your functions will accept no args or a project dict; try both styles.
+                try:
+                    fn(project_json)
+                except TypeError:
+                    fn()
+            except Exception as e:
+                # Bubble up so the API shows the real error (and will fall back to the dummy if needed)
+                raise
+            break
+
+    # 2) Build a manifest pointing to whatever your pipeline wrote.
+    #    We check both "<pid>_*.pdf" and plain names like "hydraulics.pdf".
+    manifest = {
+        "ifc": _pick_first(out, f"{pid}.ifc", "model.ifc"),
+        "dxf": _pick_first(out, f"{pid}.dxf", "design.dxf"),
+        "pdfs": {},
+        "extras": []
+    }
+
+    # Common PDF names we expect
+    pdf_keys = ["compliance", "hydraulics", "bom", "bracing", "multistandard"]
+    for key in pdf_keys:
+        path = _pick_first(out, f"{pid}_{key}.pdf", f"{key}.pdf")
+        if path:
+            manifest["pdfs"][key] = path
+
+    # Anything else in the folder (logs, zips, etc.)
+    for p in out.glob("*"):
+        if p.suffix.lower() not in (".ifc", ".dxf", ".pdf"):
+            manifest["extras"].append(str(p))
+
+    return manifest
+# ======== End FireAI Pro API Adapter ========
