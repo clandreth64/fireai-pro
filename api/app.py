@@ -80,10 +80,34 @@ ORCH_FUNCS = [
     "main",
 ]
 
+# ---- Prometheus de-dupe: remove conflicting collectors before import ----
+def _prometheus_unload(names=(
+    "fireai_jobs_created", "fireai_jobs_created_total",
+    "fireai_jobs_failed", "fireai_jobs_failed_total",
+    "fireai_jobs_succeeded", "fireai_jobs_succeeded_total",
+    "fireai_run_seconds", "fireai_job_duration_seconds",
+)):
+    """
+    Some orchestrators (or previous imports) register Prometheus metrics with the
+    same names. Re-importing then crashes with:
+      'Duplicated timeseries in CollectorRegistry: {...}'
+    We proactively remove those names so the next import can register cleanly.
+    """
+    try:
+        from prometheus_client import REGISTRY  # no global dependency; safe if missing
+        # Prometheus uses this map to detect duplicates; popping is safe for ours.
+        for n in names:
+            REGISTRY._names_to_collectors.pop(n, None)
+    except Exception:
+        # If prometheus_client isn't installed or internals differ, ignore quietly.
+        pass
+
 def _load_orchestrator():
     errors = []
     for name in ORCH_MODULES:
         try:
+            # Clear potentially duplicated collectors before each import attempt
+            _prometheus_unload()
             return importlib.import_module(name)
         except Exception as e:
             errors.append(f"{name}: {e}")
