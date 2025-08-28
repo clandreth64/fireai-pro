@@ -10,9 +10,50 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 import importlib
 
-# Shared models + job store
-from fireai_schemas import JobResult, Deliverables, Artifact, ErrorInfo
-from fireai_schemas.job_store import JobStore
+# Shared models + job store (with fallback if fireai_schemas is unavailable)
+try:
+    from fireai_schemas import JobResult, Deliverables, Artifact, ErrorInfo
+    from fireai_schemas.job_store import JobStore
+except Exception:
+    from pydantic import BaseModel, Field
+
+    class Artifact(BaseModel):
+        kind: str = "other"
+        name: str = ""
+        path: str = ""
+        meta: dict = {}
+
+    class Deliverables(BaseModel):
+        ifc: str | None = None
+        dxf: str | None = None
+        pdfs: dict[str, str] = {}
+        extras: list[Artifact] = []
+
+    class ErrorInfo(BaseModel):
+        code: str
+        message: str
+        engine: str = "orchestrator"
+        hint: str | None = None
+
+    class JobResult(BaseModel):
+        job_id: str
+        project_id: str
+        status: str
+        step: str | None = None
+        pct: int | float | None = None
+        deliverables: Deliverables | dict | None = None
+        warnings: list[str] = []
+        errors: list[str] = []
+        error: ErrorInfo | None = None
+        metrics: dict = {}
+
+    class JobStore:
+        def __init__(self, namespace: str = "fireai", ttl_seconds: int = 7 * 24 * 3600):
+            self._d: dict[str, dict] = {}
+        def set(self, k: str, v: dict):
+            self._d[k] = v
+        def get(self, k: str):
+            return self._d.get(k)
 
 # Optional metrics
 try:
