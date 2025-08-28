@@ -3,6 +3,7 @@ from __future__ import annotations
 import os, uuid, json, threading, traceback, sys, time
 from pathlib import Path
 from typing import Optional, Dict, Any
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 
 from fastapi import FastAPI, UploadFile, File, Form, BackgroundTasks, HTTPException, Depends, Header
 from fastapi.middleware.cors import CORSMiddleware
@@ -30,6 +31,7 @@ except Exception:
 OUTPUT_ROOT = Path(os.getenv("FIREAI_LOCAL_STORAGE", "./fireai_outputs")).resolve()
 OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
 ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "*").split(",")
+ORCH_TIMEOUT_SECS = int(os.getenv("ORCH_TIMEOUT_SECS", "1800"))  # 30 minutes default
 
 # ---------------- App ----------------
 app = FastAPI(title="FireAI Pro API", version="1.1")
@@ -250,7 +252,26 @@ async def run_project(project_id: str, background: BackgroundTasks):
             with (proj_dir / "project.json").open() as f:
                 pj = json.load(f)
 
-            manifest = _run_orchestrator(pj) or {}
+            # Run orchestrator with a hard timeout
+set_status("running", {"pct": 30, "step": "orchestrator"})
+try:
+    with ThreadPoolExecutor(max_workers=1) as ex:
+        fut = ex.submit(_run_orchestrator, pj)
+        manifest = fut.result(timeout=ORCH_TIMEOUT_SECS) or {}
+except FuturesTimeoutError:
+    err = f"Orchestrator exceeded timeout ({ORCH_TIMEOUT_SECS}s)"
+    set_status(
+        "failed",
+        {
+            "step": "timeout",
+            "pct": 100,
+            "errors": [err],
+            "error": ErrorInfo(code="TIMEOUT", message=err, engine="orchestrator").model_dump(),
+        },
+    )
+    if PROM and JOBS_FAILED:
+        JOBS_FAILED.inc()
+    return
 
             # Normalize to Deliverables (prefer manifest values; fall back to scanning)
             dxf = manifest.get("dxf") or next((str(p) for p in proj_dir.glob("*.dxf")), None)
@@ -282,7 +303,7 @@ async def run_project(project_id: str, background: BackgroundTasks):
             if PROM and JOB_DURATION:
                 JOB_DURATION.observe(time.time() - start)
 
-        except Exception as e:
+        except BaseException as e:
             if PROM and JOBS_FAILED:
                 JOBS_FAILED.inc()
             set_status(
