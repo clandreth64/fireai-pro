@@ -289,32 +289,33 @@ async def run_project(project_id: str, background: BackgroundTasks):
             STORE.set(job_id, cur)
 
         try:
+            # 1) Pre-orchestrator setup
             set_status("routing", {"pct": 10, "step": "routing"})
             with (proj_dir / "project.json").open() as f:
                 pj = json.load(f)
 
-            # Run orchestrator with a hard timeout
-set_status("running", {"pct": 30, "step": "orchestrator"})
-try:
-    with ThreadPoolExecutor(max_workers=1) as ex:
-        fut = ex.submit(_run_orchestrator, pj)
-        manifest = fut.result(timeout=ORCH_TIMEOUT_SECS) or {}
-except FuturesTimeoutError:
-    err = f"Orchestrator exceeded timeout ({ORCH_TIMEOUT_SECS}s)"
-    set_status(
-        "failed",
-        {
-            "step": "timeout",
-            "pct": 100,
-            "errors": [err],
-            "error": ErrorInfo(code="TIMEOUT", message=err, engine="orchestrator").model_dump(),
-        },
-    )
-    if PROM and JOBS_FAILED:
-        JOBS_FAILED.inc()
-    return
+            # 2) Run orchestrator with a hard timeout
+            set_status("running", {"pct": 30, "step": "orchestrator"})
+            with ThreadPoolExecutor(max_workers=1) as ex:
+                fut = ex.submit(_run_orchestrator, pj)
+                try:
+                    manifest = fut.result(timeout=ORCH_TIMEOUT_SECS) or {}
+                except FuturesTimeoutError:
+                    err = f"Orchestrator exceeded timeout ({ORCH_TIMEOUT_SECS}s)"
+                    set_status(
+                        "failed",
+                        {
+                            "step": "timeout",
+                            "pct": 100,
+                            "errors": [err],
+                            "error": ErrorInfo(code="TIMEOUT", message=err, engine="orchestrator").model_dump(),
+                        },
+                    )
+                    if PROM and JOBS_FAILED:
+                        JOBS_FAILED.inc()
+                    return  # stop worker
 
-            # Normalize to Deliverables (prefer manifest values; fall back to scanning)
+            # 3) Collect deliverables (prefer manifest; fall back to folder scan)
             dxf = manifest.get("dxf") or next((str(p) for p in proj_dir.glob("*.dxf")), None)
             ifc = manifest.get("ifc") or next((str(p) for p in proj_dir.glob("*.ifc")), None)
             pdfs = manifest.get("pdfs") or {p.stem.lower(): str(p) for p in proj_dir.glob("*.pdf")}
@@ -330,7 +331,7 @@ except FuturesTimeoutError:
             ]
             delivs = Deliverables(ifc=ifc, dxf=dxf, pdfs=pdfs, extras=extras)
 
-            # Upload to S3 (if configured) and replace local paths with presigned URLs
+            # 4) Optional S3 upload -> swap local paths for presigned URLs
             if upload_deliverables_to_s3:
                 try:
                     delivs = upload_deliverables_to_s3(delivs, project_id)  # type: ignore
@@ -338,7 +339,16 @@ except FuturesTimeoutError:
                     # keep local paths if S3 upload fails
                     pass
 
-            set_status("succeeded", {"step": "done", "pct": 100, "deliverables": delivs.model_dump(), "metrics": manifest.get("metrics", {})})
+            # 5) Done
+            set_status(
+                "succeeded",
+                {
+                    "step": "done",
+                    "pct": 100,
+                    "deliverables": delivs.model_dump(),
+                    "metrics": manifest.get("metrics", {}),
+                },
+            )
             if PROM and JOBS_COMPLETED:
                 JOBS_COMPLETED.inc()
             if PROM and JOB_DURATION:
@@ -353,7 +363,12 @@ except FuturesTimeoutError:
                     "step": "error",
                     "pct": 100,
                     "errors": [str(e), traceback.format_exc()],
-                    "error": ErrorInfo(code="ORCH_FAIL", message=str(e), engine="orchestrator", hint="See server logs").model_dump(),
+                    "error": ErrorInfo(
+                        code="ORCH_FAIL",
+                        message=str(e),
+                        engine="orchestrator",
+                        hint="See server logs",
+                    ).model_dump(),
                 },
             )
 
