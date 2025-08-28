@@ -5028,7 +5028,7 @@ def orchestrate_project(project_json: dict):
 
     # 1) Call whichever real function you have available, preferring explicit run-style names.
     #    If only `main()` exists, we'll call that.
-    for candidate in ("run_project", "run_pipeline", "process_project", "handle_project", "main"):
+    for candidate in ("run_project", "run_pipeline", "process_project", "handle_project"):
         fn = globals().get(candidate)
         if callable(fn) and fn is not orchestrate_project:
             try:
