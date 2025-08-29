@@ -278,7 +278,7 @@ async def run_project(project_id: str, background: BackgroundTasks):
     if PROM and JOBS_CREATED:
         JOBS_CREATED.inc()
 
-    def _worker():
+        def _worker():
         start = time.time()
 
         def set_status(status: str, extra: Dict[str, Any] | None = None):
@@ -315,49 +315,60 @@ async def run_project(project_id: str, background: BackgroundTasks):
                         JOBS_FAILED.inc()
                     return  # stop worker
 
-           # Normalize to Deliverables (prefer manifest values; fall back to scanning)
-dxf = manifest.get("dxf") or next((str(p) for p in proj_dir.glob("*.dxf")), None)
-ifc = manifest.get("ifc") or next((str(p) for p in proj_dir.glob("*.ifc")), None)
+            # 3) Collect deliverables (robust to dict/list/str/object)
+            dxf = manifest.get("dxf") or next((str(p) for p in proj_dir.glob("*.dxf")), None)
+            ifc = manifest.get("ifc") or next((str(p) for p in proj_dir.glob("*.ifc")), None)
 
-# pdfs can be a dict {name: path} or a list of paths
-raw_pdfs = manifest.get("pdfs") or {}
-if isinstance(raw_pdfs, dict):
-    pdfs = raw_pdfs
-elif isinstance(raw_pdfs, list):
-    pdfs = {Path(p).stem.lower(): p for p in raw_pdfs if p}
-else:
-    pdfs = {p.stem.lower(): str(p) for p in proj_dir.glob("*.pdf")}
+            raw_pdfs = manifest.get("pdfs")
+            if isinstance(raw_pdfs, dict):
+                pdfs = {str(k).lower(): str(v) for k, v in raw_pdfs.items() if v}
+            elif isinstance(raw_pdfs, list):
+                pdfs = {}
+                for p in raw_pdfs:
+                    try:
+                        if p:
+                            name = os.path.splitext(os.path.basename(str(p)))[0].lower()
+                            pdfs[name] = str(p)
+                    except Exception:
+                        continue
+            else:
+                pdfs = {os.path.splitext(p.name)[0].lower(): str(p) for p in proj_dir.glob("*.pdf")}
 
-# extras can be dicts OR strings (paths) OR already-constructed Artifacts
-extras_list = manifest.get("extras") or []
-extras: list[Artifact] = []
-for a in extras_list:
-    try:
-        if isinstance(a, Artifact):
-            extras.append(a)
-        elif isinstance(a, dict):
-            extras.append(
-                Artifact(
-                    kind=a.get("kind", "other"),
-                    name=a.get("name") or os.path.basename(a.get("path", "") or ""),
-                    path=a.get("path", "") or "",
-                    meta=a.get("meta", {}) or {},
-                )
-            )
-        elif isinstance(a, str):
-            extras.append(
-                Artifact(
-                    kind="other",
-                    name=os.path.basename(a),
-                    path=a,
-                    meta={},
-                )
-            )
-        # silently skip anything we don't understand
-    except Exception:
-        continue
+            extras_list = manifest.get("extras") or []
+            extras = []
+            for a in extras_list:
+                try:
+                    # Already a Pydantic v2 model?
+                    if hasattr(a, "model_dump") and callable(getattr(a, "model_dump")):
+                        d = a.model_dump()
+                        extras.append(
+                            Artifact(
+                                kind=d.get("kind", "other"),
+                                name=d.get("name") or os.path.basename(d.get("path", "") or ""),
+                                path=d.get("path", "") or "",
+                                meta=d.get("meta", {}) or {},
+                            )
+                        )
+                    elif isinstance(a, Artifact):
+                        extras.append(a)
+                    elif isinstance(a, dict):
+                        extras.append(
+                            Artifact(
+                                kind=a.get("kind", "other"),
+                                name=a.get("name") or os.path.basename(a.get("path", "") or ""),
+                                path=a.get("path", "") or "",
+                                meta=a.get("meta", {}) or {},
+                            )
+                        )
+                    elif isinstance(a, str):
+                        extras.append(
+                            Artifact(kind="other", name=os.path.basename(a), path=str(a), meta={})
+                        )
+                    # silently ignore anything else
+                except Exception:
+                    continue
 
-delivs = Deliverables(ifc=ifc, dxf=dxf, pdfs=pdfs, extras=extras)
+            delivs = Deliverables(ifc=ifc, dxf=dxf, pdfs=pdfs, extras=extras)
 
             # 4) Optional S3 upload -> swap local paths for presigned URLs
             if upload_deliverables_to_s3:
@@ -373,7 +384,7 @@ delivs = Deliverables(ifc=ifc, dxf=dxf, pdfs=pdfs, extras=extras)
                 {
                     "step": "done",
                     "pct": 100,
-                    "deliverables": delivs.model_dump(),
+                    "deliverables": delivs.model_dump() if hasattr(delivs, "model_dump") else delivs.__dict__,
                     "metrics": manifest.get("metrics", {}),
                 },
             )
