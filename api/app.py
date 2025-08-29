@@ -266,6 +266,18 @@ async def run_project(project_id: str, background: BackgroundTasks):
     STORE.set(job_id, jr)
     if PROM and JOBS_CREATED:
         JOBS_CREATED.inc()
+@app.post("/api/projects/{project_id}/run", response_model=JobResult, dependencies=[Depends(require_api_key)])
+async def run_project(project_id: str, background: BackgroundTasks):
+    """Kick off the design run in a background thread (job state via JobStore)."""
+    proj_dir = OUTPUT_ROOT / project_id
+    if not proj_dir.exists():
+        raise HTTPException(404, "project not found")
+
+    job_id = str(uuid.uuid4())
+    jr = JobResult(job_id=job_id, project_id=project_id, status="queued").model_dump()
+    STORE.set(job_id, jr)
+    if PROM and JOBS_CREATED:
+        JOBS_CREATED.inc()
 
     def _worker():
         start = time.time()
@@ -285,7 +297,6 @@ async def run_project(project_id: str, background: BackgroundTasks):
 
             # 2) Run orchestrator with a hard timeout
             set_status("running", {"pct": 30, "step": "orchestrator"})
-            from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
             with ThreadPoolExecutor(max_workers=1) as ex:
                 fut = ex.submit(_run_orchestrator, pj)
                 try:
@@ -313,22 +324,19 @@ async def run_project(project_id: str, background: BackgroundTasks):
             if isinstance(raw_pdfs, dict):
                 pdfs = {str(k).lower(): str(v) for k, v in raw_pdfs.items() if v}
             elif isinstance(raw_pdfs, list):
-                import os as _os
                 pdfs = {}
                 for p in raw_pdfs:
                     try:
                         if p:
-                            name = _os.path.splitext(_os.path.basename(str(p)))[0].lower()
+                            name = os.path.splitext(os.path.basename(str(p)))[0].lower()
                             pdfs[name] = str(p)
                     except Exception:
                         continue
             else:
-                import os as _os
-                pdfs = {_os.path.splitext(p.name)[0].lower(): str(p) for p in proj_dir.glob("*.pdf")}
+                pdfs = {os.path.splitext(p.name)[0].lower(): str(p) for p in proj_dir.glob("*.pdf")}
 
             extras_list = manifest.get("extras") or []
             extras = []
-            import os as _os
             for a in extras_list:
                 try:
                     # Already a Pydantic v2 model?
@@ -337,7 +345,7 @@ async def run_project(project_id: str, background: BackgroundTasks):
                         extras.append(
                             Artifact(
                                 kind=d.get("kind", "other"),
-                                name=d.get("name") or _os.path.basename(d.get("path", "") or ""),
+                                name=d.get("name") or os.path.basename(d.get("path", "") or ""),
                                 path=d.get("path", "") or "",
                                 meta=d.get("meta", {}) or {},
                             )
@@ -348,13 +356,15 @@ async def run_project(project_id: str, background: BackgroundTasks):
                         extras.append(
                             Artifact(
                                 kind=a.get("kind", "other"),
-                                name=a.get("name") or _os.path.basename(a.get("path", "") or ""),
+                                name=a.get("name") or os.path.basename(a.get("path", "") or ""),
                                 path=a.get("path", "") or "",
                                 meta=a.get("meta", {}) or {},
                             )
                         )
                     elif isinstance(a, str):
-                        extras.append(Artifact(kind="other", name=_os.path.basename(a), path=str(a), meta={}))
+                        extras.append(
+                            Artifact(kind="other", name=os.path.basename(a), path=str(a), meta={})
+                        )
                     # silently ignore anything else
                 except Exception:
                     continue
@@ -368,6 +378,42 @@ async def run_project(project_id: str, background: BackgroundTasks):
                 except Exception:
                     # keep local paths if S3 upload fails
                     pass
+
+            # 5) Done
+            set_status(
+                "succeeded",
+                {
+                    "step": "done",
+                    "pct": 100,
+                    "deliverables": delivs.model_dump() if hasattr(delivs, "model_dump") else delivs.__dict__,
+                    "metrics": manifest.get("metrics", {}),
+                },
+            )
+            if PROM and JOBS_COMPLETED:
+                JOBS_COMPLETED.inc()
+            if PROM and JOB_DURATION:
+                JOB_DURATION.observe(time.time() - start)
+
+        except BaseException as e:
+            if PROM and JOBS_FAILED:
+                JOBS_FAILED.inc()
+            set_status(
+                "failed",
+                {
+                    "step": "error",
+                    "pct": 100,
+                    "errors": [str(e), traceback.format_exc()],
+                    "error": ErrorInfo(
+                        code="ORCH_FAIL",
+                        message=str(e),
+                        engine="orchestrator",
+                        hint="See server logs",
+                    ).model_dump(),
+                },
+            )
+
+    threading.Thread(target=_worker, daemon=True).start()
+    return JobResult(**STORE.get(job_id))
 
             # 5) Done
             payload = delivs.model_dump() if hasattr(delivs, "model_dump") else delivs.__dict__
