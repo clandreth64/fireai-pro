@@ -3,7 +3,9 @@ from __future__ import annotations
 import os, uuid, json, threading, traceback, sys, time
 from pathlib import Path
 from typing import Optional, Dict, Any
+import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
+ORCH_TIMEOUT_SECS = int(os.getenv("ORCH_TIMEOUT_SECS", "600"))  # 10 minutes
 
 from fastapi import FastAPI, UploadFile, File, Form, BackgroundTasks, HTTPException, Depends, Header
 from fastapi.middleware.cors import CORSMiddleware
@@ -72,7 +74,7 @@ except Exception:
 OUTPUT_ROOT = Path(os.getenv("FIREAI_LOCAL_STORAGE", "./fireai_outputs")).resolve()
 OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
 ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "*").split(",")
-ORCH_TIMEOUT_SECS = int(os.getenv("ORCH_TIMEOUT_SECS", "1800"))  # 30 minutes default
+
 
 # ---------------- App ----------------
 app = FastAPI(title="FireAI Pro API", version="1.1")
@@ -120,7 +122,6 @@ ORCH_FUNCS = [
     "process_project",
     "orchestrate_project",
     "handle_project",
-    "main",
 ]
 
 # ---- Prometheus de-dupe: remove conflicting collectors before import ----
@@ -244,28 +245,6 @@ async def create_project(
 
     return {"project_id": pid, "saved_file": str(saved_file) if saved_file else None}
 
-@app.post("/api/projects/{project_id}/run", dependencies=[Depends(require_api_key)])
-async def run_project(project_id: str, background: BackgroundTasks):
-    """Kick off the design run in a background thread (job state via JobStore)."""
-    proj_dir = OUTPUT_ROOT / project_id
-    if not proj_dir.exists():
-        raise HTTPException(404, "project not found")
-
-    job_id = str(uuid.uuid4())
-    # Minimal initial job record so we can return JSON immediately
-    jr = {
-        "job_id": job_id,
-        "project_id": project_id,
-        "status": "queued",
-        "phases": {},
-        "deliverables": {"ifc": None, "dxf": None, "pdfs": {}, "extras": []},
-        "warnings": [],
-        "error": None,
-        "metrics": {},
-    }
-    STORE.set(job_id, jr)
-    if PROM and JOBS_CREATED:
-        JOBS_CREATED.inc()
 @app.post("/api/projects/{project_id}/run", response_model=JobResult, dependencies=[Depends(require_api_key)])
 async def run_project(project_id: str, background: BackgroundTasks):
     """Kick off the design run in a background thread (job state via JobStore)."""
@@ -339,7 +318,6 @@ async def run_project(project_id: str, background: BackgroundTasks):
             extras = []
             for a in extras_list:
                 try:
-                    # Already a Pydantic v2 model?
                     if hasattr(a, "model_dump") and callable(getattr(a, "model_dump")):
                         d = a.model_dump()
                         extras.append(
@@ -362,10 +340,7 @@ async def run_project(project_id: str, background: BackgroundTasks):
                             )
                         )
                     elif isinstance(a, str):
-                        extras.append(
-                            Artifact(kind="other", name=os.path.basename(a), path=str(a), meta={})
-                        )
-                    # silently ignore anything else
+                        extras.append(Artifact(kind="other", name=os.path.basename(a), path=str(a), meta={}))
                 except Exception:
                     continue
 
@@ -376,8 +351,7 @@ async def run_project(project_id: str, background: BackgroundTasks):
                 try:
                     delivs = upload_deliverables_to_s3(delivs, project_id)  # type: ignore
                 except Exception:
-                    # keep local paths if S3 upload fails
-                    pass
+                    pass  # keep local paths if S3 upload fails
 
             # 5) Done
             set_status(
@@ -388,38 +362,6 @@ async def run_project(project_id: str, background: BackgroundTasks):
                     "deliverables": delivs.model_dump() if hasattr(delivs, "model_dump") else delivs.__dict__,
                     "metrics": manifest.get("metrics", {}),
                 },
-            )
-            if PROM and JOBS_COMPLETED:
-                JOBS_COMPLETED.inc()
-            if PROM and JOB_DURATION:
-                JOB_DURATION.observe(time.time() - start)
-
-        except BaseException as e:
-            if PROM and JOBS_FAILED:
-                JOBS_FAILED.inc()
-            set_status(
-                "failed",
-                {
-                    "step": "error",
-                    "pct": 100,
-                    "errors": [str(e), traceback.format_exc()],
-                    "error": ErrorInfo(
-                        code="ORCH_FAIL",
-                        message=str(e),
-                        engine="orchestrator",
-                        hint="See server logs",
-                    ).model_dump(),
-                },
-            )
-
-    threading.Thread(target=_worker, daemon=True).start()
-    return JobResult(**STORE.get(job_id))
-
-            # 5) Done
-            payload = delivs.model_dump() if hasattr(delivs, "model_dump") else delivs.__dict__
-            set_status(
-                "succeeded",
-                {"step": "done", "pct": 100, "deliverables": payload, "metrics": manifest.get("metrics", {})},
             )
             if PROM and JOBS_COMPLETED:
                 JOBS_COMPLETED.inc()
@@ -440,156 +382,9 @@ async def run_project(project_id: str, background: BackgroundTasks):
             )
 
     threading.Thread(target=_worker, daemon=True).start()
-    return STORE.get(job_id) or {"job_id": job_id, "project_id": project_id, "status": "queued"}
-
-@app.post("/api/projects/{project_id}/run", response_model=JobResult, dependencies=[Depends(require_api_key)])
-async def run_project(project_id: str, background: BackgroundTasks):
-    """Kick off the design run in a background thread (job state via JobStore)."""
-    proj_dir = OUTPUT_ROOT / project_id
-    if not proj_dir.exists():
-        raise HTTPException(404, "project not found")
-
-    job_id = str(uuid.uuid4())
-    jr = JobResult(job_id=job_id, project_id=project_id, status="queued").model_dump()
-    STORE.set(job_id, jr)
-    if PROM and JOBS_CREATED:
-        JOBS_CREATED.inc()
-
-        def _worker():
-        start = time.time()
-
-        def set_status(status: str, extra: Dict[str, Any] | None = None):
-            cur = STORE.get(job_id) or {}
-            cur["status"] = status
-            if extra:
-                cur.update(extra)
-            STORE.set(job_id, cur)
-
-        try:
-            # 1) Pre-orchestrator setup
-            set_status("routing", {"pct": 10, "step": "routing"})
-            with (proj_dir / "project.json").open() as f:
-                pj = json.load(f)
-
-            # 2) Run orchestrator with a hard timeout
-            set_status("running", {"pct": 30, "step": "orchestrator"})
-            with ThreadPoolExecutor(max_workers=1) as ex:
-                fut = ex.submit(_run_orchestrator, pj)
-                try:
-                    manifest = fut.result(timeout=ORCH_TIMEOUT_SECS) or {}
-                except FuturesTimeoutError:
-                    err = f"Orchestrator exceeded timeout ({ORCH_TIMEOUT_SECS}s)"
-                    set_status(
-                        "failed",
-                        {
-                            "step": "timeout",
-                            "pct": 100,
-                            "errors": [err],
-                            "error": ErrorInfo(code="TIMEOUT", message=err, engine="orchestrator").model_dump(),
-                        },
-                    )
-                    if PROM and JOBS_FAILED:
-                        JOBS_FAILED.inc()
-                    return  # stop worker
-
-            # 3) Collect deliverables (robust to dict/list/str/object)
-            dxf = manifest.get("dxf") or next((str(p) for p in proj_dir.glob("*.dxf")), None)
-            ifc = manifest.get("ifc") or next((str(p) for p in proj_dir.glob("*.ifc")), None)
-
-            raw_pdfs = manifest.get("pdfs")
-            if isinstance(raw_pdfs, dict):
-                pdfs = {str(k).lower(): str(v) for k, v in raw_pdfs.items() if v}
-            elif isinstance(raw_pdfs, list):
-                pdfs = {}
-                for p in raw_pdfs:
-                    try:
-                        if p:
-                            name = os.path.splitext(os.path.basename(str(p)))[0].lower()
-                            pdfs[name] = str(p)
-                    except Exception:
-                        continue
-            else:
-                pdfs = {os.path.splitext(p.name)[0].lower(): str(p) for p in proj_dir.glob("*.pdf")}
-
-            extras_list = manifest.get("extras") or []
-            extras = []
-            for a in extras_list:
-                try:
-                    # Already a Pydantic v2 model?
-                    if hasattr(a, "model_dump") and callable(getattr(a, "model_dump")):
-                        d = a.model_dump()
-                        extras.append(
-                            Artifact(
-                                kind=d.get("kind", "other"),
-                                name=d.get("name") or os.path.basename(d.get("path", "") or ""),
-                                path=d.get("path", "") or "",
-                                meta=d.get("meta", {}) or {},
-                            )
-                        )
-                    elif isinstance(a, Artifact):
-                        extras.append(a)
-                    elif isinstance(a, dict):
-                        extras.append(
-                            Artifact(
-                                kind=a.get("kind", "other"),
-                                name=a.get("name") or os.path.basename(a.get("path", "") or ""),
-                                path=a.get("path", "") or "",
-                                meta=a.get("meta", {}) or {},
-                            )
-                        )
-                    elif isinstance(a, str):
-                        extras.append(
-                            Artifact(kind="other", name=os.path.basename(a), path=str(a), meta={})
-                        )
-                    # silently ignore anything else
-                except Exception:
-                    continue
-
-            delivs = Deliverables(ifc=ifc, dxf=dxf, pdfs=pdfs, extras=extras)
-
-            # 4) Optional S3 upload -> swap local paths for presigned URLs
-            if upload_deliverables_to_s3:
-                try:
-                    delivs = upload_deliverables_to_s3(delivs, project_id)  # type: ignore
-                except Exception:
-                    # keep local paths if S3 upload fails
-                    pass
-
-            # 5) Done
-            set_status(
-                "succeeded",
-                {
-                    "step": "done",
-                    "pct": 100,
-                    "deliverables": delivs.model_dump() if hasattr(delivs, "model_dump") else delivs.__dict__,
-                    "metrics": manifest.get("metrics", {}),
-                },
-            )
-            if PROM and JOBS_COMPLETED:
-                JOBS_COMPLETED.inc()
-            if PROM and JOB_DURATION:
-                JOB_DURATION.observe(time.time() - start)
-
-        except BaseException as e:
-            if PROM and JOBS_FAILED:
-                JOBS_FAILED.inc()
-            set_status(
-                "failed",
-                {
-                    "step": "error",
-                    "pct": 100,
-                    "errors": [str(e), traceback.format_exc()],
-                    "error": ErrorInfo(
-                        code="ORCH_FAIL",
-                        message=str(e),
-                        engine="orchestrator",
-                        hint="See server logs",
-                    ).model_dump(),
-                },
-            )
-
-    threading.Thread(target=_worker, daemon=True).start()
     return JobResult(**STORE.get(job_id))
+
+
 
 @app.get("/api/jobs/{job_id}")
 def get_job(job_id: str):
