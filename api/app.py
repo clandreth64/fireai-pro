@@ -315,21 +315,49 @@ async def run_project(project_id: str, background: BackgroundTasks):
                         JOBS_FAILED.inc()
                     return  # stop worker
 
-            # 3) Collect deliverables (prefer manifest; fall back to folder scan)
-            dxf = manifest.get("dxf") or next((str(p) for p in proj_dir.glob("*.dxf")), None)
-            ifc = manifest.get("ifc") or next((str(p) for p in proj_dir.glob("*.ifc")), None)
-            pdfs = manifest.get("pdfs") or {p.stem.lower(): str(p) for p in proj_dir.glob("*.pdf")}
-            extras_list = manifest.get("extras") or []
-            extras = [
+           # Normalize to Deliverables (prefer manifest values; fall back to scanning)
+dxf = manifest.get("dxf") or next((str(p) for p in proj_dir.glob("*.dxf")), None)
+ifc = manifest.get("ifc") or next((str(p) for p in proj_dir.glob("*.ifc")), None)
+
+# pdfs can be a dict {name: path} or a list of paths
+raw_pdfs = manifest.get("pdfs") or {}
+if isinstance(raw_pdfs, dict):
+    pdfs = raw_pdfs
+elif isinstance(raw_pdfs, list):
+    pdfs = {Path(p).stem.lower(): p for p in raw_pdfs if p}
+else:
+    pdfs = {p.stem.lower(): str(p) for p in proj_dir.glob("*.pdf")}
+
+# extras can be dicts OR strings (paths) OR already-constructed Artifacts
+extras_list = manifest.get("extras") or []
+extras: list[Artifact] = []
+for a in extras_list:
+    try:
+        if isinstance(a, Artifact):
+            extras.append(a)
+        elif isinstance(a, dict):
+            extras.append(
                 Artifact(
                     kind=a.get("kind", "other"),
-                    name=a.get("name", ""),
-                    path=a.get("path", ""),
-                    meta=a.get("meta", {}),
+                    name=a.get("name") or os.path.basename(a.get("path", "") or ""),
+                    path=a.get("path", "") or "",
+                    meta=a.get("meta", {}) or {},
                 )
-                for a in extras_list
-            ]
-            delivs = Deliverables(ifc=ifc, dxf=dxf, pdfs=pdfs, extras=extras)
+            )
+        elif isinstance(a, str):
+            extras.append(
+                Artifact(
+                    kind="other",
+                    name=os.path.basename(a),
+                    path=a,
+                    meta={},
+                )
+            )
+        # silently skip anything we don't understand
+    except Exception:
+        continue
+
+delivs = Deliverables(ifc=ifc, dxf=dxf, pdfs=pdfs, extras=extras)
 
             # 4) Optional S3 upload -> swap local paths for presigned URLs
             if upload_deliverables_to_s3:
