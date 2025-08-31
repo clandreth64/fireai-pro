@@ -146,7 +146,7 @@ def _load_orchestrator():
         return importlib.import_module(ORCH_MODULE)
     except Exception as e:
         logger.error(f"Failed to import {ORCH_MODULE}: {e}")
-        cwd = os.getcw d()
+        cwd = os.getcwd()
         files = [f for f in os.listdir(cwd) if f.endswith(".py")]
         error_msg = (
             f"Could not import {ORCH_MODULE}. Error: {e}\n"
