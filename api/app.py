@@ -365,15 +365,15 @@ async def run_project(project_id: str, background: BackgroundTasks):
                     continue
 
             delivs = Deliverables(ifc=ifc, dxf=dxf, pdfs=pdfs, extras=extras)
-    logger.info(f"Collected deliverables for job_id: {job_id}: {delivs}")
-    if upload_deliverables_to_s3:
+        logger.info(f"Collected deliverables for job_id: {job_id}: {delivs}")
+            if upload_deliverables_to_s3:
         logger.info("S3 uploader available, attempting upload")
-        try:
+                try:
             delivs = upload_deliverables_to_s3(delivs, project_id)
             logger.info(f"S3 upload successful for job_id: {job_id}")
-        except:
+                except:
             logger.error(f"S3 upload failed for job_id: {job_id}")
-    else:
+        else:
         logger.warning("S3 uploader not available, skipping upload")
         
             # Done
