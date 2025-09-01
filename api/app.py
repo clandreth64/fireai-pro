@@ -378,7 +378,7 @@ async def run_project(project_id: str, background: BackgroundTasks):
          try:
              # Pre-orchestrator setup
 @@
-                         delivs = Deliverables(ifc=ifc, dxf=dxf, pdfs=pdfs, extras=extras)
+                                     delivs = Deliverables(ifc=ifc, dxf=dxf, pdfs=pdfs, extras=extras)
             logger.info(f"Collected deliverables for job_id: {job_id}: {delivs}")
 
             # Optional S3 upload
@@ -394,6 +394,7 @@ async def run_project(project_id: str, background: BackgroundTasks):
                 logger.warning("S3 uploader not available, skipping upload")
 
             # Done
+
             set_status(
                 "succeeded",
                 {
