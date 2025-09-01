@@ -249,7 +249,7 @@ async def create_project(
 
     return {"project_id": pid, "saved_file": str(saved_file) if saved_file else None}
 
-@app.post("/api/projects/{project_id}/run", response_model=JobResult, dependencies=[Depends(require_api_key)])
+@app.post("/api/projects/{project_id}/run", dependencies=[Depends(require_api_key)])
 async def run_project(project_id: str, background: BackgroundTasks):
     """Kick off the design run in a background task (job state via JobStore)."""
     proj_dir = OUTPUT_ROOT / project_id
@@ -408,8 +408,9 @@ async def run_project(project_id: str, background: BackgroundTasks):
             )
 
     background.add_task(_worker)
-    # Return initial job state
-    return JobResult(**STORE.get(job_id))
+    # Return initial job state as a simple dict (avoid response-model validation)
+    return {"job_id": job_id, "project_id": project_id, "status": "queued"}
+
 
 @app.get("/api/jobs/{job_id}")
 def get_job(job_id: str):
