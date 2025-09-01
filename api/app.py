@@ -375,7 +375,7 @@ async def run_project(project_id: str, background: BackgroundTasks):
             logger.error(f"S3 upload failed for job_id: {job_id}")
     else:
         logger.warning("S3 uploader not available, skipping upload")
-
+        
             # Done
             set_status(
                 "succeeded",
