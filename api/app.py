@@ -11,9 +11,9 @@ from typing import Optional, Dict, Any
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from fastapi import FastAPI, UploadFile, File, Form, BackgroundTasks, HTTPException, Depends, Header
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 import importlib
-import time 
+import time
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -107,7 +107,6 @@ def require_api_key(x_api_key: str | None = Header(None)):
     return True
 
 # Job store
-JOBS: Dict[str, Dict[str, Any]] = {}  # Unused, kept for compatibility
 STORE = JobStore(namespace="fireai", ttl_seconds=7 * 24 * 3600)
 
 # Metrics
@@ -135,8 +134,7 @@ def _prometheus_unload(prefixes=(
         name_map = getattr(REGISTRY, "_names_to_collectors", {})
         for name in list(name_map.keys()):
             if any(name.startswith(p) for p in prefixes):
-                name_map.pop(name, None
-)
+                name_map.pop(name, None)
     except Exception:
         logger.warning("Failed to unload Prometheus collectors")
 
@@ -204,7 +202,7 @@ def readiness():
 if PROM:
     @app.get("/metrics")
     def metrics():
-        return generate_latest(), 200, {"Content-Type": CONTENT_TYPE_LATEST}
+        return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 # API
 @app.post("/api/projects", dependencies=[Depends(require_api_key)])
@@ -261,8 +259,8 @@ async def run_project(project_id: str, background: BackgroundTasks):
         raise HTTPException(404, "project not found")
 
     job_id = str(uuid.uuid4())
-    jr = JobResult(job_id=job_id, project_id=project_id, status="queued", deliverables=None).model_dump()
-    STORE.set(job_id, jr)
+    jr_dict = JobResult(job_id=job_id, project_id=project_id, status="queued", deliverables=None).model_dump()
+    STORE.set(job_id, jr_dict)
     if PROM and JOBS_CREATED:
         JOBS_CREATED.inc()
     logger.info(f"Created job_id: {job_id}")
@@ -334,7 +332,7 @@ async def run_project(project_id: str, background: BackgroundTasks):
                 pdfs = {os.path.splitext(p.name)[0].lower(): str(p) for p in proj_dir.glob("*.pdf")}
 
             extras_list = manifest.get("extras") or []
-            extras = []
+            extras: list[Artifact] = []
             for a in extras_list:
                 try:
                     if hasattr(a, "model_dump") and callable(getattr(a, "model_dump")):
@@ -364,21 +362,7 @@ async def run_project(project_id: str, background: BackgroundTasks):
                     logger.warning(f"Failed to process extra artifact: {e}")
                     continue
 
-@@
- if PROM:
--    @app.get("/metrics")
--    def metrics():
--        return generate_latest(), 200, {"Content-Type": CONTENT_TYPE_LATEST}
-+    from fastapi.responses import Response
-+
-+    @app.get("/metrics")
-+    def metrics():
-+        return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
-@@
-         try:
-             # Pre-orchestrator setup
-@@
-                                     delivs = Deliverables(ifc=ifc, dxf=dxf, pdfs=pdfs, extras=extras)
+            delivs = Deliverables(ifc=ifc, dxf=dxf, pdfs=pdfs, extras=extras)
             logger.info(f"Collected deliverables for job_id: {job_id}: {delivs}")
 
             # Optional S3 upload
@@ -394,7 +378,6 @@ async def run_project(project_id: str, background: BackgroundTasks):
                 logger.warning("S3 uploader not available, skipping upload")
 
             # Done
-
             set_status(
                 "succeeded",
                 {
@@ -409,7 +392,6 @@ async def run_project(project_id: str, background: BackgroundTasks):
             if PROM and JOB_DURATION:
                 JOB_DURATION.observe(time.time() - start)
             logger.info(f"Job {job_id} completed successfully")
-
 
         except Exception as e:
             if PROM and JOBS_FAILED:
@@ -426,6 +408,7 @@ async def run_project(project_id: str, background: BackgroundTasks):
             )
 
     background.add_task(_worker)
+    # Return initial job state
     return JobResult(**STORE.get(job_id))
 
 @app.get("/api/jobs/{job_id}")
