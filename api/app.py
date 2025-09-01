@@ -258,14 +258,9 @@ async def run_project(project_id: str, background: BackgroundTasks):
         logger.error(f"Project directory not found: {proj_dir}")
         raise HTTPException(404, "project not found")
 
+    # Create initial job record (use a plain dict to avoid Pydantic version issues)
     job_id = str(uuid.uuid4())
-    try:
-    jr_obj = JobResult(job_id=job_id, project_id=project_id, status="queued", deliverables=None)
-    jr_dict = jr_obj.model_dump() if hasattr(jr_obj, "model_dump") else jr_obj.dict()
-except Exception:
-    # If the model import/types change, fall back to a plain dict
     jr_dict = {"job_id": job_id, "project_id": project_id, "status": "queued", "deliverables": None}
-
     STORE.set(job_id, jr_dict)
     if PROM and JOBS_CREATED:
         JOBS_CREATED.inc()
@@ -310,7 +305,7 @@ except Exception:
                             "step": "timeout",
                             "pct": 100,
                             "errors": [err],
-                            "error": ErrorInfo(code="TIMEOUT", message=err, engine="orchestrator").model_dump(),
+                            "error": _to_dict(ErrorInfo(code="TIMEOUT", message=err, engine="orchestrator")),
                         },
                     )
                     if PROM and JOBS_FAILED:
@@ -389,7 +384,7 @@ except Exception:
                 {
                     "step": "done",
                     "pct": 100,
-                    "deliverables": delivs.model_dump() if hasattr(delivs, "model_dump") else delivs.__dict__,
+                    "deliverables": delivs.model_dump() if hasattr(delivs, "model_dump") else (delivs.dict() if hasattr(delivs, "dict") else delivs.__dict__),
                     "metrics": manifest.get("metrics", {}),
                 },
             )
@@ -409,9 +404,14 @@ except Exception:
                     "step": "error",
                     "pct": 100,
                     "errors": [str(e), traceback.format_exc()],
-                    "error": ErrorInfo(code="ORCH_FAIL", message=str(e), engine="orchestrator", hint="See server logs").model_dump(),
+                    "error": _to_dict(ErrorInfo(code="ORCH_FAIL", message=str(e), engine="orchestrator", hint="See server logs")),
                 },
             )
+
+    background.add_task(_worker)
+
+    # Return initial job state as a simple dict (avoid response-model validation)
+    return {"job_id": job_id, "project_id": project_id, "status": "queued"}
 
     background.add_task(_worker)
     # Return initial job state as a simple dict (avoid response-model validation)
