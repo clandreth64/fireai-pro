@@ -259,7 +259,13 @@ async def run_project(project_id: str, background: BackgroundTasks):
         raise HTTPException(404, "project not found")
 
     job_id = str(uuid.uuid4())
-    jr_dict = JobResult(job_id=job_id, project_id=project_id, status="queued", deliverables=None).model_dump()
+    try:
+    jr_obj = JobResult(job_id=job_id, project_id=project_id, status="queued", deliverables=None)
+    jr_dict = jr_obj.model_dump() if hasattr(jr_obj, "model_dump") else jr_obj.dict()
+except Exception:
+    # If the model import/types change, fall back to a plain dict
+    jr_dict = {"job_id": job_id, "project_id": project_id, "status": "queued", "deliverables": None}
+
     STORE.set(job_id, jr_dict)
     if PROM and JOBS_CREATED:
         JOBS_CREATED.inc()
