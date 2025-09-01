@@ -378,49 +378,36 @@ async def run_project(project_id: str, background: BackgroundTasks):
          try:
              # Pre-orchestrator setup
 @@
-             delivs = Deliverables(ifc=ifc, dxf=dxf, pdfs=pdfs, extras=extras)
--        logger.info(f"Collected deliverables for job_id: {job_id}: {delivs}")
--            if upload_deliverables_to_s3:
--        logger.info("S3 uploader available, attempting upload")
--                try:
--            delivs = upload_deliverables_to_s3(delivs, project_id)
--            logger.info(f"S3 upload successful for job_id: {job_id}")
--                except:
--            logger.error(f"S3 upload failed for job_id: {job_id}")
--        else:
--        logger.warning("S3 uploader not available, skipping upload")
--        
--            # Done
--            set_status(
-+            logger.info(f"Collected deliverables for job_id: {job_id}: {delivs}")
-+
-+            # Optional S3 upload
-+            if upload_deliverables_to_s3:
-+                logger.info("S3 uploader available, attempting upload")
-+                try:
-+                    delivs = upload_deliverables_to_s3(delivs, project_id)
-+                    logger.info(f"S3 upload successful for job_id: {job_id}")
-+                except Exception as e:
-+                    logger.warning(f"S3 upload failed for job_id: {job_id}: {e}")
-+                    # continue without failing the job
-+            else:
-+                logger.warning("S3 uploader not available, skipping upload")
-+
-+            # Done
-+            set_status(
-                 "succeeded",
-                 {
-                     "step": "done",
-                     "pct": 100,
-                     "deliverables": delivs.model_dump() if hasattr(delivs, "model_dump") else delivs.__dict__,
-                     "metrics": manifest.get("metrics", {}),
-                 },
-             )
-             if PROM and JOBS_COMPLETED:
-                 JOBS_COMPLETED.inc()
-             if PROM and JOB_DURATION:
-                 JOB_DURATION.observe(time.time() - start)
-             logger.info(f"Job {job_id} completed successfully")
+                         delivs = Deliverables(ifc=ifc, dxf=dxf, pdfs=pdfs, extras=extras)
+            logger.info(f"Collected deliverables for job_id: {job_id}: {delivs}")
+
+            # Optional S3 upload
+            if upload_deliverables_to_s3:
+                logger.info("S3 uploader available, attempting upload")
+                try:
+                    delivs = upload_deliverables_to_s3(delivs, project_id)
+                    logger.info(f"S3 upload successful for job_id: {job_id}")
+                except Exception as e:
+                    logger.warning(f"S3 upload failed for job_id: {job_id}: {e}")
+                    # continue without failing the job
+            else:
+                logger.warning("S3 uploader not available, skipping upload")
+
+            # Done
+            set_status(
+                "succeeded",
+                {
+                    "step": "done",
+                    "pct": 100,
+                    "deliverables": delivs.model_dump() if hasattr(delivs, "model_dump") else delivs.__dict__,
+                    "metrics": manifest.get("metrics", {}),
+                },
+            )
+            if PROM and JOBS_COMPLETED:
+                JOBS_COMPLETED.inc()
+            if PROM and JOB_DURATION:
+                JOB_DURATION.observe(time.time() - start)
+            logger.info(f"Job {job_id} completed successfully")
 
 
         except Exception as e:
