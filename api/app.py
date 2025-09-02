@@ -366,31 +366,31 @@ async def run_project(project_id: str, background: BackgroundTasks):
                 except Exception as e:
                     logger.warning(f"Failed to process extra artifact: {e}")
                     continue
+                    
             # Include the originally uploaded file (any extension) as a deliverable
-upload_matches = glob.glob(f"/data/{project_id}/upload.*")
-if upload_matches:
-    up = upload_matches[0]
-    ext = Path(up).suffix.lower()
-    base = Path(up).stem
+            upload_matches = glob.glob(f"/data/{project_id}/upload.*")
+            if upload_matches:
+                up = upload_matches[0]
+                ext = Path(up).suffix.lower()
+                base = Path(up).stem
 
-    # make sure these exist
-    pdfs = (pdfs or {})
-    extras = (extras or [])
+                # make sure these exist
+                pdfs = (pdfs or {})
+                extras = (extras or [])
 
-    if ext == ".dxf":
-        dxf = up
-    elif ext == ".ifc":
-        ifc = up
-    elif ext == ".pdf":
-        # expose PDF as a named deliverable
-        pdfs[base] = up
-    elif ext == ".dwg":
-        # DWG goes under "extras" so the UI still shows a download link
-        extras.append(Artifact(kind="dwg", name=Path(up).name, path=up, meta={}))
-    else:
-        # any other file type still shows up in the list
-        extras.append(Artifact(kind="upload", name=Path(up).name, path=up, meta={}))
-
+                if ext == ".dxf":
+                    dxf = up
+                elif ext == ".ifc":
+                    ifc = up
+                elif ext == ".pdf":
+                    # expose PDF as a named deliverable
+                    pdfs[base] = up
+                elif ext == ".dwg":
+                    # DWG goes under "extras" so the UI still shows a download link
+                    extras.append(Artifact(kind="dwg", name=Path(up).name, path=up, meta={}))
+                else:
+                    # any other file type still shows up in the list
+                    extras.append(Artifact(kind="upload", name=Path(up).name, path=up, meta={}))
             delivs = Deliverables(ifc=ifc, dxf=dxf, pdfs=pdfs, extras=extras)
             logger.info(f"Collected deliverables for job_id: {job_id}: {delivs}")
 
