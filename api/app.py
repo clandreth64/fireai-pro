@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import sys
+sys.path.append('..')  # This looks in the parent folder (root) for modules
 import uuid
 import json
 import logging
