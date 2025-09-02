@@ -1,58 +1,91 @@
 # s3_uploader.py
 from __future__ import annotations
-from pathlib import Path
 import os, mimetypes
+from pathlib import Path
+from datetime import datetime, timezone
+
+try:
+    from fireai_schemas import Deliverables, Artifact
+except Exception:
+    # very small fallback if fireai_schemas isn't present
+    class Deliverables(dict): ...
+    class Artifact(dict): ...
+
 import boto3
 from botocore.client import Config
-from fireai_schemas import Deliverables, Artifact
 
-_BUCKET = os.getenv("S3_BUCKET")
-_PREFIX = os.getenv("S3_PREFIX", "fireai/")
-_REGION = os.getenv("AWS_DEFAULT_REGION", "us-east-1")
-_ENDPOINT = os.getenv("S3_ENDPOINT_URL")  # optional (R2/MinIO)
-_EXPIRES = int(os.getenv("S3_URL_EXPIRES", "604800"))  # 7 days
+# --- Env vars: accept both old and new names ---
+BUCKET   = os.getenv("AWS_S3_BUCKET") or os.getenv("S3_BUCKET")
+REGION   = os.getenv("AWS_REGION") or os.getenv("AWS_DEFAULT_REGION") or "us-east-1"
+ENDPOINT = os.getenv("AWS_S3_ENDPOINT_URL") or os.getenv("S3_ENDPOINT_URL")  # optional
+PREFIX   = (os.getenv("AWS_S3_PREFIX") or os.getenv("S3_PREFIX") or "fireai/").rstrip("/") + "/"
+EXPIRES  = int(os.getenv("AWS_URL_EXPIRY") or os.getenv("S3_URL_EXPIRES") or "604800")  # default 7 days
 
-if not _BUCKET:
-    _S3 = None
-else:
-    _S3 = boto3.client(
+def _client():
+    return boto3.client(
         "s3",
-        region_name=_REGION,
-        endpoint_url=_ENDPOINT,
-        config=Config(s3={"addressing_style": "virtual"})
+        region_name=REGION,
+        endpoint_url=ENDPOINT or None,
+        config=Config(s3={"addressing_style": "virtual"}),
     )
 
 def _ctype(path: str) -> str:
     return mimetypes.guess_type(path)[0] or "application/octet-stream"
 
-def _upload_and_sign(local_path: str, key: str) -> str:
-    assert _S3 and _BUCKET
-    _S3.upload_file(local_path, _BUCKET, key, ExtraArgs={"ContentType": _ctype(local_path)})
-    return _S3.generate_presigned_url(
-        "get_object",
-        Params={"Bucket": _BUCKET, "Key": key},
-        ExpiresIn=_EXPIRES,
+def _upload_and_sign(s3, local_path: str | None, key: str) -> str | None:
+    if not local_path or not os.path.exists(local_path):
+        return None
+    s3.upload_file(local_path, BUCKET, key, ExtraArgs={"ContentType": _ctype(local_path)})
+    return s3.generate_presigned_url(
+        "get_object", Params={"Bucket": BUCKET, "Key": key}, ExpiresIn=EXPIRES
     )
 
-def upload_deliverables_to_s3(delivs: Deliverables, project_id: str) -> Deliverables:
-    """If S3 env vars are set, upload files and return a Deliverables with presigned URLs."""
-    if not _S3 or not _BUCKET:
-        return delivs
+def _to_dict(obj):
+    if hasattr(obj, "model_dump"): return obj.model_dump()
+    if hasattr(obj, "dict"):       return obj.dict()
+    if isinstance(obj, dict):      return obj
+    return getattr(obj, "__dict__", {})
 
-    base = f"{_PREFIX.rstrip('/')}/{project_id}"
-    new = Deliverables(pdfs={}, extras=[])
+def upload_deliverables_to_s3(delivs, project_id: str):
+    """Uploads files referenced in deliverables and returns same structure with S3 URLs."""
+    if not BUCKET:
+        return delivs  # S3 not configured
+    s3 = _client()
 
-    if delivs.ifc:
-        new.ifc = _upload_and_sign(delivs.ifc, f"{base}/model.ifc")
-    if delivs.dxf:
-        new.dxf = _upload_and_sign(delivs.dxf, f"{base}/design.dxf")
+    d  = _to_dict(delivs)
+    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    base = f"{PREFIX}{project_id}/{ts}/"
 
-    for name, path in (delivs.pdfs or {}).items():
-        new.pdfs[name] = _upload_and_sign(path, f"{base}/{name}.pdf")
+    out = {"ifc": None, "dxf": None, "pdfs": {}, "extras": []}
 
-    for art in (delivs.extras or []):
-        filename = art.name or os.path.basename(art.path or "extra.bin")
-        url = _upload_and_sign(art.path, f"{base}/extras/{filename}")
-        new.extras.append(Artifact(kind=art.kind, name=filename, path=url, meta=art.meta))
+    if d.get("ifc"):
+        out["ifc"] = _upload_and_sign(s3, d["ifc"], base + Path(d["ifc"]).name)
+    if d.get("dxf"):
+        out["dxf"] = _upload_and_sign(s3, d["dxf"], base + Path(d["dxf"]).name)
 
-    return new
+    pdfs = d.get("pdfs") or {}
+    if isinstance(pdfs, dict):
+        for name, path in pdfs.items():
+            url = _upload_and_sign(s3, path, base + Path(path).name)
+            if url:
+                out["pdfs"][str(name).lower()] = url
+
+    extras = d.get("extras") or []
+    new_extras = []
+    for a in extras:
+        ad = _to_dict(a)
+        p = ad.get("path")
+        fname = ad.get("name") or (Path(p).name if p else "extra.bin")
+        url = _upload_and_sign(s3, p, base + "extras/" + fname)
+        new_extras.append({
+            "kind": ad.get("kind", "other"),
+            "name": fname,
+            "path": url or "",
+            "meta": ad.get("meta", {}) or {},
+        })
+    out["extras"] = new_extras
+
+    try:
+        return Deliverables(**out)
+    except Exception:
+        return out
