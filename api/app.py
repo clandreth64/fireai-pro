@@ -200,10 +200,11 @@ def readiness():
     return {"status": "ready"}
 
 if PROM:
+    from fastapi.responses import Response
+
     @app.get("/metrics")
     def metrics():
         return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
-
 # API
 @app.post("/api/projects", dependencies=[Depends(require_api_key)])
 async def create_project(
