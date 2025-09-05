@@ -5021,7 +5021,8 @@ def orchestrate_project(project_json: dict):
     Orchestrates full fire sprinkler design: CAD → Standards → Routing → Hydraulics → Bracing → Symbols → BOM → Validation → Exports.
     Integrates with all modules for production-ready output.
     """
-    logger.info(f"Starting orchestration for project {pid}")
+    import logging
+    logger = logging.getLogger(__name__)
     out = _api_out_dir(project_json)
     pid = (project_json or {}).get("project_id", "unknown")
 
@@ -5031,22 +5032,32 @@ def orchestrate_project(project_json: dict):
         logger.error(f"No input file for {pid}")
         return {"errors": ["No input file"], "project_id": pid}
 
+    logger.info(f"Processing input: {input_file}")
     try:
+        # Update job status
+        STORE.set(pid, {"status": "running", "pct": 10, "step": "cad_extraction"})
+
         # 1. CAD Engine: Extract geometry
         if CAD_AVAILABLE:
+            logger.info(f"Starting CAD extraction for {input_file}")
             cad_config = enhanced_cad_engine.CloudCADEngineConfig()
             cad_engine_instance = enhanced_cad_engine.EnhancedProductionCADEngine(cad_config)
             cad_result = cad_engine_instance.process_single_file(input_file, out)
             if not cad_result.success:
-                raise ValueError("CAD extraction failed")
+                logger.error(f"CAD extraction failed: {cad_result.errors}")
+                STORE.set(pid, {"status": "failed", "pct": 100, "step": "cad_extraction", "errors": cad_result.errors})
+                return {"errors": ["CAD extraction failed"], "project_id": pid}
             geometry = cad_result.project_geometry
             logger.info(f"Extracted geometry with {len(geometry.get_all_elements())} elements")
         else:
             logger.warning("CAD engine unavailable - using fallback geometry")
             geometry = type('DummyGeometry', (), {'rooms': [], 'walls': [], 'columns': [], 'get_all_elements': lambda: []})()
+            STORE.set(pid, {"status": "running", "pct": 20, "step": "cad_fallback"})
 
         # 2. Standards: Derive rules
+        STORE.set(pid, {"status": "running", "pct": 30, "step": "standards"})
         if STANDARDS_AVAILABLE:
+            logger.info("Starting standards analysis")
             standards_master = fireai_pro_master_Standards.EnhancedFireAIProMaster()
             zip_code = project_json.get('zip_code', '90210')
             standards_result = standards_master.analyze_project_comprehensive(
@@ -5055,15 +5066,20 @@ def orchestrate_project(project_json: dict):
                 include_standards=['NFPA_13', 'NFPA_14', 'NFPA_20', 'NFPA_25']
             )
             if not standards_result.success:
-                raise ValueError("Standards analysis failed")
+                logger.error(f"Standards analysis failed: {standards_result.errors}")
+                STORE.set(pid, {"status": "failed", "pct": 100, "step": "standards", "errors": standards_result.errors})
+                return {"errors": ["Standards analysis failed"], "project_id": pid}
             constraints = standards_result.constraints
             logger.info(f"Derived constraints for ZIP {zip_code}")
         else:
             logger.warning("Standards engine unavailable - using default constraints")
             constraints = {'sprinkler_spacing': 12.0, 'min_flow_density': 0.1, 'pipe_friction_c': 120}
+            STORE.set(pid, {"status": "running", "pct": 40, "step": "standards_fallback"})
 
         # 3. Routing: Generate layout
+        STORE.set(pid, {"status": "running", "pct": 50, "step": "routing"})
         if ROUTING_AVAILABLE:
+            logger.info("Starting routing")
             routing_data = {
                 'building_spaces': geometry.rooms if hasattr(geometry, 'rooms') else [],
                 'obstacles': (geometry.walls + geometry.columns) if hasattr(geometry, 'walls') else [],
@@ -5071,7 +5087,9 @@ def orchestrate_project(project_json: dict):
             }
             routing_result = fireai_routing_advanced.design_fire_sprinkler_system_advanced(routing_data)
             if not routing_result.success:
-                raise ValueError("Routing failed")
+                logger.error(f"Routing failed: {routing_result.errors}")
+                STORE.set(pid, {"status": "failed", "pct": 100, "step": "routing", "errors": routing_result.errors})
+                return {"errors": ["Routing failed"], "project_id": pid}
             logger.info(f"Routed {len(routing_result.sprinkler_heads)} heads")
         else:
             logger.warning("Routing unavailable - using fallback")
@@ -5081,9 +5099,12 @@ def orchestrate_project(project_json: dict):
                 'pipe_segments': [],
                 'to_hydraulics_format': lambda: {'pipe_segments': [], 'sprinkler_heads': [], 'constraints': constraints}
             })()
+            STORE.set(pid, {"status": "running", "pct": 60, "step": "routing_fallback"})
 
         # 4. Hydraulics: Analyze
+        STORE.set(pid, {"status": "running", "pct": 70, "step": "hydraulics"})
         if HYDRAULICS_AVAILABLE:
+            logger.info("Starting hydraulics analysis")
             hydraulics_integrator = enhanced_hydraulics_engine.EnhancedHydraulicIntegrator()
             hydraulics_input = routing_result.to_hydraulics_format() if hasattr(routing_result, 'to_hydraulics_format') else {
                 'pipe_segments': [asdict(seg) for seg in routing_result.pipe_segments] if hasattr(routing_result, 'pipe_segments') else [],
@@ -5092,14 +5113,19 @@ def orchestrate_project(project_json: dict):
             }
             hydraulics_result = hydraulics_integrator.process_complete_hydraulic_workflow(hydraulics_input)
             if not hydraulics_result.success:
-                raise ValueError("Hydraulics failed")
+                logger.error(f"Hydraulics failed: {hydraulics_result.errors}")
+                STORE.set(pid, {"status": "failed", "pct": 100, "step": "hydraulics", "errors": hydraulics_result.errors})
+                return {"errors": ["Hydraulics failed"], "project_id": pid}
             logger.info(f"Hydraulics complete: Flow {hydraulics_result.total_flow:.2f} GPM")
         else:
             logger.warning("Hydraulics unavailable - skipping")
             hydraulics_result = type('DummyHydraulics', (), {'success': True, 'total_flow': 0.0, 'max_pressure_loss': 0.0})()
+            STORE.set(pid, {"status": "running", "pct": 80, "step": "hydraulics_fallback"})
 
         # 5. Bracing: Add bracing
+        STORE.set(pid, {"status": "running", "pct": 85, "step": "bracing"})
         if BRACING_AVAILABLE:
+            logger.info("Starting bracing design")
             bracing_engine_instance = enhanced_bracing_engine.EnhancedBracingEngine()
             bracing_result = bracing_engine_instance.generate_complete_bracing_design(
                 project_data={'routing': asdict(routing_result), 'geometry': asdict(geometry)},
@@ -5109,9 +5135,12 @@ def orchestrate_project(project_json: dict):
         else:
             logger.warning("Bracing unavailable - skipping")
             bracing_result = type('DummyBracing', (), {'optimized_brace_locations': []})()
+            STORE.set(pid, {"status": "running", "pct": 90, "step": "bracing_fallback"})
 
         # 6. Symbols: Process
+        STORE.set(pid, {"status": "running", "pct": 92, "step": "symbols"})
         if SYMBOLS_AVAILABLE:
+            logger.info("Starting symbol processing")
             symbol_processor = merged_symbols_ai_enhanced.EnhancedSymbolProcessor()
             symbol_result = symbol_processor.process_symbols(
                 input_data={'geometry': asdict(geometry), 'routing': asdict(routing_result)}
@@ -5120,9 +5149,12 @@ def orchestrate_project(project_json: dict):
         else:
             logger.warning("Symbols unavailable - skipping")
             symbol_result = type('DummySymbols', (), {'success': True, 'placements': []})()
+            STORE.set(pid, {"status": "running", "pct": 94, "step": "symbols_fallback"})
 
         # 7. Products/BOM: Generate
+        STORE.set(pid, {"status": "running", "pct": 96, "step": "bom"})
         if PRODUCTS_AVAILABLE:
+            logger.info("Starting BOM generation")
             products_service = master_fireai_products_enhanced.EnhancedProductsService()
             products_result = products_service.process_project_data(
                 project_data={
@@ -5135,16 +5167,19 @@ def orchestrate_project(project_json: dict):
         else:
             logger.warning("Products unavailable - skipping")
             products_result = type('DummyProducts', (), {'success': True, 'total_cost': 0.0, 'bom_items': []})()
+            STORE.set(pid, {"status": "running", "pct": 98, "step": "bom_fallback"})
 
         # 8. Routing Validation: NFPA 13
+        STORE.set(pid, {"status": "running", "pct": 99, "step": "validation"})
         if ROUTING_APIS_AVAILABLE:
+            logger.info("Starting NFPA 13 validation")
             routing_validator = nfpa13_routing_apis.NFPA13RoutingValidator()
             validation_result = routing_validator.validate_routing_against_code(
                 routing_data=asdict(routing_result),
                 constraints=constraints
             )
             if not validation_result.compliant:
-                logger.warning(f"{len(validation_result.violations)} violations found")
+                logger.warning(f"{len(validation_result.violations)} violations found: {validation_result.violations}")
             else:
                 logger.info("Routing compliant")
         else:
@@ -5152,8 +5187,10 @@ def orchestrate_project(project_json: dict):
             validation_result = type('DummyValidation', (), {'compliant': True, 'violations': []})()
 
         # 9. Exports: Generate DXF, IFC, PDFs (DWG/RVT stubs)
+        STORE.set(pid, {"status": "running", "pct": 100, "step": "exports"})
         # DXF
         if EZDXF_AVAILABLE:
+            logger.info("Generating DXF")
             doc = ezdxf.new('R2010')
             msp = doc.modelspace()
             for pipe in routing_result.pipe_segments if hasattr(routing_result, 'pipe_segments') else []:
@@ -5183,6 +5220,7 @@ def orchestrate_project(project_json: dict):
 
         # IFC
         if IFC_AVAILABLE:
+            logger.info("Generating IFC")
             ifc = ifcopenshell.file(schema='IFC4')
             owner = ifc.createIfcOwnerHistory()
             project = ifc.createIfcProject(uuid.uuid4(), owner)
@@ -5215,6 +5253,7 @@ def orchestrate_project(project_json: dict):
 
         # PDFs
         if REPORTLAB_AVAILABLE:
+            logger.info("Generating PDFs")
             pdfs = {}
             report_types = ["compliance", "hydraulics", "bom", "bracing", "multistandard"]
             for report_type in report_types:
@@ -5225,8 +5264,8 @@ def orchestrate_project(project_json: dict):
                 y = 700
                 content = []
                 if report_type == "compliance":
-                    content = [f"Compliant: {validation_result.compliant}", f"Violations: {len(validation_result.violations)}"]
-                    content.extend([str(v) for v in validation_result.violations[:5]])
+                    content = [f"Compliant: {getattr(validation_result, 'compliant', False)}", f"Violations: {len(getattr(validation_result, 'violations', []))}"]
+                    content.extend([str(v) for v in getattr(validation_result, 'violations', [])[:5]])
                 elif report_type == "hydraulics":
                     content = [f"Total Flow: {getattr(hydraulics_result, 'total_flow', 0.0):.2f} GPM",
                               f"Max Pressure Loss: {getattr(hydraulics_result, 'max_pressure_loss', 0.0):.2f} PSI"]
@@ -5252,6 +5291,14 @@ def orchestrate_project(project_json: dict):
         if input_file.suffix.lower() == '.dwg':
             extras.append({"name": "upload.dwg", "path": str(input_file)})
 
+        # Update job status to completed
+        STORE.set(pid, {"status": "succeeded", "pct": 100, "step": "done", "deliverables": {
+            "ifc": str(ifc_path) if ifc_path else None,
+            "dxf": str(dxf_path) if dxf_path else None,
+            "pdfs": pdfs,
+            "extras": extras
+        }})
+
         # Build manifest
         manifest = {
             "ifc": str(ifc_path) if ifc_path else None,
@@ -5264,4 +5311,5 @@ def orchestrate_project(project_json: dict):
 
     except Exception as e:
         logger.error(f"Orchestration failed for project {pid}: {str(e)}\n{traceback.format_exc()}")
+        STORE.set(pid, {"status": "failed", "pct": 100, "step": "error", "errors": [str(e)]})
         return {"errors": [str(e)], "project_id": pid}
