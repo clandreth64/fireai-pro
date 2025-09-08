@@ -5034,6 +5034,7 @@ logger.info(f"Project JSON: {json.dumps(project_json)}")
 
     # Find input file
     input_file = next((f for f in out.glob("upload.*") if f.suffix.lower() in ['.dxf', '.dwg', '.ifc', '.pdf']), None)
+    logger.info(f"Input file found: {input_file}")
     if not input_file:
         logger.error(f"No input file for {pid}")
         STORE.set(pid, {"status": "failed", "pct": 100, "step": "init", "errors": ["No input file"]})
@@ -5057,6 +5058,7 @@ logger.info(f"Project JSON: {json.dumps(project_json)}")
     try:
         # 1. CAD Engine: Extract geometry
         STORE.set(pid, {"status": "running", "pct": 10, "step": "cad_extraction"})
+        logger.info("Step 2: Processing geometry with CAD engine")
         if CAD_AVAILABLE:
             logger.info(f"Starting CAD extraction for {input_file}")
             cad_config = enhanced_cad_engine.CloudCADEngineConfig()
