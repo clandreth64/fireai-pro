@@ -5017,6 +5017,7 @@ def _pick_first(out: Path, *names):
     return None
 
 def orchestrate_project(project_json: dict):
+    logger.info("Step 1: Loading input file")
     logger.info("Started orchestrate_project")
 logger.info(f"Project JSON: {json.dumps(project_json)}")
     """
