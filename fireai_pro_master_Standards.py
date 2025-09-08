@@ -417,7 +417,7 @@ class ComprehensiveZipDatabase:
         
         # Initialize ZIP code engine
         if USZIPCODE_AVAILABLE:
-            self.zip_engine = SearchEngine()
+            self.zip_engine = SearchEngine(simple=True)
             logger.info("✅ US ZIP code engine initialized (40,000+ ZIP codes)")
         else:
             logger.warning("⚠️ External ZIP engine not available, using fallback data")
