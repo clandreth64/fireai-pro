@@ -253,8 +253,21 @@ async def create_project(
 
     return {"project_id": pid, "saved_file": str(saved_file) if saved_file else None}
 
+from fastapi import Body
+
 @app.post("/api/projects/{project_id}/run", dependencies=[Depends(require_api_key)])
-async def run_project(project_id: str, background: BackgroundTasks):
+async def run_project(project_id: str, background: BackgroundTasks, body: dict = Body(default_factory=dict)):
+    options = body or {}
+    ...
+    def background_task():
+        ...
+        # Call your orchestrator with project_id and options
+        manifest = _run_orchestrator({
+            "project_id": project_id,
+            "options": options,   # contains 'strict' if the client set it, otherwise empty
+        }) or {}
+        ...
+
     """Kick off the design run in a background task (job state via JobStore)."""
     proj_dir = OUTPUT_ROOT / project_id
     logger.info(f"Starting job for project_id: {project_id}, proj_dir: {proj_dir}")
