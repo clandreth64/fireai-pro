@@ -5100,6 +5100,31 @@ def orchestrate_project(project_json: dict):
     _make_pdf(targets["bracing"],       "Bracing Analysis",        f"Project: {pid}\nStatus: Generated")
     _make_pdf(targets["multistandard"], "Multi-Standard Check",    f"Project: {pid}\nNFPA13/NFPA20/NFPA25/IBC")
 
+
+        # --- STRICT Quality Gate (optional; enable with FIREAI_ENABLE_STRICT=true) ---
+    STRICT = os.getenv("FIREAI_ENABLE_STRICT", "false").lower() == "true"
+
+    def _is_low_quality(path: Path) -> bool:
+        try:
+            if not path.exists():
+                return True
+            size = path.stat().st_size
+            # Very conservative size thresholds to catch placeholders
+            if path.suffix.lower() == ".pdf":
+                return size < 5_000   # ~5 KB minimum for a real PDF
+            if path.suffix.lower() in {".dxf", ".ifc"}:
+                return size < 2_000   # ~2 KB minimum for CAD/IFC
+            return False
+        except Exception as e:
+            log.warning(f"quality check failed for {path}: {e}")
+            return True
+
+    if STRICT:
+        bad = [p.name for p in targets.values() if _is_low_quality(p)]
+        if bad:
+            log.error(f"STRICT mode: blocking job due to low-quality outputs: {bad}")
+            raise RuntimeError("STRICT outputs failed: " + ", ".join(bad))
+
     # Also return a manifest so the API knows what to upload to S3
     manifest = {
         "dxf": str(targets["dxf"]),
