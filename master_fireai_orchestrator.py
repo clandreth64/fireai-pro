@@ -5124,6 +5124,41 @@ def orchestrate_project(project_json: dict):
         if bad:
             log.error(f"STRICT mode: blocking job due to low-quality outputs: {bad}")
             raise RuntimeError("STRICT outputs failed: " + ", ".join(bad))
+        # --- STRICT Quality Gate (server-side, toggled via FIREAI_ENABLE_STRICT=true) ---
+    import os
+    from pathlib import Path
+
+    def _is_low_quality(path: Path) -> bool:
+        try:
+            if not path.exists():
+                return True
+            size = path.stat().st_size
+            # Very conservative thresholds to catch placeholders
+            if path.suffix.lower() == ".pdf":
+                return size < 5000     # ~5 KB minimum for a real PDF
+            if path.suffix.lower() in {".dxf", ".ifc"}:
+                return size < 2000     # ~2 KB minimum for CAD/IFC
+            return False
+        except Exception as e:
+            try:
+                log.warning(f"quality check failed for {path}: {e}")
+            except Exception:
+                pass
+            return True
+
+    if os.getenv("FIREAI_ENABLE_STRICT", "false").lower() == "true":
+        _targets_list = []
+        try:
+            _targets_list = list(targets.values())
+        except Exception:
+            pass
+        bad = [Path(p).name if hasattr(p, "name") else str(p) for p in _targets_list if _is_low_quality(Path(p))]
+        if bad:
+            try:
+                log.error(f"STRICT mode: blocking job due to low-quality outputs: {bad}")
+            except Exception:
+                pass
+            raise RuntimeError("STRICT outputs failed: " + ", ".join(bad))
 
     # Also return a manifest so the API knows what to upload to S3
     manifest = {
