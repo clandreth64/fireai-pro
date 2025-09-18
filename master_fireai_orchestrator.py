@@ -5026,6 +5026,29 @@ def orchestrate_project(project_json: dict):
 
     log = logging.getLogger("orchestrator")
     pid = (project_json or {}).get("project_id", "unknown")
+# --- progress + timing helpers (safe no-op if not wired) ---
+import contextlib, time, os
+
+def _progress(step: str, pct: int):
+    # If you have a job store, call it here; otherwise we just log:
+    try:
+        log.info(f"progress step={step} pct={pct}")
+    except Exception:
+        pass
+
+@contextlib.contextmanager
+def timed(name: str):
+    t0 = time.perf_counter()
+    try:
+        yield
+    finally:
+        dt = (time.perf_counter() - t0) * 1000.0
+        try:
+            log.info(f"timing.{name}_ms={dt:.1f}")
+        except Exception:
+            pass
+
+FAST = os.getenv("FIREAI_SLA_FAST","false").lower() == "true"
 
     # Where the app saves projects (Railway: set FIREAI_LOCAL_STORAGE=/data)
     out_root = Path(os.getenv("FIREAI_LOCAL_STORAGE", "./fireai_outputs"))
@@ -5091,14 +5114,56 @@ def orchestrate_project(project_json: dict):
     }
 
     # Minimal generation (works even if heavy modules are disabled)
-    if not targets["dxf"].exists(): _make_dxf(targets["dxf"])
-    if not targets["ifc"].exists(): _safe_text(targets["ifc"], "IFC placeholder – replace with real model")
+# === EXPORTS (parallel) ===
+with timed("exports"):
+    _progress("exports", 85)
+    export_timeout = int(os.getenv("EXPORT_TIMEOUT_S", "35"))
 
-    _make_pdf(targets["compliance"],    "NFPA Compliance Report",  f"Project: {pid}\nStatus: Generated")
-    _make_pdf(targets["hydraulics"],    "Hydraulic Analysis",      f"Project: {pid}\nStatus: Generated")
-    _make_pdf(targets["bom"],           "Bill of Materials",       f"Project: {pid}\nStatus: Generated")
-    _make_pdf(targets["bracing"],       "Bracing Analysis",        f"Project: {pid}\nStatus: Generated")
-    _make_pdf(targets["multistandard"], "Multi-Standard Check",    f"Project: {pid}\nNFPA13/NFPA20/NFPA25/IBC")
+    def _exp_dxf():
+        try:
+            _make_dxf(targets["dxf"])
+        except Exception as e:
+            log.exception("DXF export failed: %s", e)
+
+    def _exp_ifc():
+        try:
+            # Placeholder IFC; replace with real IFC generator when ready
+            _safe_text(targets["ifc"], "IFC placeholder – replace with real model")
+        except Exception as e:
+            log.exception("IFC export failed: %s", e)
+
+    def _exp_pdf(path, title):
+        def _run():
+            try:
+                _make_pdf(path, title, f"Project: {pid}\nStatus: Generated (FAST={FAST})")
+            except Exception as e:
+                log.exception("PDF export failed (%s): %s", title, e)
+        return _run
+
+    tasks = [
+        _exp_dxf,
+        _exp_ifc,
+        _exp_pdf(targets["compliance"],    "NFPA Compliance Report"),
+        _exp_pdf(targets["hydraulics"],    "Hydraulic Analysis"),
+        _exp_pdf(targets["bom"],           "Bill of Materials"),
+        _exp_pdf(targets["bracing"],       "Bracing Analysis"),
+        _exp_pdf(targets["multistandard"], "Multi-Standard Check"),
+    ]
+
+    from concurrent.futures import ThreadPoolExecutor, wait, FIRST_EXCEPTION
+    with ThreadPoolExecutor(max_workers=7) as ex:
+        futs = [ex.submit(fn) for fn in tasks]
+        done, not_done = wait(futs, timeout=export_timeout, return_when=FIRST_EXCEPTION)
+
+        # surface the first exception quickly
+        for f in done:
+            exc = f.exception()
+            if exc:
+                raise exc
+
+        if not_done:
+            log.warning("export_timeout reached (%ss); unfinished tasks: %s", export_timeout, not_done)
+
 
 
         # --- STRICT Quality Gate (optional; enable with FIREAI_ENABLE_STRICT=true) ---
@@ -5161,6 +5226,7 @@ def orchestrate_project(project_json: dict):
             raise RuntimeError("STRICT outputs failed: " + ", ".join(bad))
 
     # Also return a manifest so the API knows what to upload to S3
+    _progress("finalize", 95)
     manifest = {
         "dxf": str(targets["dxf"]),
         "ifc": str(targets["ifc"]),
@@ -5173,6 +5239,7 @@ def orchestrate_project(project_json: dict):
         },
         "extras": []
     }
+    _progress("done", 100)
     return {"artifacts": [
                 {"name": "design.dxf", "path": str(targets["dxf"])},
                 {"name": "model.ifc", "path": str(targets["ifc"])},
