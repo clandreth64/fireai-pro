@@ -5051,9 +5051,14 @@ def timed(name: str):
 FAST = os.getenv("FIREAI_SLA_FAST","false").lower() == "true"
 
     # Where the app saves projects (Railway: set FIREAI_LOCAL_STORAGE=/data)
-    out_root = Path(os.getenv("FIREAI_LOCAL_STORAGE", "./fireai_outputs"))
+    # Prefer the API's own projects folder so /download sees our files
+    # PROJECTS_DIR should be the parent that already contains project.json + upload.pdf
+    # (We default to /data/projects; change only if your API uses a different root)
+    projects_root = os.getenv("PROJECTS_DIR") or os.getenv("FIREAI_LOCAL_STORAGE") or "/data/projects"
+    out_root = Path(projects_root)
     out = out_root / pid
     out.mkdir(parents=True, exist_ok=True)
+
 
     def _p(name): return out / name
 
