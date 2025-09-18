@@ -30,3 +30,4 @@ def run(output_dir: str) -> dict:
     if (out / "model.ifc").exists() and not check_ifc_text(out / "model.ifc"):
         failures.append("ifc_structure: required classes not found")
     return {"pass": not failures, "failures": failures}
+ 
