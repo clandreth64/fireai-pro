@@ -4998,43 +4998,39 @@ from pathlib import Path
 import os, json
 
 def _api_out_dir(project_json: dict) -> Path:
-    """Ensure the API's expected output folder exists and stash project.json for reference."""
-    pid = (project_json or {}).get("project_id", "unknown")
-    root = Path(os.getenv("FIREAI_LOCAL_STORAGE", "./fireai_outputs"))
-    out = root / pid
-    out.mkdir(parents=True, exist_ok=True)
-    try:
-        (out / "project.json").write_text(json.dumps(project_json or {}, indent=2))
-    except Exception:
-        pass
-    return out
+# === ensure outputs land in the same folder as project.json/upload.pdf ===
+from pathlib import Path
+import os
 
-def _pick_first(out: Path, *names):
-    for n in names:
-        p = out / n
-        if p.exists():
-            return str(p)
-    return None
+def _resolve_project_dir(pid: str) -> Path:
+    # Try the known places the API uses; pick the one that already has project.json/upload.pdf
+    roots = [
+        os.getenv("PROJECTS_DIR"),
+        os.getenv("FIREAI_LOCAL_STORAGE"),
+        "/data/projects",  # Railway common
+        "/data",
+        "./projects",
+        "./fireai_outputs",
+    ]
+    for r in roots:
+        if not r:
+            continue
+        p = Path(r) / pid
+        if (p / "project.json").exists() or (p / "upload.pdf").exists():
+            return p
 
-def orchestrate_project(project_json: dict):
-    """
-    Production-safe: always emit the standard 7 outputs, even for PDFs.
-    Real routing/standards can replace the placeholders later.
-    """
-    import os, logging
-    from pathlib import Path
+    # Fallback: create under /data/projects (or PROJECTS_DIR if set)
+    base = os.getenv("PROJECTS_DIR") or "/data/projects"
+    p = Path(base) / pid
+    p.mkdir(parents=True, exist_ok=True)
+    return p
 
-    log = logging.getLogger("orchestrator")
-    pid = (project_json or {}).get("project_id", "unknown")
-# --- progress + timing helpers (safe no-op if not wired) ---
-import contextlib, time, os
-
-def _progress(step: str, pct: int):
-    # If you have a job store, call it here; otherwise we just log:
-    try:
-        log.info(f"progress step={step} pct={pct}")
-    except Exception:
-        pass
+out = _resolve_project_dir(pid)
+out.mkdir(parents=True, exist_ok=True)
+try:
+    log.info(f"orchestrator.out_dir={out.resolve()}")
+except Exception:
+    pass
 
 @contextlib.contextmanager
 def timed(name: str):
