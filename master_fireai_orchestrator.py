@@ -1414,6 +1414,50 @@ class FireAIProMasterOrchestrator:
             # =================================================================
             
             job_logger.info("🔄 PHASE 7: Generating GUARANTEED exports...")
+                        # >>> PUBLISH ARTIFACTS for API (/download & /artifacts)
+            try:
+                import json, shutil
+                # project folder: /data/projects/<project_id>
+                proj_id = str(project_data.get("project_id") or project_name).replace(" ", "_")
+                publish_dir = Path(self.config.LOCAL_STORAGE_PATH) / proj_id
+                publish_dir.mkdir(parents=True, exist_ok=True)
+
+                # canonical names the client expects
+                canonical = {
+                    "design.dxf":        (result.export_files.get("design.dxf") or result.export_files.get("dxf")),
+                    "model.ifc":         (result.export_files.get("model.ifc")  or result.export_files.get("ifc")),
+                    "compliance.pdf":    result.export_files.get("compliance.pdf"),
+                    "hydraulics.pdf":    result.export_files.get("hydraulics.pdf"),
+                    "bom.pdf":           result.export_files.get("bom.pdf"),
+                    "bracing.pdf":       result.export_files.get("bracing.pdf"),
+                    "multistandard.pdf": result.export_files.get("multistandard.pdf"),
+                }
+
+                # also keep the uploaded plan if present
+                up = job_dir / "upload.pdf"
+                if up.exists():
+                    shutil.copy2(up, publish_dir / "upload.pdf")
+
+                artifacts = []
+                for name, src in canonical.items():
+                    if not src:
+                        continue
+                    try:
+                        p = Path(str(src))
+                        if p.exists():
+                            shutil.copy2(p, publish_dir / name)
+                            artifacts.append({"name": name, "path": name})
+                        elif str(src).startswith("http"):
+                            artifacts.append({"name": name, "url": str(src)})
+                    except Exception as e:
+                        job_logger.warning(f"publish {name}: {e}")
+
+                (publish_dir / "artifacts.json").write_text(json.dumps({"artifacts": artifacts}, indent=2))
+                (publish_dir / "project.json").write_text(json.dumps(project_data, indent=2))
+                job_logger.info(f"📦 Published {len(artifacts)} artifact entries to {publish_dir}")
+            except Exception as e:
+                job_logger.warning(f"artifact publish failed: {e}")
+
             await self._generate_guaranteed_exports(result, job_dir, job_logger, dry_run, export_formats)
             
             if not dry_run:
@@ -4651,6 +4695,47 @@ async def download_project_file(job_id: str, file_type: str):
         return FileResponse(file_path, filename=f"{result.project_name}_{file_type}")
     else:
         return {"download_url": file_path}
+# --- Artifact listing that the tester calls ---
+@app.get("/api/projects/{project_id}/jobs/{job_id}/artifacts")
+async def list_artifacts(project_id: str, job_id: str):
+    """
+    Return canonical artifact names for this project from LOCAL_STORAGE_PATH/{project_id}.
+    """
+    try:
+        root = Path(config.LOCAL_STORAGE_PATH) / project_id
+        items = []
+
+        mf = root / "artifacts.json"
+        if mf.exists():
+            import json
+            data = json.loads(mf.read_text() or "{}")
+            for a in data.get("artifacts", []):
+                name = a.get("name") or a.get("filename")
+                url  = a.get("url")
+                path = a.get("path")
+                if name:
+                    if url:
+                        items.append({"name": name, "url": url})
+                    elif path:
+                        items.append({"name": name, "path": path})
+        else:
+            # derive from files if manifest not present yet
+            for n in ["design.dxf","model.ifc","compliance.pdf","hydraulics.pdf","bom.pdf","bracing.pdf","multistandard.pdf","upload.pdf"]:
+                if (root / n).exists():
+                    items.append({"name": n, "path": n})
+
+        return {"artifacts": items}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# --- Direct download endpoint that the tester calls ---
+@app.get("/api/projects/{project_id}/download/{filename}")
+async def download_artifact(project_id: str, filename: str):
+    p = Path(config.LOCAL_STORAGE_PATH) / project_id / filename
+    if not p.exists():
+        raise HTTPException(status_code=404, detail=f"{filename} not found for project {project_id}")
+    return FileResponse(str(p), filename=filename)
 
 
 @app.get("/health")
