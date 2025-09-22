@@ -1445,7 +1445,68 @@ class FireAIProMasterOrchestrator:
             job_logger.info(f"✅ HARDENED Pipeline completed: {result.status.value} in {result.total_processing_time:.2f}s")
             job_logger.info(f"📊 Compliance achieved in {len(result.compliance_history)} iterations")
             job_logger.info(f"📐 Guaranteed exports generated: {len(result.export_files)} files")
-            
+            # >>> BEGIN PUBLISH ARTIFACTS (copy/paste)
+try:
+    # Decide a stable folder for this project’s downloads
+    proj_id = str(project_data.get("project_id") or project_data.get("id") or project_name).replace(" ", "_")
+    publish_dir = Path(self.config.LOCAL_STORAGE_PATH) / proj_id
+    publish_dir.mkdir(parents=True, exist_ok=True)
+
+    # Canonical names the client expects
+    canonical = {
+        "design.dxf":        (result.export_files.get("design.dxf") or result.export_files.get("dxf")),
+        "model.ifc":         (result.export_files.get("model.ifc")  or result.export_files.get("ifc")),
+        "compliance.pdf":    result.export_files.get("compliance.pdf"),
+        "hydraulics.pdf":    result.export_files.get("hydraulics.pdf"),
+        "bom.pdf":           result.export_files.get("bom.pdf"),
+        "bracing.pdf":       result.export_files.get("bracing.pdf"),
+        "multistandard.pdf": result.export_files.get("multistandard.pdf"),
+    }
+
+    # Also publish the uploaded plan if we kept a local copy
+    up = job_dir / "upload.pdf"
+    if up.exists():
+        shutil.copy2(up, publish_dir / "upload.pdf")
+        canonical.setdefault("upload.pdf", str(up))
+
+    # Copy local files into publish_dir when possible; otherwise keep URLs
+    published = {}
+    for name, src in canonical.items():
+        if not src:
+            continue
+        src_str = str(src)
+        src_path = Path(src_str)
+        # Prefer local copy from absolute path or job_dir basename
+        if src_path.exists():
+            dest_path = publish_dir / name
+            shutil.copy2(src_path, dest_path)
+            published[name] = str(dest_path)
+        else:
+            alt = job_dir / Path(src_str).name
+            if alt.exists():
+                dest_path = publish_dir / name
+                shutil.copy2(alt, dest_path)
+                published[name] = str(dest_path)
+            elif src_str.lower().startswith("http"):
+                # If only a URL is available (S3/R2), expose that via /artifacts
+                published[name] = src_str
+
+    # Write an index for the /artifacts endpoint
+    idx = {
+        "project_id": proj_id,
+        "job_id": job_id,
+        "artifacts": [{"name": k, "url": v} for k, v in sorted(published.items())]
+    }
+    with open(publish_dir / "artifacts.json", "w", encoding="utf-8") as f:
+        json.dump(idx, f, indent=2)
+
+    # Keep result.export_files in canonical names too
+    result.export_files.update(published)
+    job_logger.info(f"📦 Published {len(published)} artifacts → {publish_dir}")
+except Exception as e:
+    job_logger.warning(f"⚠️ Failed to publish artifacts index: {e}")
+# >>> END PUBLISH ARTIFACTS
+
             return result
             
         except Exception as e:
