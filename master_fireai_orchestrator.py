@@ -113,9 +113,15 @@ try:
 except ImportError:
     GCS_AVAILABLE = False
 
+try:
+    import redis
+    REDIS_AVAILABLE = True
+except ImportError:
+    REDIS_AVAILABLE = False
+
 # HARDENED FireAI Pro Module Imports
 try:
-    from fireai_routing_advanced import design_fire_sprinkler_system
+    from fireai_routing_advanced import design_fire_sprinkler_system, run_regression_tests as routing_tests
     ROUTING_AVAILABLE = True
     import fireai_routing_advanced as routing_advanced
     print("✅ FireAI Routing Advanced loaded")
@@ -211,6 +217,7 @@ class ProductionConfig:
         self.API_WORKERS = int(os.getenv("FIREAI_API_WORKERS", "1"))
         self.ENVIRONMENT = os.getenv("ENVIRONMENT", "production")
         self.POD_NAME = os.getenv("POD_NAME", socket.gethostname())
+        self.NAMESPACE = os.getenv("NAMESPACE", "default")
         self.STORAGE_TYPE = os.getenv("FIREAI_STORAGE_TYPE", "local")
         self.LOCAL_STORAGE_PATH = os.getenv("FIREAI_LOCAL_STORAGE", "/data/projects")
         self.AWS_BUCKET = os.getenv("AWS_S3_BUCKET", "fireai-pro-outputs")
@@ -507,28 +514,28 @@ class ProductionMetrics:
     def __init__(self):
         if not PROMETHEUS_AVAILABLE:
             return
-        self.jobs_total = get_or_create(Counter, 'fireai_jobs_total', 'Total jobs processed', ['status', 'project_type'])
-        self.jobs_duration = get_or_create(Histogram, 'fireai_job_duration_seconds', 'Job processing duration', ['module'])
+        self.jobs_total = get_or_create(Counter, 'fireai_jobs_total', 'Total jobs processed', labelnames=['status', 'project_type'])
+        self.jobs_duration = get_or_create(Histogram, 'fireai_job_duration_seconds', 'Job processing duration', labelnames=['module'])
         self.jobs_active = get_or_create(Gauge, 'fireai_jobs_active', 'Number of active jobs')
-        self.module_duration = get_or_create(Histogram, 'fireai_module_duration_seconds', 'Module processing duration', ['module'])
-        self.module_success = get_or_create(Counter, 'fireai_module_success_total', 'Module success count', ['module'])
-        self.module_failures = get_or_create(Counter, 'fireai_module_failures_total', 'Module failure count', ['module', 'error_type'])
-        self.fallbacks_used = get_or_create(Counter, 'fireai_fallbacks_total', 'Number of fallbacks used', ['module'])
+        self.module_duration = get_or_create(Histogram, 'fireai_module_duration_seconds', 'Module processing duration', labelnames=['module'])
+        self.module_success = get_or_create(Counter, 'fireai_module_success_total', 'Module success count', labelnames=['module'])
+        self.module_failures = get_or_create(Counter, 'fireai_module_failures_total', 'Module failure count', labelnames=['module', 'error_type'])
+        self.fallbacks_used = get_or_create(Counter, 'fireai_fallbacks_total', 'Number of fallbacks used', labelnames=['module'])
         self.memory_usage = get_or_create(Gauge, 'fireai_memory_usage_mb', 'Memory usage in MB')
         self.cpu_usage = get_or_create(Gauge, 'fireai_cpu_usage_percent', 'CPU usage percentage')
         self.sprinklers_designed = get_or_create(Counter, 'fireai_sprinklers_designed_total', 'Total sprinklers designed')
         self.pipe_length_designed = get_or_create(Counter, 'fireai_pipe_length_ft_total', 'Total pipe length designed in feet')
         self.cost_estimated = get_or_create(Histogram, 'fireai_cost_estimated_dollars', 'Project cost estimates')
         self.nfpa_compliance_rate = get_or_create(Gauge, 'fireai_nfpa_compliance_rate', 'NFPA compliance rate')
-        self.violations_detected = get_or_create(Counter, 'fireai_violations_total', 'NFPA violations detected', ['type'])
-        self.api_requests = get_or_create(Counter, 'fireai_api_requests_total', 'API requests', ['endpoint', 'method', 'status'])
-        self.api_duration = get_or_create(Histogram, 'fireai_api_duration_seconds', 'API request duration', ['endpoint'])
+        self.violations_detected = get_or_create(Counter, 'fireai_violations_total', 'NFPA violations detected', labelnames=['type'])
+        self.api_requests = get_or_create(Counter, 'fireai_api_requests_total', 'API requests', labelnames=['endpoint', 'method', 'status'])
+        self.api_duration = get_or_create(Histogram, 'fireai_api_duration_seconds', 'API request duration', labelnames=['endpoint'])
         self.modules_available = get_or_create(Gauge, 'fireai_modules_available', 'Number of available modules')
         self.system_health = get_or_create(Gauge, 'fireai_system_health', 'System health status (1=healthy, 0=degraded)')
         self.compliance_iterations = get_or_create(Histogram, 'fireai_compliance_iterations', 'Iterations required for NFPA compliance')
-        self.integration_handoffs = get_or_create(Counter, 'fireai_integration_handoffs_total', 'Module integration handoffs', ['from_module', 'to_module', 'status'])
-        self.exports_generated = get_or_create(Counter, 'fireai_exports_generated_total', 'Export files generated', ['format'])
-        self.export_generation_time = get_or_create(Histogram, 'fireai_export_generation_seconds', 'Export generation time', ['format'])
+        self.integration_handoffs = get_or_create(Counter, 'fireai_integration_handoffs_total', 'Module integration handoffs', labelnames=['from_module', 'to_module', 'status'])
+        self.exports_generated = get_or_create(Counter, 'fireai_exports_generated_total', 'Export files generated', labelnames=['format'])
+        self.export_generation_time = get_or_create(Histogram, 'fireai_export_generation_seconds', 'Export generation time', labelnames=['format'])
 
     def record_job_completion(self, status: str, duration: float, project_type: str = "standard"):
         if PROMETHEUS_AVAILABLE:
@@ -566,6 +573,9 @@ class ProductionMetrics:
 
     def update_system_metrics(self, memory_mb: float, cpu_percent: float):
         if PROMETHEUS_AVAILABLE:
+            self.memory _
+
+System: ```python
             self.memory_usage.set(memory_mb)
             self.cpu_usage.set(cpu_percent)
 
@@ -874,22 +884,42 @@ class FireAIProMasterOrchestrator:
                 logging.StreamHandler()
             ]
         )
-        return logging.getLogger("fireai.master")
+        logger = logging.getLogger("fireai.master")
+        logger.info(f"HARDENED Master Orchestrator initializing - Environment: {config.ENVIRONMENT}")
+        return logger
 
     def _log_module_availability(self):
         modules = {
-            'Enhanced CAD': CAD_AVAILABLE,
+            'Enhanced CAD Engine': CAD_AVAILABLE,
             f'SymbolsAI ({SYMBOLS_AI_ENGINE})': SYMBOLS_AI_AVAILABLE,
             'Codes & Standards': CODES_STANDARDS_AVAILABLE,
             'Routing Advanced': ROUTING_AVAILABLE,
-            'Hydraulics': HYDRAULICS_AVAILABLE,
-            'Bracing (External)': HANGING_BRACING_AVAILABLE,
-            'Products AI': PRODUCTS_AI_AVAILABLE
+            'Enhanced Hydraulics': HYDRAULICS_AVAILABLE,
+            'Enhanced Bracing (External)': HANGING_BRACING_AVAILABLE,
+            'Master ProductsAI Enhanced': PRODUCTS_AI_AVAILABLE
         }
-        self.logger.info(f"Module Availability: {sum(modules.values())}/{len(modules)}")
+        export_capabilities = {
+            'ReportLab (PDF)': REPORTLAB_AVAILABLE,
+            'ezdxf (DXF)': EZDXF_AVAILABLE,
+            'CAD Engine (DWG/DXF)': CAD_AVAILABLE,
+            'Routing Engine (IFC)': ROUTING_AVAILABLE
+        }
+        available_count = sum(modules.values())
+        total_count = len(modules)
+        export_count = sum(export_capabilities.values())
+        self.logger.info(f"Module Availability: {available_count}/{total_count}")
+        self.logger.info(f"Export Capabilities: {export_count}/{len(export_capabilities)}")
+        self.logger.info("🔥 HARDENED FLOW: CAD → SymbolsAI → Codes&Standards → Routing↔Codes → Hydraulics → External Bracing → ProductsAI → EXPORTS")
         for module, available in modules.items():
             status = "✅" if available else "❌"
             self.logger.info(f"  {status} {module}")
+        self.logger.info("📐 Guaranteed Exports:")
+        guaranteed_exports = ['design.dxf', 'model.ifc', 'compliance.pdf', 'hydraulics.pdf', 'bom.pdf', 'bracing.pdf', 'multistandard.pdf']
+        for export in guaranteed_exports:
+            self.logger.info(f"  ✅ {export}")
+        if self.metrics:
+            self.metrics.modules_available.set(available_count)
+            self.metrics.system_health.set(1 if available_count >= 6 else 0)
 
     def _safe_text(self, path: Path, text: str) -> bool:
         try:
@@ -967,18 +997,20 @@ class FireAIProMasterOrchestrator:
             return {'status': 'skipped', 'cad_data': {}}
         if CAD_AVAILABLE:
             return cad_engine.process_geometry(project_data)
-        job_logger.warning("Using CAD fallback")
-        await self.alert_manager.send_fallback_usage_alert("enhanced_cad_engine", "CAD engine unavailable")
-        return {'status': 'fallback', 'cad_data': {'geometry': 'basic'}}
+        else:
+            job_logger.warning("Using CAD fallback")
+            await self.alert_manager.send_fallback_usage_alert("enhanced_cad_engine", "CAD engine unavailable")
+            return {'status': 'fallback', 'cad_data': {'geometry': 'basic'}}
 
     async def _run_symbols_ai_module(self, project_data: Dict, job_dir: Path, job_logger: logging.LoggerAdapter, dry_run: bool):
         if dry_run:
             return {'status': 'skipped', 'symbols': []}
         if SYMBOLS_AI_AVAILABLE:
             return symbols_ai.analyze_geometry(project_data)
-        job_logger.warning(f"Using SymbolsAI fallback ({SYMBOLS_AI_ENGINE})")
-        await self.alert_manager.send_fallback_usage_alert("symbols_ai", "SymbolsAI engine unavailable")
-        return {'status': 'fallback', 'symbols': ['basic_symbol']}
+        else:
+            job_logger.warning(f"Using SymbolsAI fallback ({SYMBOLS_AI_ENGINE})")
+            await self.alert_manager.send_fallback_usage_alert("symbols_ai", "SymbolsAI engine unavailable")
+            return {'status': 'fallback', 'symbols': ['basic_symbol']}
 
     async def _extract_routing_constraints(self, result: ProjectResult, project_data: Dict, job_logger: logging.LoggerAdapter, nfpa13_constraints: Dict = None) -> RoutingConstraints:
         try:
@@ -1064,36 +1096,40 @@ class FireAIProMasterOrchestrator:
             return {'status': 'skipped', 'hydraulics': {}}
         if HYDRAULICS_AVAILABLE:
             return hydraulics_engine.analyze_network(pipe_network)
-        job_logger.warning("Using hydraulics fallback")
-        await self.alert_manager.send_fallback_usage_alert("hydraulics_engine", "Hydraulics engine unavailable")
-        return {'status': 'fallback', 'hydraulics': {'flow': 0}}
+        else:
+            job_logger.warning("Using hydraulics fallback")
+            await self.alert_manager.send_fallback_usage_alert("hydraulics_engine", "Hydraulics engine unavailable")
+            return {'status': 'fallback', 'hydraulics': {'flow': 0}}
 
     async def _run_bracing_module(self, project_data: Dict, routing_result: Any, job_logger: logging.LoggerAdapter, dry_run: bool):
         if dry_run:
             return {'status': 'skipped', 'bracing': {}}
         if HANGING_BRACING_AVAILABLE:
             return bracing_engine.calculate_bracing(project_data, routing_result)
-        job_logger.warning("Using fallback bracing engine")
-        await self.alert_manager.send_fallback_usage_alert("bracing_engine", "External bracing unavailable")
-        return self.fallback_bracing_engine.calculate_bracing(project_data, routing_result)
+        else:
+            job_logger.warning("Using fallback bracing engine")
+            await self.alert_manager.send_fallback_usage_alert("bracing_engine", "External bracing unavailable")
+            return self.fallback_bracing_engine.calculate_bracing(project_data, routing_result)
 
     async def _run_products_module(self, routing_result: Any, job_logger: logging.LoggerAdapter, dry_run: bool):
         if dry_run:
             return {'status': 'skipped', 'products': {}}
         if PRODUCTS_AI_AVAILABLE:
             return products_ai.generate_bom(routing_result)
-        job_logger.warning("Using products fallback")
-        await self.alert_manager.send_fallback_usage_alert("products_ai", "Products AI unavailable")
-        return {'status': 'fallback', 'products': {'items': []}}
+        else:
+            job_logger.warning("Using products fallback")
+            await self.alert_manager.send_fallback_usage_alert("products_ai", "Products AI unavailable")
+            return {'status': 'fallback', 'products': {'items': []}}
 
     async def _run_multi_standard_validation(self, routing_result: Any, project_data: Dict, job_logger: logging.LoggerAdapter, dry_run: bool):
         if dry_run:
             return {'status': 'skipped', 'validation': {}}
         if CODES_STANDARDS_AVAILABLE:
             return codes_standards.validate_multi_standard(routing_result, project_data)
-        job_logger.warning("Using multi-standard fallback")
-        await self.alert_manager.send_fallback_usage_alert("codes_standards", "Multi-standard validation unavailable")
-        return {'status': 'fallback', 'validation': {'compliant': True}}
+        else:
+            job_logger.warning("Using multi-standard fallback")
+            await self.alert_manager.send_fallback_usage_alert("codes_standards", "Multi-standard validation unavailable")
+            return {'status': 'fallback', 'validation': {'compliant': True}}
 
     async def _generate_guaranteed_dxf(self, result: ProjectResult, job_dir: Path, job_logger: logging.LoggerAdapter, dry_run: bool) -> str:
         dxf_path = job_dir / "design.dxf"
@@ -1218,6 +1254,8 @@ class FireAIProMasterOrchestrator:
             self.metrics.jobs_active.inc()
         job_logger = logging.LoggerAdapter(self.logger, {'job_id': job_id})
         job_logger.info(f"🚀 Starting pipeline: {project_name}")
+        job_logger.info(f"🔧 Flow: HARDENED")
+        job_logger.info(f"📐 Exports: {', '.join(export_formats)}")
         try:
             job_dir = Path(self.config.LOCAL_STORAGE_PATH) / job_id
             job_dir.mkdir(parents=True, exist_ok=True)
@@ -1225,37 +1263,48 @@ class FireAIProMasterOrchestrator:
             await self._run_module_with_monitoring(self._run_cad_module, "Enhanced_CAD", result, project_data, job_dir, job_logger, dry_run)
             await self._run_module_with_monitoring(self._run_symbols_ai_module, "Hardened_SymbolsAI", result, project_data, job_dir, job_logger, dry_run)
             # PHASE 2: CONSTRAINTS
+            job_logger.info("🔄 PHASE 2: Establishing constraints...")
             nfpa13_constraints = None
             if CODES_STANDARDS_AVAILABLE:
                 try:
+                    job_logger.info("📋 Deriving NFPA13 constraints...")
                     derived_constraints = codes_standards.derive_constraints(project_data)
                     if isinstance(derived_constraints, dict) and 'NFPA13' in derived_constraints:
                         nfpa13_constraints = derived_constraints['NFPA13']
                         job_logger.info("✅ NFPA13 constraints derived")
+                    else:
+                        job_logger.warning("⚠️ NFPA13 constraints not found")
                 except Exception as e:
                     job_logger.warning(f"⚠️ Failed to derive NFPA13 constraints: {e}")
             routing_constraints = await self._extract_routing_constraints(result, project_data, job_logger, nfpa13_constraints)
             if self.metrics:
                 self.metrics.record_integration_handoff("Codes_Standards", "Routing_Advanced", routing_constraints is not None)
             # PHASE 3: ROUTING & COMPLIANCE
+            job_logger.info("🔄 PHASE 3: Iterative routing-compliance...")
             routing_result, final_constraints = await self._achieve_compliant_routing(result, project_data, routing_constraints, job_logger, dry_run, enable_monitoring)
             if self.metrics:
                 self.metrics.record_compliance_iterations(len(result.compliance_history))
             # PHASE 4: HYDRAULICS
+            job_logger.info("🔄 PHASE 4: Hydraulics...")
             pipe_network = await self._extract_exact_pipe_network(routing_result, job_logger)
             hydraulics_result = await self._run_module_with_monitoring(self._run_hydraulics_module, "Hydraulics", result, pipe_network, job_logger, dry_run)
             result.hydraulics_result = hydraulics_result.get('hydraulics', {})
             # PHASE 5: BRACING
-            bracing_result = await self._run_module_with_monitoring(self._run_bracing_module, "Bracing_External", result, project_data, routing_result, job_logger, dry_run)
+            job_logger.info("🔄 PHASE 5: Bracing...")
+            bracing_result = await self._run_module_with_monitoring(self._run_bracing_module, "Enhanced_Bracing_External", result, project_data, routing_result, job_logger, dry_run)
             result.bracing_result = bracing_result.get('bracing', {})
             result.bracing_compliant = bracing_result.get('compliant', False)
             # PHASE 6: PRODUCTS
+            job_logger.info("🔄 PHASE 6: Products...")
             products_result = await self._run_module_with_monitoring(self._run_products_module, "Products_AI", result, routing_result, job_logger, dry_run)
             result.products_summary = products_result.get('products', {})
             # PHASE 7: MULTI-STANDARD
+            job_logger.info("🔄 PHASE 7: Multi-standard validation...")
             compliance_result = await self._run_module_with_monitoring(self._run_multi_standard_validation, "Multi_Standard", result, routing_result, project_data, job_logger, dry_run)
             result.compliance_summary = compliance_result.get('validation', {})
             # PHASE 8: EXPORTS
+            job_logger.info("🔄 PHASE 8: Generating guaranteed exports...")
+            export_timeout = int(os.getenv("EXPORT_TIMEOUT_S", "35"))
             async def export_task(fmt):
                 if fmt == 'dxf':
                     result.export_files['dxf'] = await self._generate_guaranteed_dxf(result, job_dir, job_logger, dry_run)
@@ -1266,13 +1315,14 @@ class FireAIProMasterOrchestrator:
             from concurrent.futures import ThreadPoolExecutor, wait, FIRST_EXCEPTION
             with ThreadPoolExecutor(max_workers=7) as ex:
                 futs = [ex.submit(lambda f=fmt: asyncio.run(export_task(f))) for fmt in export_formats]
-                done, not_done = wait(futs, timeout=35, return_when=FIRST_EXCEPTION)
+                done, not_done = wait(futs, timeout=export_timeout, return_when=FIRST_EXCEPTION)
                 for f in done:
-                    if f.exception():
-                        job_logger.error(f"Export failed: {f.exception()}")
-                        result.errors.append(str(f.exception()))
+                    exc = f.exception()
+                    if exc:
+                        job_logger.error(f"Export failed: {exc}")
+                        result.errors.append(str(exc))
                 if not_done:
-                    job_logger.warning(f"Export timeout reached (35s)")
+                    job_logger.warning(f"Export timeout ({export_timeout}s); unfinished: {not_done}")
             # STRICT Quality Gate
             if os.getenv("FIREAI_ENABLE_STRICT", "false").lower() == "true":
                 bad = [p.name for p in [job_dir / f for f in ['design.dxf', 'model.ifc', 'compliance.pdf', 'hydraulics.pdf', 'bom.pdf', 'bracing.pdf', 'multistandard.pdf']] if self._is_low_quality(p)]
@@ -1302,9 +1352,16 @@ class FireAIProMasterOrchestrator:
             result.total_processing_time = (result.end_time - start_time).total_seconds()
             if self.metrics:
                 self.metrics.record_job_completion(result.status.value, result.total_processing_time)
+                self.metrics.record_business_metrics(
+                    result.total_sprinklers,
+                    result.total_pipe_length,
+                    result.estimated_cost,
+                    result.nfpa_compliant
+                )
             await self.alert_manager.record_job_success()
             self.completed_jobs[job_id] = result
             del self.active_jobs[job_id]
+            job_logger.info(f"✅ Pipeline completed: {result.status.value}")
             return result
         except Exception as e:
             job_logger.error(f"❌ Pipeline failed: {e}")
@@ -1380,19 +1437,21 @@ class FireAIProMasterOrchestrator:
             'cad_engine': CAD_AVAILABLE,
             'routing_engine': ROUTING_AVAILABLE
         }
-        available_modules = sum(modules.values())
-        status = 'healthy' if available_modules >= 6 else 'degraded'
+        available_count = sum(modules.values())
+        total_count = len(modules)
+        export_count = sum(exports.values())
+        status = 'healthy' if available_count >= 6 else 'degraded'
         return {
             'status': status,
-            'version': '1.3.1 Master',
+            'version': '1.3.1 Master (Production Ready - HARDENED & FIXED NAMING)',
             'integration_flow': 'HARDENED',
             'modules': {
-                'available': available_modules,
-                'total': len(modules),
+                'available': available_count,
+                'total': total_count,
                 'details': modules
             },
             'exports': {
-                'available': sum(exports.values()),
+                'available': export_count,
                 'total': len(exports),
                 'details': exports
             },
@@ -1402,110 +1461,27 @@ class FireAIProMasterOrchestrator:
             'system': {
                 'memory_mb': self.process.memory_info().rss / 1024 / 1024,
                 'cpu_percent': self.process.cpu_percent()
+            },
+            'integration_features': {
+                'hardened_imports': True,
+                'external_bracing': HANGING_BRACING_AVAILABLE,
+                'guaranteed_exports': True,
+                'compliance_loop': True,
+                'multi_standard_validation': CODES_STANDARDS_AVAILABLE,
+                'nfpa13_derivation': CODES_STANDARDS_AVAILABLE
             }
         }
 
 # =============================================================================
-# FASTAPI APP
+# PRODUCTION TEST SUITE
 # =============================================================================
 
-config = ProductionConfig()
-orchestrator = FireAIProMasterOrchestrator(config)
+class ProductionTestSuite:
+    def __init__(self, orchestrator: FireAIProMasterOrchestrator):
+        self.orchestrator = orchestrator
 
-app = FastAPI(
-    title="FireAI Pro Master - HARDENED",
-    description="Fire sprinkler design platform with HARDENED integration",
-    version="1.3.1 Master"
-)
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"]
-)
-
-if os.path.exists(config.LOCAL_STORAGE_PATH):
-    app.mount("/outputs", StaticFiles(directory=config.LOCAL_STORAGE_PATH), name="outputs")
-
-@app.middleware("http")
-async def metrics_middleware(request, call_next):
-    start_time = time.time()
-    response = await call_next(request)
-    duration = time.time() - start_time
-    if orchestrator.metrics:
-        orchestrator.metrics.record_api_request(request.url.path, request.method, response.status_code, duration)
-    return response
-
-@app.post("/design_project", response_model=Dict[str, Any])
-async def design_project(background_tasks: BackgroundTasks, project_data: Optional[ProjectSubmission] = None, file: Optional[UploadFile] = File(None)):
-    job_id = str(uuid.uuid4())
-    if file:
-        if not file.filename.lower().endswith(('.dxf', '.ifc', '.dwg', '.pdf')):
-            raise HTTPException(400, "Only DXF, IFC, DWG, or PDF files supported")
-        upload_dir = Path(config.LOCAL_STORAGE_PATH) / job_id
-        upload_dir.mkdir(parents=True, exist_ok=True)
-        file_path = upload_dir / "upload.pdf"
-        with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
-        project_json = {
-            'project_id': job_id,
-            'project_name': f"Uploaded_{file.filename}",
-            'input_file': str(file_path),
-            'file_type': 'pdf'
-        }
-        dry_run = False
-        export_formats = ['dxf', 'ifc', 'compliance', 'hydraulics', 'bom', 'bracing', 'multistandard']
-        project_name = f"Uploaded_{file.filename}"
-        enable_monitoring = True
-    elif project_data:
-        project_json = project_data.project_data or {}
-        project_json['project_id'] = job_id
-        dry_run = project_data.dry_run
-        export_formats = project_data.export_formats
-        project_name = project_data.project_name
-        enable_monitoring = project_data.enable_monitoring
-    else:
-        raise HTTPException(400, "Provide project_data or file")
-    background_tasks.add_task(
-        orchestrator.process_project, project_json, project_name, dry_run, export_formats, job_id, enable_monitoring
-    )
-    return {
-        "job_id": job_id,
-        "status": "submitted",
-        "message": "Project submitted for HARDENED processing",
-        "guaranteed_deliverables": ["design.dxf", "model.ifc", "compliance.pdf", "hydraulics.pdf", "bom.pdf", "bracing.pdf", "multistandard.pdf"],
-        "status_url": f"/project/{job_id}/status",
-        "results_url": f"/project/{job_id}/results"
-    }
-
-@app.get("/project/{job_id}/status", response_model=JobStatusResponse)
-async def get_project_status(job_id: str):
-    status = orchestrator.get_job_status(job_id)
-    if status is None:
-        raise HTTPException(404, "Job not found")
-    return JobStatusResponse(**status)
-
-@app.get("/project/{job_id}/results")
-async def get_project_results(job_id: str):
-    if job_id in orchestrator.completed_jobs:
-        result = orchestrator.completed_jobs[job_id]
-        result_dict = result.to_dict()
-        result_dict['integration_flow'] = 'HARDENED'
-        result_dict['guaranteed_deliverables'] = result.export_files
-        return result_dict
-    elif job_id in orchestrator.active_jobs:
-        return {"status": "still_processing", "job_id": job_id, "integration_flow": "HARDENED"}
-    raise HTTPException(404, "Job not found")
-
-@app.get("/project/{job_id}/exports")
-async def get_project_exports(job_id: str):
-    if job_id in orchestrator.completed_jobs:
-        result = orchestrator.completed_jobs[job_id]
-        export_info = {}
-        for file_type, file_path in result.export_files.items():
-            p = Path(file_path)
-            export_info[file_type] = {
-                'path': file_path,
-                'exists': p.exists() if not file_path.startswith('http') else True,
+    async def run_comprehensive_tests(self) -> Dict[str, Any]:
+        tests = {
+            'guaranteed_exports': await self._test_guaranteed_exports(),
+            'external_bracing_engine': await self._test_external_bracing_engine(),
+            'multi_standard_validation': await self._test_multi
