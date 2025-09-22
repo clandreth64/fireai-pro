@@ -1415,42 +1415,73 @@ class FireAIProMasterOrchestrator:
             
             job_logger.info("🔄 PHASE 7: Generating GUARANTEED exports...")
                         # >>> PUBLISH ARTIFACTS for API (/download & /artifacts)
-            try:
-                import json, shutil
-                # project folder: /data/projects/<project_id>
-                proj_id = str(project_data.get("project_id") or project_name).replace(" ", "_")
-                publish_dir = Path(self.config.LOCAL_STORAGE_PATH) / proj_id
-                publish_dir.mkdir(parents=True, exist_ok=True)
+            await self._generate_guaranteed_exports(result, job_dir, job_logger, dry_run, export_formats)
 
-                # canonical names the client expects
-                canonical = {
-                    "design.dxf":        (result.export_files.get("design.dxf") or result.export_files.get("dxf")),
-                    "model.ifc":         (result.export_files.get("model.ifc")  or result.export_files.get("ifc")),
-                    "compliance.pdf":    result.export_files.get("compliance.pdf"),
-                    "hydraulics.pdf":    result.export_files.get("hydraulics.pdf"),
-                    "bom.pdf":           result.export_files.get("bom.pdf"),
-                    "bracing.pdf":       result.export_files.get("bracing.pdf"),
-                    "multistandard.pdf": result.export_files.get("multistandard.pdf"),
-                }
+            if not dry_run:
+    await self._upload_outputs(result, job_dir, job_logger)
+# >>> PUBLISH ARTIFACTS for API (/download & /artifacts) — RUN AFTER exports exist
+try:
+    import json, shutil
+    proj_id = str(project_data.get("project_id") or project_name).replace(" ", "_")
+    publish_dir = Path(self.config.LOCAL_STORAGE_PATH) / proj_id
+    publish_dir.mkdir(parents=True, exist_ok=True)
 
-                # also keep the uploaded plan if present
-                up = job_dir / "upload.pdf"
-                if up.exists():
-                    shutil.copy2(up, publish_dir / "upload.pdf")
+    # Map internal keys to the canonical filenames your client expects
+    canonical = {
+        "design.dxf":        result.export_files.get("dxf"),
+        "model.ifc":         result.export_files.get("ifc"),
+        "compliance.pdf":    result.export_files.get("compliance_pdf"),
+        "hydraulics.pdf":    result.export_files.get("hydraulics_pdf"),
+        "bom.pdf":           result.export_files.get("bom_pdf"),
+        "bracing.pdf":       result.export_files.get("bracing_pdf"),
+        "multistandard.pdf": result.export_files.get("multistandard_pdf"),
+    }
 
-                artifacts = []
-                for name, src in canonical.items():
-                    if not src:
-                        continue
-                    try:
-                        p = Path(str(src))
-                        if p.exists():
-                            shutil.copy2(p, publish_dir / name)
-                            artifacts.append({"name": name, "path": name})
-                        elif str(src).startswith("http"):
-                            artifacts.append({"name": name, "url": str(src)})
-                    except Exception as e:
-                        job_logger.warning(f"publish {name}: {e}")
+    published = []
+    for name, src in canonical.items():
+        if not src:
+            continue
+        src_path = Path(str(src))
+        if str(src).startswith("http"):
+            # already in S3/R2 — keep URL
+            published.append({"name": name, "url": str(src)})
+        else:
+            if src_path.exists():
+                dst = publish_dir / name
+                shutil.copy2(src_path, dst)
+                published.append({"name": name, "path": str(dst)})
+
+    # also include original upload for convenience if it exists
+    upload_pdf = Path(job_dir) / "upload.pdf"
+    if upload_pdf.exists():
+        dst = publish_dir / "upload.pdf"
+        shutil.copy2(upload_pdf, dst)
+        published.append({"name": "upload.pdf", "path": str(dst)})
+
+    # Write artifacts.json
+    (publish_dir / "artifacts.json").write_text(
+        json.dumps({"project_id": proj_id, "job_id": result.job_id, "artifacts": published}, indent=2),
+        encoding="utf-8"
+    )
+
+    # Write a tiny project.json too (handy for your downloader)
+    (publish_dir / "project.json").write_text(
+        json.dumps({"project_id": proj_id, "job_id": result.job_id, "status": result.status.value}, indent=2),
+        encoding="utf-8"
+    )
+
+    # Make canonical names available to callers
+    for item in published:
+        if "url" in item:
+            result.export_files[item["name"]] = item["url"]
+        else:
+            result.export_files[item["name"]] = item["path"]
+
+    job_logger.info(f"📦 Published {len(published)} artifacts → {publish_dir}")
+except Exception as e:
+    job_logger.warning(f"⚠️ Failed to publish artifacts index: {e}")
+# >>> END PUBLISH ARTIFACTS
+
 
                 (publish_dir / "artifacts.json").write_text(json.dumps({"artifacts": artifacts}, indent=2))
                 (publish_dir / "project.json").write_text(json.dumps(project_data, indent=2))
