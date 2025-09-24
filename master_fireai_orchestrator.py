@@ -2084,19 +2084,35 @@ def validate_upload_file(file: UploadFile, max_size_mb: int = 100) -> bytes:
 
 security = HTTPBearer()
 
-def verify_api_key(credentials: HTTPAuthorizationCredentials = Depends(security)):
-    """Verify API key with enhanced security logging"""
+# --- AUTH: accept Bearer *or* X-API-Key ---
+from typing import Optional
+from fastapi import Header, Depends
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+
+security = HTTPBearer(auto_error=False)
+
+def verify_api_key(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
+    x_api_key: Optional[str] = Header(None, convert_underscores=False)
+):
+    """
+    Accepts either:
+      - Authorization: Bearer <key>
+      - X-API-Key: <key>
+    If no api_key is configured in settings, auth is disabled.
+    """
     if not settings.api_key:
-        return True  # No authentication configured
-    
-    if credentials.credentials != settings.api_key:
-        orchestrator.logger.warning("Invalid API key authentication attempt")
-        raise HTTPException(
-            status_code=401,
-            detail="Invalid API key",
-            headers={"WWW-Authenticate": "Bearer"}
-        )
-    
+        return True  # auth disabled
+
+    supplied = None
+    if credentials and credentials.scheme.lower() == "bearer":
+        supplied = credentials.credentials
+    elif x_api_key:
+        supplied = x_api_key
+
+    if supplied != settings.api_key:
+        raise HTTPException(status_code=401, detail="invalid or missing API key")
+
     return True
 
 
@@ -2618,6 +2634,156 @@ def main():
         log_level="info",
         access_log=False  # We handle our own logging
     )
+
+# =============================
+# LEGACY API SHIM (/api/…)
+# =============================
+from fastapi import APIRouter, UploadFile, File, Form
+from pathlib import Path
+import uuid, json
+
+legacy = APIRouter()
+
+def _project_dir(pid: str) -> Path:
+    d = orchestrator.output_dir / pid
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+def _load_artifacts(pid: str) -> dict:
+    """
+    Read the NEW API manifest (artifacts.json) and project it into the
+    legacy "deliverables" shape expected by old clients.
+    """
+    af = _project_dir(pid) / "artifacts.json"
+    if not af.exists():
+        return {}
+    with open(af, "r", encoding="utf-8") as f:
+        manifest = json.load(f)
+
+    # manifest["artifacts"] is already produced by your pipeline.
+    # Convert to: { "name": "absolute_path" } mapping; legacy clients only
+    # need the keys to know what to /download.
+    deliverables = {}
+    for item in manifest.get("artifacts", []):
+        name = item.get("name")
+        if not name:
+            continue
+        deliverables[name] = str((_project_dir(pid) / name).resolve())
+
+    # Add a simple summary for convenience (optional)
+    return {
+        "project_id": pid,
+        "output_dir": str(_project_dir(pid)),
+        "deliverables": deliverables
+    }
+
+@legacy.post("/api/projects", dependencies=[Depends(verify_api_key)])
+async def legacy_create_project(
+    project_name: str = Form("FireAI Project"),
+    zip_code: str = Form(None),
+    request: str = Form(None),
+    file: UploadFile = File(None)
+):
+    """
+    Legacy create endpoint. Mirrors NEW /pipeline intake:
+      - accepts multipart with 'request' JSON and optional 'file'
+      - creates a project folder and saves upload as upload.pdf
+      - writes a tiny project.json (your pipeline will enrich later)
+    """
+    pid = str(uuid.uuid4())
+    out = _project_dir(pid)
+
+    # Save uploaded file (if any) as 'upload.pdf'
+    if file:
+        # for PDFs; you can relax to "application/octet-stream" if needed
+        content = await file.read()
+        (out / "upload.pdf").write_bytes(content)
+
+    # Persist minimal project.json (merge form fields + request JSON)
+    payload = {
+        "project_id": pid,
+        "project_name": project_name,
+        "zip_code": zip_code,
+        "project_data": {}
+    }
+    if request:
+        try:
+            payload["project_data"] = json.loads(request)
+        except Exception:
+            payload["project_data"] = {"raw_request": request}
+
+    (out / "project.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+    # If your NEW /pipeline path does extra bookkeeping, you can optionally
+    # enqueue a “pre-parse” here. For now we return the legacy shape:
+    return {"project_id": pid}
+
+@legacy.post("/api/projects/{project_id}/run", dependencies=[Depends(verify_api_key)])
+async def legacy_run_project(project_id: str, background_tasks: BackgroundTasks):
+    """
+    Trigger your existing master pipeline on this project folder.
+    We reuse your orchestrator's background job system.
+    """
+    # Kick off using your orchestrator (adjust call name if different)
+    job_id = orchestrator.job_store.start_job(project_id)
+    background_tasks.add_task(orchestrator.run_for_project_id, project_id, job_id)
+    return {"job_id": job_id}
+
+@legacy.get("/api/jobs/{job_id}", dependencies=[Depends(verify_api_key)])
+async def legacy_get_job(job_id: str):
+    """
+    Poll job status; project_id == job_id in some systems, but we’ll ask the job store.
+    """
+    st = orchestrator.job_store.get_job_status_by_job_id(job_id)
+    if not st:
+        # fallback: some stores key by project_id
+        st = orchestrator.job_store.get_job_status(job_id)
+        if not st:
+            raise HTTPException(status_code=404, detail="Job not found")
+
+    # Optionally surface a small deliverables hint (PDF URLs etc.)
+    # You already include S3 URLs in your NEW job status; bubble them here if present.
+    return {
+        "job_id": job_id,
+        "project_id": st.get("project_id", job_id),
+        "status": st.get("status") or st.get("phase") or "running",
+        "current_step_name": st.get("step") or st.get("phase"),
+        "progress_percentage": st.get("pct") or st.get("progress", 0),
+        "deliverables": st.get("deliverables") or {}
+    }
+
+@legacy.get("/api/projects/{project_id}/results", dependencies=[Depends(verify_api_key)])
+async def legacy_results(project_id: str):
+    """
+    Old client reads deliverables here, then calls /api/projects/{id}/download/{name}.
+    We translate from artifacts.json produced by your NEW pipeline.
+    """
+    manifest = _load_artifacts(project_id)
+    if not manifest:
+        # Return 202 if job is still going; else 404 if nothing known
+        st = orchestrator.job_store.get_job_status(project_id)
+        if st and (st.get("status") not in ("failed", "error")):
+            raise HTTPException(status_code=202, detail="Artifacts not ready")
+        raise HTTPException(status_code=404, detail="No artifacts")
+    return manifest
+
+@legacy.get("/api/projects/{project_id}/download/{filename:path}", dependencies=[Depends(verify_api_key)])
+async def legacy_download(project_id: str, filename: str):
+    """
+    Legacy download endpoint. Reuse the NEW API's file serving logic by
+    delegating to the same filesystem layout.
+    """
+    # Reuse your existing /download handler logic inline:
+    out = _project_dir(project_id)
+    safe = (out / filename).resolve()
+    if not str(safe).startswith(str(out.resolve())):
+        raise HTTPException(status_code=400, detail="Invalid path")
+    if not safe.exists():
+        raise HTTPException(status_code=404, detail="Not Found")
+    return FileResponse(safe)
+
+# Register the legacy router
+app.include_router(legacy)
 
 
 if __name__ == "__main__":
