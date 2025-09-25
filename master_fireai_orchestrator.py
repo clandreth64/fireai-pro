@@ -45,7 +45,7 @@ from dataclasses import dataclass, field, asdict
 from enum import Enum
 
 # Core dependencies
-from fastapi import FastAPI, File, UploadFile, HTTPException, BackgroundTasks, Header, Depends, Request
+from fastapi import FastAPI, File, UploadFile, HTTPException, BackgroundTasks, Header, Depends, Request, Form
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -110,10 +110,10 @@ class Settings(BaseSettings):
     job_db_path: str = "fireai_jobs.sqlite"
     temp_dir: str = "/tmp/fireai"
     
-    # Resource Limits
-    max_file_size_mb: int = 100
-    max_concurrent_jobs: int = 5
-    max_processing_time_hours: int = 4
+    # Railway-friendly resource limits
+    max_file_size_mb: int = int(os.getenv("MAX_FILE_SIZE_MB", "50"))
+    max_concurrent_jobs: int = int(os.getenv("MAX_CONCURRENT_JOBS", "2"))
+    max_processing_time_hours: int = int(os.getenv("MAX_PROCESSING_TIME_HOURS", "2"))
     
     # Engine Configuration
     engine_timeout_s: int = 300
@@ -467,7 +467,7 @@ class CircuitBreaker:
 class ResourceManager:
     """System resource management"""
     
-    def __init__(self, settings: Settings):
+    def __init__(self, settings):
         self.settings = settings
         self.active_jobs = {}
         self.logger = logging.getLogger("fireai.resources")
@@ -635,8 +635,9 @@ class ErrorClassifier:
 class JobStore:
     """Enterprise job store with audit trail"""
     
-    def __init__(self, db_pool: DatabasePool, audit_enabled: bool = True):
+    def __init__(self, db_pool: DatabasePool, settings, audit_enabled: bool = True):
         self.db_pool = db_pool
+        self.settings = settings
         self.audit_enabled = audit_enabled
         self.logger = logging.getLogger("fireai.jobstore")
     
@@ -646,7 +647,7 @@ class JobStore:
         try:
             with self.db_pool.transaction() as conn:
                 now = time.time()
-                timeout_at = now + (self.settings.max_processing_time_hours * 3600 if hasattr(self, 'settings') else 14400)
+                timeout_at = now + (self.settings.max_processing_time_hours * 3600)
                 
                 checksum = self._calculate_checksum({
                     'job_id': job_id,
@@ -754,6 +755,38 @@ class JobStore:
         except Exception:
             return None
     
+    def start_job(self, project_id: str) -> str:
+        """Start a job for legacy API"""
+        job_id = str(uuid.uuid4())
+        try:
+            with self.db_pool.transaction() as conn:
+                now = time.time()
+                timeout_at = now + (self.settings.max_processing_time_hours * 3600)
+                
+                conn.execute("""
+                    INSERT INTO jobs (
+                        id, phase, status, submitted_at, updated_at, 
+                        context_json, idempotency_key, timeout_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    job_id, JobPhase.SUBMITTED.value, "submitted", now, now,
+                    json.dumps({"project_id": project_id}), f"legacy_{project_id}_{now}", timeout_at
+                ))
+                
+                if self.audit_enabled:
+                    self._log_audit(conn, job_id, JobPhase.SUBMITTED, "legacy_job_started", 
+                                   None, None, {"project_id": project_id})
+                
+        except Exception as e:
+            self.logger.error(f"Failed to start job for project {project_id}: {e}")
+            # Return job_id anyway for legacy compatibility
+        
+        return job_id
+    
+    def get_job_status_by_job_id(self, job_id: str) -> Optional[Dict]:
+        """Get job status by job ID for legacy API"""
+        return self.get_job_status(job_id)
+    
     def _log_audit(self, conn, job_id: str, phase: JobPhase, action: str,
                    user_id: str = None, ip_address: str = None, details: Dict = None):
         """Log audit entry"""
@@ -804,13 +837,13 @@ BRACING_ENGINE = safe_import('enhanced_bracing_engine')
 class MasterOrchestrator:
     """Production-ready master orchestrator"""
     
-    def __init__(self, settings: Settings):
+    def __init__(self, settings):
         self.settings = settings
         self.logger = self._setup_logging()
         
         # Core components
         self.db_pool = DatabasePool(settings.job_db_path)
-        self.job_store = JobStore(self.db_pool, settings.audit_enabled)
+        self.job_store = JobStore(self.db_pool, settings, settings.audit_enabled)
         self.resource_manager = ResourceManager(settings)
         self.metrics = MetricsCollector(settings.metrics_enabled)
         self.error_classifier = ErrorClassifier()
@@ -938,7 +971,7 @@ class MasterOrchestrator:
                     raise HTTPException(status_code=429, detail="Rate limit exceeded")
                 
                 # Create job record
-                if not self.job_store.create_job(job_id, project_data, idempotency_key, user_id, ip_address):
+                if not self.job_store.create_job(job_id, project_data, idempotency_key or str(uuid.uuid4()), user_id, ip_address):
                     existing_job = self.job_store.find_by_idempotency_key(idempotency_key)
                     return {"project_id": existing_job, "status": "duplicate"}
                 
@@ -972,6 +1005,31 @@ class MasterOrchestrator:
                     "error_type": error_type.value,
                     "error": str(e)
                 }
+    
+    async def run_for_project_id(self, project_id: str, job_id: str):
+        """Run pipeline for a specific project ID (legacy API support)"""
+        try:
+            project_dir = Path(self.settings.local_storage_path) / project_id
+            project_file = project_dir / "project.json"
+            
+            if project_file.exists():
+                with open(project_file) as f:
+                    project_data = json.load(f)
+            else:
+                project_data = {
+                    "project_id": project_id,
+                    "project_name": "Legacy Project"
+                }
+            
+            input_file = None
+            upload_file = project_dir / "upload.pdf"
+            if upload_file.exists():
+                input_file = str(upload_file)
+            
+            await self.process_design(project_data, input_file, job_id)
+        except Exception as e:
+            self.logger.error(f"Legacy pipeline failed for project {project_id}: {e}")
+            self.job_store.update_job_phase(job_id, JobPhase.FAILED, errors=[str(e)])
     
     async def _execute_pipeline(self, job_id: str, project_data: Dict, input_file: Optional[str],
                               temp_dir: str, resource_tracker: ResourceUsage, logger) -> Dict:
@@ -2042,7 +2100,7 @@ def compute_idempotency_key(file_bytes: Optional[bytes], project_data: Dict) -> 
     return h.hexdigest()
 
 
-def validate_upload_file(file: UploadFile, max_size_mb: int = 100) -> bytes:
+def validate_upload_file(file: UploadFile, max_size_mb: int = 50) -> bytes:
     """Validate uploaded file with comprehensive checks"""
     if not file.filename:
         raise ValueError("No filename provided")
@@ -2082,13 +2140,6 @@ def validate_upload_file(file: UploadFile, max_size_mb: int = 100) -> bytes:
 # SECURITY & AUTHENTICATION
 # =============================================================================
 
-security = HTTPBearer()
-
-# --- AUTH: accept Bearer *or* X-API-Key ---
-from typing import Optional
-from fastapi import Header, Depends
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-
 security = HTTPBearer(auto_error=False)
 
 def verify_api_key(
@@ -2101,7 +2152,14 @@ def verify_api_key(
       - X-API-Key: <key>
     If no api_key is configured in settings, auth is disabled.
     """
-    if not settings.api_key:
+    # Initialize settings here to avoid circular import
+    try:
+        settings_instance = Settings()
+    except:
+        # Fallback if settings fails
+        return True
+        
+    if not settings_instance.api_key:
         return True  # auth disabled
 
     supplied = None
@@ -2110,7 +2168,7 @@ def verify_api_key(
     elif x_api_key:
         supplied = x_api_key
 
-    if supplied != settings.api_key:
+    if supplied != settings_instance.api_key:
         raise HTTPException(status_code=401, detail="invalid or missing API key")
 
     return True
@@ -2123,17 +2181,17 @@ def verify_api_key(
 # Initialize settings
 try:
     settings = Settings()
-    print(f"✓ Configuration loaded successfully")
+    print("* Configuration loaded successfully")
 except Exception as e:
-    print(f"✗ Configuration validation failed: {e}")
+    print(f"* Configuration validation failed: {e}")
     sys.exit(1)
 
 # Initialize orchestrator
 try:
     orchestrator = MasterOrchestrator(settings)
-    print(f"✓ Master orchestrator initialized")
+    print("* Master orchestrator initialized")
 except Exception as e:
-    print(f"✗ Orchestrator initialization failed: {e}")
+    print(f"* Orchestrator initialization failed: {e}")
     sys.exit(1)
 
 
@@ -2163,7 +2221,8 @@ app.add_middleware(
 class PipelineRequest(BaseModel):
     project_name: str = Field(..., min_length=1, max_length=255, description="Project name")
     project_data: Dict = Field(default_factory=dict, description="Additional project data")
-    zip_code: Optional[str] = Field(default=None, regex=r'^\d{5}(-\d{4})?, description="US ZIP code")
+    zip_code: Optional[str] = Field(default=None, regex=r'^\d{5}(-\d{4})?
+                    , description="US ZIP code")
     webhook_url: Optional[str] = Field(default=None, description="Webhook URL for notifications")
 
 
@@ -2548,99 +2607,10 @@ async def root():
 
 
 # =============================================================================
-# MAIN ENTRY POINT
+# LEGACY API SUPPORT
 # =============================================================================
 
-def main():
-    """Main entry point with comprehensive startup information"""
-    
-    print("=" * 60)
-    print("FireAI Pro Master Production Orchestrator v4.0.0")
-    print("=" * 60)
-    print("🚀 Production-ready enterprise features:")
-    print("  ✓ Circuit breaker protection for all engine calls")
-    print("  ✓ Database connection pooling & atomic transactions")
-    print("  ✓ Resource management & memory tracking")
-    print("  ✓ Real-time job monitoring & status tracking")
-    print("  ✓ Rate limiting & request quotas")
-    print("  ✓ Comprehensive error classification & handling")
-    print("  ✓ Retry mechanisms with exponential backoff")
-    print("  ✓ Smart export generation (PDF/DXF/IFC)")
-    print("  ✓ Upload validation & security checks")
-    print("  ✓ Idempotency protection")
-    print("  ✓ Webhook notifications")
-    print("  ✓ JSON structured logging")
-    print("  ✓ Quality gate validation")
-    print("  ✓ Graceful shutdown handling")
-    print("  ✓ Audit trail & compliance logging")
-    print()
-    
-    # Configuration
-    print("📋 Configuration:")
-    print(f"  Host: {settings.host}:{settings.port}")
-    print(f"  Storage: {settings.local_storage_path}")
-    print(f"  Database: {settings.job_db_path}")
-    print(f"  Max File Size: {settings.max_file_size_mb}MB")
-    print(f"  Max Jobs: {settings.max_concurrent_jobs}")
-    print(f"  Engine Timeout: {settings.engine_timeout_s}s")
-    print(f"  Strict Mode: {'ENABLED' if settings.strict_mode else 'DISABLED'}")
-    print(f"  Audit Trail: {'ENABLED' if settings.audit_enabled else 'DISABLED'}")
-    print(f"  API Key: {'CONFIGURED' if settings.api_key else 'NOT SET'}")
-    print()
-    
-    # Engine status
-    print("🔧 Engine Status:")
-    orchestrator._log_engine_status()
-    print()
-    
-    # Dependencies
-    print("📦 Dependencies:")
-    print(f"  ReportLab (PDF): {'✓ Available' if REPORTLAB_AVAILABLE else '✗ Unavailable (text fallback)'}")
-    print(f"  ezdxf (CAD): {'✓ Available' if EZDXF_AVAILABLE else '✗ Unavailable (basic fallback)'}")
-    print(f"  Requests (Webhook): {'✓ Available' if REQUESTS_AVAILABLE else '✗ Unavailable'}")
-    print(f"  Prometheus (Metrics): {'✓ Available' if PROMETHEUS_AVAILABLE else '✗ Unavailable'}")
-    print(f"  psutil (Monitoring): {'✓ Available' if PSUTIL_AVAILABLE else '✗ Unavailable'}")
-    print()
-    
-    # Health check
-    health = orchestrator.get_health()
-    print(f"💚 System Health: {health['status'].upper()}")
-    if health.get('issues'):
-        print(f"   Issues: {', '.join(health['issues'])}")
-    print(f"   Active Jobs: {health.get('active_jobs', 0)}")
-    print(f"   Database: {'Healthy' if health.get('database_healthy') else 'Unhealthy'}")
-    print()
-    
-    # API endpoints
-    print("🌐 API Endpoints:")
-    print(f"  POST http://{settings.host}:{settings.port}/pipeline - Submit design job")
-    print(f"  GET  http://{settings.host}:{settings.port}/status/{{id}} - Real-time status")
-    print(f"  GET  http://{settings.host}:{settings.port}/artifacts/{{id}} - Download artifacts")
-    print(f"  GET  http://{settings.host}:{settings.port}/health - System health")
-    print()
-    
-    if settings.api_key:
-        print("🔐 API Key authentication ENABLED")
-        print("   Include header: Authorization: Bearer <your_api_key>")
-        print()
-    
-    print("🚀 Starting production server...")
-    print("=" * 60)
-    
-    uvicorn.run(
-        app,
-        host=settings.host,
-        port=settings.port,
-        log_level="info",
-        access_log=False  # We handle our own logging
-    )
-
-# =============================
-# LEGACY API SHIM (/api/…)
-# =============================
-from fastapi import APIRouter, UploadFile, File, Form
-from pathlib import Path
-import uuid, json
+from fastapi import APIRouter
 
 legacy = APIRouter()
 
@@ -2650,19 +2620,13 @@ def _project_dir(pid: str) -> Path:
     return d
 
 def _load_artifacts(pid: str) -> dict:
-    """
-    Read the NEW API manifest (artifacts.json) and project it into the
-    legacy "deliverables" shape expected by old clients.
-    """
+    """Load artifacts manifest for legacy API"""
     af = _project_dir(pid) / "artifacts.json"
     if not af.exists():
         return {}
     with open(af, "r", encoding="utf-8") as f:
         manifest = json.load(f)
 
-    # manifest["artifacts"] is already produced by your pipeline.
-    # Convert to: { "name": "absolute_path" } mapping; legacy clients only
-    # need the keys to know what to /download.
     deliverables = {}
     for item in manifest.get("artifacts", []):
         name = item.get("name")
@@ -2670,7 +2634,6 @@ def _load_artifacts(pid: str) -> dict:
             continue
         deliverables[name] = str((_project_dir(pid) / name).resolve())
 
-    # Add a simple summary for convenience (optional)
     return {
         "project_id": pid,
         "output_dir": str(_project_dir(pid)),
@@ -2684,22 +2647,16 @@ async def legacy_create_project(
     request: str = Form(None),
     file: UploadFile = File(None)
 ):
-    """
-    Legacy create endpoint. Mirrors NEW /pipeline intake:
-      - accepts multipart with 'request' JSON and optional 'file'
-      - creates a project folder and saves upload as upload.pdf
-      - writes a tiny project.json (your pipeline will enrich later)
-    """
+    """Legacy create endpoint"""
     pid = str(uuid.uuid4())
     out = _project_dir(pid)
 
-    # Save uploaded file (if any) as 'upload.pdf'
+    # Save uploaded file
     if file:
-        # for PDFs; you can relax to "application/octet-stream" if needed
         content = await file.read()
         (out / "upload.pdf").write_bytes(content)
 
-    # Persist minimal project.json (merge form fields + request JSON)
+    # Persist project data
     payload = {
         "project_id": pid,
         "project_name": project_name,
@@ -2714,35 +2671,24 @@ async def legacy_create_project(
 
     (out / "project.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
-    # If your NEW /pipeline path does extra bookkeeping, you can optionally
-    # enqueue a “pre-parse” here. For now we return the legacy shape:
     return {"project_id": pid}
 
 @legacy.post("/api/projects/{project_id}/run", dependencies=[Depends(verify_api_key)])
 async def legacy_run_project(project_id: str, background_tasks: BackgroundTasks):
-    """
-    Trigger your existing master pipeline on this project folder.
-    We reuse your orchestrator's background job system.
-    """
-    # Kick off using your orchestrator (adjust call name if different)
+    """Trigger pipeline for legacy API"""
     job_id = orchestrator.job_store.start_job(project_id)
     background_tasks.add_task(orchestrator.run_for_project_id, project_id, job_id)
     return {"job_id": job_id}
 
 @legacy.get("/api/jobs/{job_id}", dependencies=[Depends(verify_api_key)])
 async def legacy_get_job(job_id: str):
-    """
-    Poll job status; project_id == job_id in some systems, but we’ll ask the job store.
-    """
+    """Poll job status for legacy API"""
     st = orchestrator.job_store.get_job_status_by_job_id(job_id)
     if not st:
-        # fallback: some stores key by project_id
         st = orchestrator.job_store.get_job_status(job_id)
         if not st:
             raise HTTPException(status_code=404, detail="Job not found")
 
-    # Optionally surface a small deliverables hint (PDF URLs etc.)
-    # You already include S3 URLs in your NEW job status; bubble them here if present.
     return {
         "job_id": job_id,
         "project_id": st.get("project_id", job_id),
@@ -2754,13 +2700,9 @@ async def legacy_get_job(job_id: str):
 
 @legacy.get("/api/projects/{project_id}/results", dependencies=[Depends(verify_api_key)])
 async def legacy_results(project_id: str):
-    """
-    Old client reads deliverables here, then calls /api/projects/{id}/download/{name}.
-    We translate from artifacts.json produced by your NEW pipeline.
-    """
+    """Get results for legacy API"""
     manifest = _load_artifacts(project_id)
     if not manifest:
-        # Return 202 if job is still going; else 404 if nothing known
         st = orchestrator.job_store.get_job_status(project_id)
         if st and (st.get("status") not in ("failed", "error")):
             raise HTTPException(status_code=202, detail="Artifacts not ready")
@@ -2769,11 +2711,7 @@ async def legacy_results(project_id: str):
 
 @legacy.get("/api/projects/{project_id}/download/{filename:path}", dependencies=[Depends(verify_api_key)])
 async def legacy_download(project_id: str, filename: str):
-    """
-    Legacy download endpoint. Reuse the NEW API's file serving logic by
-    delegating to the same filesystem layout.
-    """
-    # Reuse your existing /download handler logic inline:
+    """Legacy download endpoint"""
     out = _project_dir(project_id)
     safe = (out / filename).resolve()
     if not str(safe).startswith(str(out.resolve())):
@@ -2782,9 +2720,99 @@ async def legacy_download(project_id: str, filename: str):
         raise HTTPException(status_code=404, detail="Not Found")
     return FileResponse(safe)
 
-# Register the legacy router
+# Register legacy router
 app.include_router(legacy)
+
+
+# =============================================================================
+# MAIN ENTRY POINT
+# =============================================================================
+
+def main():
+    """Main entry point with comprehensive startup information"""
+    
+    print("=" * 60)
+    print("FireAI Pro Master Production Orchestrator v4.0.0")
+    print("=" * 60)
+    print("* Production-ready enterprise features:")
+    print("  * Circuit breaker protection for all engine calls")
+    print("  * Database connection pooling & atomic transactions")
+    print("  * Resource management & memory tracking")
+    print("  * Real-time job monitoring & status tracking")
+    print("  * Rate limiting & request quotas")
+    print("  * Comprehensive error classification & handling")
+    print("  * Retry mechanisms with exponential backoff")
+    print("  * Smart export generation (PDF/DXF/IFC)")
+    print("  * Upload validation & security checks")
+    print("  * Idempotency protection")
+    print("  * Webhook notifications")
+    print("  * JSON structured logging")
+    print("  * Quality gate validation")
+    print("  * Graceful shutdown handling")
+    print("  * Audit trail & compliance logging")
+    print()
+    
+    # Configuration
+    print("* Configuration:")
+    print(f"  Host: {settings.host}:{settings.port}")
+    print(f"  Storage: {settings.local_storage_path}")
+    print(f"  Database: {settings.job_db_path}")
+    print(f"  Max File Size: {settings.max_file_size_mb}MB")
+    print(f"  Max Jobs: {settings.max_concurrent_jobs}")
+    print(f"  Engine Timeout: {settings.engine_timeout_s}s")
+    print(f"  Strict Mode: {'ENABLED' if settings.strict_mode else 'DISABLED'}")
+    print(f"  Audit Trail: {'ENABLED' if settings.audit_enabled else 'DISABLED'}")
+    print(f"  API Key: {'CONFIGURED' if settings.api_key else 'NOT SET'}")
+    print()
+    
+    # Engine status
+    print("* Engine Status:")
+    orchestrator._log_engine_status()
+    print()
+    
+    # Dependencies
+    print("* Dependencies:")
+    print(f"  ReportLab (PDF): {'* Available' if REPORTLAB_AVAILABLE else '* Unavailable (text fallback)'}")
+    print(f"  ezdxf (CAD): {'* Available' if EZDXF_AVAILABLE else '* Unavailable (basic fallback)'}")
+    print(f"  Requests (Webhook): {'* Available' if REQUESTS_AVAILABLE else '* Unavailable'}")
+    print(f"  Prometheus (Metrics): {'* Available' if PROMETHEUS_AVAILABLE else '* Unavailable'}")
+    print(f"  psutil (Monitoring): {'* Available' if PSUTIL_AVAILABLE else '* Unavailable'}")
+    print()
+    
+    # Health check
+    health = orchestrator.get_health()
+    print(f"* System Health: {health['status'].upper()}")
+    if health.get('issues'):
+        print(f"   Issues: {', '.join(health['issues'])}")
+    print(f"   Active Jobs: {health.get('active_jobs', 0)}")
+    print(f"   Database: {'Healthy' if health.get('database_healthy') else 'Unhealthy'}")
+    print()
+    
+    # API endpoints
+    print("* API Endpoints:")
+    print(f"  POST http://{settings.host}:{settings.port}/pipeline - Submit design job")
+    print(f"  GET  http://{settings.host}:{settings.port}/status/{{id}} - Real-time status")
+    print(f"  GET  http://{settings.host}:{settings.port}/artifacts/{{id}} - Download artifacts")
+    print(f"  GET  http://{settings.host}:{settings.port}/health - System health")
+    print()
+    
+    if settings.api_key:
+        print("* API Key authentication ENABLED")
+        print("   Include header: Authorization: Bearer <your_api_key>")
+        print()
+    
+    print("* Starting production server...")
+    print("=" * 60)
+    
+    uvicorn.run(
+        app,
+        host=settings.host,
+        port=settings.port,
+        log_level="info",
+        access_log=False  # We handle our own logging
+    )
 
 
 if __name__ == "__main__":
     main()
+                    
