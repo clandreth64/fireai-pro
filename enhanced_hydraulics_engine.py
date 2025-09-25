@@ -2319,6 +2319,9 @@ class PDFReportGenerator:
             with open(text_output_path, 'w') as f:
                 f.write("FIRE PROTECTION SYSTEM HYDRAULIC ANALYSIS REPORT\n")
                 f.write("=" * 60 + "\n\n")
+                # --- ctx: hydraulics PDF/TXT ---
+                if hasattr(self, "ctx"):
+                    self.ctx["hydraulics_report_pdf"] = str(output_path)
                 
                 # Project information
                 f.write("PROJECT INFORMATION\n")
