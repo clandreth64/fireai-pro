@@ -1956,6 +1956,10 @@ EOF
 """
         output_path.write_text(dxf_content)
         logger.info("Basic DXF generated")
+
+# --- ctx: DXF (basic fallback) ---
+        if hasattr(self, "ctx"):
+            self.ctx["design_dxf_path"] = str(output_path)
     
     async def _generate_ifc(self, context: PipelineContext, output_path: Path, logger):
         """Generate IFC file"""
