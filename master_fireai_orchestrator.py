@@ -1880,7 +1880,11 @@ class MasterOrchestrator:
                 
                 doc.saveas(str(output_path))
                 logger.info("Enhanced DXF generated")
-                
+
+                # --- ctx: DXF (enhanced) ---
+                if hasattr(self, "ctx"):
+                    self.ctx["design_dxf_path"] = str(output_path)
+
             except Exception as e:
                 logger.warning(f"Enhanced DXF generation failed: {e}")
                 await self._generate_basic_dxf(context, output_path, logger)
