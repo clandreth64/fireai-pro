@@ -3210,14 +3210,36 @@ async def legacy_get_job(job_id: str):
 
 @legacy.get("/api/projects/{project_id}/results", dependencies=[Depends(verify_api_key)])
 async def legacy_results(project_id: str):
-    """Get results for legacy API"""
+    """Get results for legacy API (with directory fallback)"""
     manifest = _load_artifacts(project_id)
-    if not manifest or not manifest.get("deliverables"):
+    if manifest and manifest.get("deliverables"):
+        return manifest
+
+    # Fallback: enumerate files currently on disk so clients can download them now.
+    out = _project_dir(project_id)
+    if not out.exists():
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    # Build deliverables map (relative names -> absolute paths), recursively.
+    deliverables = {}
+    for p in out.rglob("*"):
+        if p.is_file():
+            rel = p.relative_to(out).as_posix()
+            deliverables[rel] = str(p.resolve())
+
+    if not deliverables:
+        # If job is still running, signal 202; otherwise 404.
         st = orchestrator.job_store.get_job_status(project_id)
         if st and (st.get("status") not in ("failed", "error")):
             raise HTTPException(status_code=202, detail="Artifacts not ready")
         raise HTTPException(status_code=404, detail="No artifacts")
-    return manifest
+
+    return {
+        "project_id": project_id,
+        "output_dir": str(out),
+        "deliverables": deliverables,
+    }
+
 
 @legacy.get("/api/projects/{project_id}/download/{filename:path}", dependencies=[Depends(verify_api_key)])
 async def legacy_download(project_id: str, filename: str):
