@@ -367,6 +367,10 @@ async def create_project(
             f_out.write(blob)
         logger.info(f"Saved file: {saved_file}")
         
+# ---- ctx seed (used by orchestrator + artifact publisher) ----
+    data["uploaded_pdf_path"] = str(out_file_path)                    # exact path of the uploaded PDF
+    data["project_json_path"] = str((out_dir / "project.json").resolve())
+# --------------------------------------------------------------
         # Add input file path to project data for enhanced orchestrator
         data["input_file"] = str(saved_file)
 
