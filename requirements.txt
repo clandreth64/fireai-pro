@@ -1,4 +1,4 @@
-fastapi==0.103.2
+fastapi==0.111.0
 uvicorn[standard]==0.30.1
 pydantic==1.10.12
 reportlab==4.2.2
@@ -8,8 +8,11 @@ numpy
 scipy
 networkx
 psutil
+
+# Monitoring + uploads + job store  
 prometheus-client>=0.20.0
 python-multipart>=0.0.9
-# Optional
+
+# Optional (not used by orchestrator)
 redis>=5.0.0
 boto3>=1.34
