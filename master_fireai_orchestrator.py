@@ -93,6 +93,57 @@ except ImportError:
     PROMETHEUS_AVAILABLE = False
     print("Info: prometheus_client not available - metrics disabled")
 
+# --- FireAI artifact publishing helpers ---
+import os, json, shutil
+
+def _add_if_exists(ctx, key, path):
+    if path and os.path.isfile(path):
+        ctx[key] = os.path.abspath(path)
+
+def publish_artifacts(ctx, project_dir):
+    """
+    Copies any ctx-registered outputs into the project_dir and returns a deliverables dict
+    your /results and /download endpoints will use.
+    """
+    os.makedirs(project_dir, exist_ok=True)
+
+    mapping = {
+        "uploaded_pdf_path":      "upload.pdf",
+        "project_json_path":      "project.json",
+
+        # engines
+        "design_dxf_path":        "design.dxf",
+        "ifc_path":               "model.ifc",
+        "hydraulics_report_pdf":  "hydraulics.pdf",
+        "nfpa_compliance_pdf":    "compliance.pdf",
+        "seismic_bracing_pdf":    "bracing.pdf",
+        "multi_standard_pdf":     "multistandard.pdf",
+        "bom_csv":                "bom.csv",
+        "bom_xlsx":               "bom.xlsx",
+
+        # diagnostics (optional)
+        "routing_trace_json":     "routing.json",
+        "engine_log_txt":         "engine_log.txt",
+    }
+
+    deliverables = {}
+    for k, outname in mapping.items():
+        p = ctx.get(k)
+        if p and os.path.isfile(p):
+            dest = os.path.join(project_dir, outname)
+            os.makedirs(os.path.dirname(dest), exist_ok=True)
+            shutil.copy2(p, dest)
+            deliverables[outname] = dest
+
+    # Always write a small manifest for debugging
+    manifest_path = os.path.join(project_dir, "project.json")
+    if not os.path.isfile(manifest_path):
+        with open(manifest_path, "w", encoding="utf-8") as f:
+            json.dump({"ctx_keys": sorted(list(ctx.keys()))}, f, indent=2)
+
+    return {"deliverables": deliverables, "output_dir": project_dir}
+# --- end helpers ---
+
 
 # =============================================================================
 # CONFIGURATION
