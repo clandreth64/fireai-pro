@@ -59,7 +59,8 @@ from fastapi import FastAPI, File, UploadFile, HTTPException, BackgroundTasks, H
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from pydantic_settings import BaseSettings
+from pydantic import BaseModel, Field, field_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
 import uvicorn
 
 # Optional dependencies with graceful fallbacks (PRESERVED FROM ORIGINAL)
@@ -414,8 +415,8 @@ class Settings(BaseSettings):
     # Security
     cors_origins: List[str] = ["*"]
     
-    class Config:
-        env_prefix = "FIREAI_"
+    # pydantic v2 settings config
+    model_config = SettingsConfigDict(env_prefix="FIREAI_")
     
     @field_validator('local_storage_path')
     def validate_storage_path(cls, v):
