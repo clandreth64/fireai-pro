@@ -5000,7 +5000,12 @@ import os, json
 def _api_out_dir(project_json: dict) -> Path:
     """Ensure the API's expected output folder exists and stash project.json for reference."""
     pid = (project_json or {}).get("project_id", "unknown")
-    root = Path(os.getenv("FIREAI_LOCAL_STORAGE", "./fireai_outputs"))
+    root = Path(
+    os.getenv(
+        "FIREAI_LOCAL_STORAGE",
+        os.getenv("FIREAI_DATA_ROOT", "/data/projects")
+    )
+)
     out = root / pid
     out.mkdir(parents=True, exist_ok=True)
     try:
