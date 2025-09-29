@@ -136,6 +136,7 @@ else:
 # Orchestrator - Updated to support both legacy and new orchestrators
 ORCH_MODULES = [
     "master_fireai_orchestrator",  # Enhanced version with publishing
+    "fireai_master_orchestrator",   # add this line
     "fireai_orchestrator_enhanced",  # Alternative name
     "orchestrator"  # Fallback
 ]
