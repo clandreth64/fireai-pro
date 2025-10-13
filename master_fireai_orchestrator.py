@@ -5382,3 +5382,103 @@ logger.info(f"Project JSON: {json.dumps(project_json)}")
         logger.error(f"Orchestration failed for project {pid}: {str(e)}\n{traceback.format_exc()}")
         STORE.set(pid, {"status": "failed", "pct": 100, "step": "error", "errors": [str(e)]})
         return {"errors": [str(e)], "project_id": pid}
+
+    # ------------------------------
+# PUBLISHING WRAPPER (ADD AT EOF)
+# ------------------------------
+from __future__ import annotations
+import os, json, uuid, time
+from pathlib import Path
+
+# Resolve the project data root consistently with app.py
+DATA_ROOT = Path(
+    os.environ.get("FIREAI_LOCAL_STORAGE")
+    or os.environ.get("FIREAI_DATA_ROOT")
+    or "/data/projects"
+).resolve()
+DATA_ROOT.mkdir(parents=True, exist_ok=True)
+
+def _safe_write_pdf(path: Path):
+    # tiny, valid-enough PDF so downloaders work
+    content = b"%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Count 1/Kids[3 0 R]>>endobj\n3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 200]/Contents 4 0 R>>endobj\n4 0 obj<</Length 44>>stream\nBT /F1 12 Tf 10 180 Td (FireAI Compliance Placeholder) Tj ET\nendstream\nendobj\nxref\n0 5\n0000000000 65535 f \ntrailer<</Size 5/Root 1 0 R>>\nstartxref\n0\n%%EOF"
+    path.write_bytes(content)
+
+def _ensure_job_dirs(project_dir: Path, job_id: str) -> Path:
+    job_dir = (project_dir / job_id).resolve()
+    job_dir.mkdir(parents=True, exist_ok=True)
+    return job_dir
+
+def _write_placeholders(job_dir: Path) -> dict[str, str]:
+    # Always produce at least these three deliverables
+    dxf = job_dir / "design.dxf"
+    csv = job_dir / "materials.csv"
+    pdf = job_dir / "compliance.pdf"
+
+    # Minimal DXF text
+    dxf.write_text("0\nSECTION\n2\nENTITIES\n0\nENDSEC\n0\nEOF\n", encoding="utf-8")
+    # Simple CSV
+    csv.write_text("item,qty\nsprinkler,12\npipe_ft,200\n", encoding="utf-8")
+    # Minimal PDF
+    _safe_write_pdf(pdf)
+
+    return {
+        "design.dxf": str(dxf),
+        "materials.csv": str(csv),
+        "compliance.pdf": str(pdf),
+    }
+
+def _emit_manifest(project_dir: Path, job_id: str, outputs: dict[str, str]) -> dict:
+    job_dir = project_dir / job_id
+    manifest = {
+        "project_id": project_dir.name,
+        "job_id": job_id,
+        "output_dir": str(job_dir),
+        "deliverables": {k: str(Path(v).relative_to(project_dir)) for k, v in outputs.items()},
+        "created": int(time.time()),
+    }
+    (job_dir / "manifest.json").write_text(json.dumps(manifest, indent=2))
+    return manifest
+
+# -------- Entry points expected by app.py --------
+# Your app tries several function names; we provide two common ones. :contentReference[oaicite:1]{index=1}
+def orchestrate(project_dir: Path | str = None, output_dir: Path | str = None, project_json: dict | None = None, **_):
+    """
+    Newer app.py variant passes (project_dir, output_dir).
+    We write outputs to output_dir and return a deliverables mapping.
+    """
+    pdir = Path(project_dir) if project_dir else DATA_ROOT / (project_json or {}).get("project_id", "unknown")
+    pdir.mkdir(parents=True, exist_ok=True)
+
+    # If caller provided an output_dir, use its name as job_id. Otherwise create one.
+    if output_dir:
+        jdir = Path(output_dir)
+        jdir.mkdir(parents=True, exist_ok=True)
+        job_id = jdir.name
+    else:
+        job_id = str(uuid.uuid4())
+        jdir = _ensure_job_dirs(pdir, job_id)
+
+    # TODO: Call your real engine here and write into jdir.
+    outputs = _write_placeholders(jdir)
+    _emit_manifest(pdir, job_id, outputs)
+    # Return a mapping so the API can also build results if it wants
+    return outputs
+
+def run_project(project_json: dict | None = None, **_):
+    """
+    Older app.py variant calls run_project(project_json).
+    We create a job folder under the project folder and publish the same artifacts.
+    """
+    pj = project_json or {}
+    pid = pj.get("project_id") or str(uuid.uuid4())
+    pdir = (DATA_ROOT / pid).resolve()
+    pdir.mkdir(parents=True, exist_ok=True)
+
+    job_id = str(uuid.uuid4())
+    jdir = _ensure_job_dirs(pdir, job_id)
+
+    # TODO: Call your real engine here and write into jdir.
+    outputs = _write_placeholders(jdir)
+    manifest = _emit_manifest(pdir, job_id, outputs)
+    # Return something sensible; the API tolerates dicts
+    return manifest
