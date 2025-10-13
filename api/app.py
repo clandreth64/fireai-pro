@@ -1,187 +1,58 @@
-from __future__ import annotations
-
-import os
-import sys
-sys.path.append('..')  # This looks in the parent folder (root) for modules
-import uuid
-import json
-import logging
-import traceback
-import sys
-import glob
+import os, uuid, json, time
 from pathlib import Path
-from typing import Optional, Dict, Any
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
-from fastapi import FastAPI, UploadFile, File, Form, BackgroundTasks, HTTPException, Depends, Header
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, Response
-import importlib
-import time
+from typing import Optional, Dict
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from fastapi.responses import JSONResponse
+from starlette.responses import FileResponse as FR
+from concurrent.futures import ThreadPoolExecutor
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+app = FastAPI()
 
-# Shared models + job store (with fallback if fireai_schemas is unavailable)
-try:
-    from fireai_schemas import JobResult, Deliverables, Artifact, ErrorInfo
-    from fireai_schemas.job_store import JobStore
-except Exception:
-    from pydantic import BaseModel, Field
-
-    class Artifact(BaseModel):
-        kind: str = "other"
-        name: str = ""
-        path: str = ""
-        meta: dict = {}
-
-    class Deliverables(BaseModel):
-        ifc: str | None = None
-        dxf: str | None = None
-        pdfs: dict[str, str] = {}
-        extras: list[Artifact] = []
-
-    class ErrorInfo(BaseModel):
-        code: str
-        message: str
-        engine: str = "orchestrator"
-        hint: str | None = None
-
-    class JobResult(BaseModel):
-        job_id: str
-        project_id: str
-        status: str
-        step: str | None = None
-        pct: int | float | None = None
-        deliverables: Deliverables | dict | None = None
-        warnings: list[str] = []
-        errors: list[str] = []
-        error: ErrorInfo | None = None
-        metrics: dict = {}
-
-    class JobStore:
-        def __init__(self, namespace: str = "fireai", ttl_seconds: int = 7 * 24 * 3600):
-            self._d: dict[str, dict] = {}
-        def set(self, k: str, v: dict):
-            self._d[k] = v
-        def get(self, k: str):
-            return self._d.get(k)
-
-# Optional metrics
-try:
-    from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
-    PROM = True
-except Exception:
-    PROM = False
-    logger.warning("Prometheus metrics unavailable; prometheus_client not installed")
-
-# Optional S3 uploader
-try:
-    from s3_uploader import upload_deliverables_to_s3
-except Exception:
-    upload_deliverables_to_s3 = None
-    logger.warning("S3 uploader unavailable; s3_uploader not found")
-
-# Config
-OUTPUT_ROOT = Path(os.getenv("FIREAI_LOCAL_STORAGE", "./fireai_outputs")).resolve()
-OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
-ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "*").split(",")
-ORCH_TIMEOUT_SECS = int(os.getenv("ORCH_TIMEOUT_SECS", "600"))  # 10 minutes
-API_KEY = os.getenv("API_KEY")
-
-# App
-app = FastAPI(title="FireAI Pro API", version="1.1")
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=ALLOWED_ORIGINS if ALLOWED_ORIGINS != ["*"] else ["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
+# --- storage root ---
+DATA_ROOT = Path(
+    os.environ.get("FIREAI_LOCAL_STORAGE")
+    or os.environ.get("FIREAI_DATA_ROOT")
+    or "/data/projects"
 )
+DATA_ROOT.mkdir(parents=True, exist_ok=True)
 
-# Auth
-def require_api_key(x_api_key: str | None = Header(None)):
-    if not API_KEY:
-        logger.info("API_KEY not set; allowing open access")
-        return True
-    if not x_api_key or x_api_key != API_KEY:
-        logger.warning(f"Invalid or missing API key: {x_api_key}")
-        raise HTTPException(status_code=401, detail="invalid or missing API key")
-    return True
+# --- helpers ---
+def proj_dir(pid: str) -> Path:
+    p = DATA_ROOT / pid
+    p.mkdir(parents=True, exist_ok=True)
+    return p
 
-# Job store
-STORE = JobStore(namespace="fireai", ttl_seconds=7 * 24 * 3600)
+def job_dir(pid: str, jid: str) -> Path:
+    d = proj_dir(pid) / jid
+    d.mkdir(parents=True, exist_ok=True)
+    return d
 
-# Metrics
-if PROM:
-    JOBS_CREATED = Counter("fireai_jobs_created_total", "Jobs created")
-    JOBS_COMPLETED = Counter("fireai_jobs_completed_total", "Jobs completed")
-    JOBS_FAILED = Counter("fireai_jobs_failed_total", "Jobs failed")
-    JOB_DURATION = Histogram("fireai_job_duration_seconds", "Job duration in seconds")
-else:
-    JOBS_CREATED = JOBS_COMPLETED = JOBS_FAILED = JOB_DURATION = None
+def latest_job_dir(pid: str) -> Optional[Path]:
+    p = proj_dir(pid)
+    jobs = [d for d in p.iterdir() if d.is_dir()]
+    return sorted(jobs, key=lambda d: d.stat().st_mtime, reverse=True)[0] if jobs else None
 
-# Orchestrator
-ORCH_MODULE = "master_fireai_orchestrator"
-ORCH_FUNCS = ["run_project", "run_pipeline", "process_project", "orchestrate_project", "handle_project"]
+def list_artifacts(path: Path) -> Dict[str, str]:
+    # Find the project root (folder that contains project.json)
+    base = path
+    cur = path
+    while True:
+        if (cur / "project.json").exists():
+            base = cur
+            break
+        if cur == cur.parent:
+            break
+        cur = cur.parent
 
-def _prometheus_unload(prefixes=(
-    "fireai_job_duration_seconds",
-    "fireai_jobs_created",
-    "fireai_jobs_completed",
-    "fireai_jobs_failed",
-    "fireai_jobs_succeeded",
-)):
-    try:
-        from prometheus_client import REGISTRY
-        name_map = getattr(REGISTRY, "_names_to_collectors", {})
-        for name in list(name_map.keys()):
-            if any(name.startswith(p) for p in prefixes):
-                name_map.pop(name, None)
-    except Exception:
-        logger.warning("Failed to unload Prometheus collectors")
+    out: Dict[str, str] = {}
+    for f in path.rglob("*"):
+        if not f.is_file():
+            continue
+        # always return paths relative to the project dir (works for nested job folders)
+        out[f.name] = str(f.relative_to(base))
+    return out
 
-def _load_orchestrator():
-    try:
-        _prometheus_unload()
-        logger.info(f"Attempting to import orchestrator: {ORCH_MODULE}")
-        return importlib.import_module(ORCH_MODULE)
-    except Exception as e:
-        logger.error(f"Failed to import {ORCH_MODULE}: {e}")
-        cwd = os.getcwd()
-        files = [f for f in os.listdir(cwd) if f.endswith(".py")]
-        error_msg = (
-            f"Could not import {ORCH_MODULE}. Error: {e}\n"
-            f"CWD: {cwd}\nPYTHONPATH: {sys.path}\nPython files in CWD: {files}"
-        )
-        logger.error(error_msg)
-        return None  # Don't raise, allow fallback
-
-def _run_orchestrator(project_json: dict):
-    logger.info("Running orchestrator")
-    orch = _load_orchestrator()
-    if orch is None:
-        logger.warning("No orchestrator module loaded; returning empty manifest")
-        return {}
-    for fn in ORCH_FUNCS:
-        f = getattr(orch, fn, None)
-        if callable(f):
-            logger.info(f"Trying orchestrator function: {fn}")
-            try:
-                return f(project_json) or {}
-            except TypeError:
-                try:
-                    return f(project_json=project_json) or {}
-                except TypeError:
-                    try:
-                        return f() or {}
-                    except Exception as e:
-                        logger.warning(f"Function {fn} failed: {e}")
-                        continue
-    logger.warning("No valid orchestrator function found; returning empty manifest")
-    return {}
-
-# Health / Readiness / Metrics
+# --- health/readiness ---
 @app.get("/health")
 def health():
     return {"status": "ok"}
@@ -189,286 +60,102 @@ def health():
 @app.get("/readiness")
 def readiness():
     try:
-        _ = _load_orchestrator()
+        from master_fireai_orchestrator import orchestrate  # noqa
+        return {"status": "ready"}
     except Exception as e:
-        logger.error(f"Readiness check failed: orchestrator not ready: {e}")
-        raise HTTPException(status_code=503, detail=f"orchestrator not ready: {e}")
-    try:
-        probe = OUTPUT_ROOT / ".__writecheck__"
-        probe.write_text("ok")
-        probe.unlink(missing_ok=True)
-    except Exception as e:
-        logger.error(f"Readiness check failed: storage not writable: {e}")
-        raise HTTPException(status_code=503, detail=f"storage not writable: {e}")
-    return {"status": "ready"}
+        return JSONResponse(
+            {"detail": f"orchestrator not ready: {e.__class__.__name__}: {e}"},
+            status_code=503,
+        )
 
-if PROM:
-    from fastapi.responses import Response
-
-    @app.get("/metrics")
-    def metrics():
-        return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
-# API
-@app.post("/api/projects", dependencies=[Depends(require_api_key)])
+# --- create project (multipart or JSON) ---
+@app.post("/api/projects")
 async def create_project(
-    project_id: Optional[str] = Form(None),
-    project_json: Optional[str] = Form(None),
-    file: Optional[UploadFile] = File(None),
+    project_id: str | None = Form(None),
+    project_json: str | None = Form(None),
+    file: UploadFile | None = File(None),
 ):
-    """Create a project; optional file upload (DWG/IFC/PDF/ZIP)."""
     pid = project_id or str(uuid.uuid4())
-    out_dir = OUTPUT_ROOT / pid
-    out_dir.mkdir(parents=True, exist_ok=True)
-    logger.info(f"Creating project: {pid}, out_dir: {out_dir}")
+    pdir = proj_dir(pid)
 
-    data: Dict[str, Any] = {}
+    # project.json
+    meta = {"project_id": pid, "created": int(time.time())}
     if project_json:
         try:
-            data = json.loads(project_json)
-        except Exception as e:
-            logger.error(f"Invalid project_json: {e}")
-            raise HTTPException(400, f"Invalid project_json: {e}")
-    data.setdefault("project_id", pid)
+            meta.update(json.loads(project_json))
+        except Exception:
+            pass
+    (pdir / "project.json").write_text(json.dumps(meta, indent=2))
 
-    saved_file = None
+    # upload
     if file:
-        allowed_ext = {".dxf", ".dwg", ".ifc", ".zip", ".pdf"}
-        ext = (Path(file.filename).suffix or "").lower()
-        if ext not in allowed_ext:
-            logger.error(f"Unsupported file type: {ext}")
-            raise HTTPException(400, f"Unsupported file type: {ext}")
-        max_bytes = int(os.getenv("UPLOAD_MAX_BYTES", "209715200"))  # 200 MB
-        blob = await file.read()
-        if len(blob) > max_bytes:
-            logger.error("File too large")
-            raise HTTPException(413, "File too large")
-        saved_file = out_dir / f"upload{ext}"
-        with saved_file.open("wb") as f_out:
-            f_out.write(blob)
-        logger.info(f"Saved file: {saved_file}")
+        (pdir / "upload.pdf").write_bytes(await file.read())
 
-    with (out_dir / "project.json").open("w") as f:
-        json.dump(data, f, indent=2)
-    logger.info(f"Wrote project.json for project: {pid}")
+    return {"project_id": pid, "project_dir": str(pdir), "uploaded": bool(file)}
 
-    return {"project_id": pid, "saved_file": str(saved_file) if saved_file else None}
+# --- run (creates job_id, calls orchestrator, writes manifest) ---
+executor = ThreadPoolExecutor(max_workers=4)
 
-@app.post("/api/projects/{project_id}/run", dependencies=[Depends(require_api_key)])
-async def run_project(project_id: str, background: BackgroundTasks):
-    """Kick off the design run in a background task (job state via JobStore)."""
-    proj_dir = OUTPUT_ROOT / project_id
-    logger.info(f"Starting job for project_id: {project_id}, proj_dir: {proj_dir}")
-    if not proj_dir.exists():
-        logger.error(f"Project directory not found: {proj_dir}")
-        raise HTTPException(404, "project not found")
+def _run_orchestrator(orchestrator_func, pid: str, jid: str) -> dict:
+    jdir = job_dir(pid, jid)
+    pdir = proj_dir(pid)
 
-    # Create initial job record (use a plain dict to avoid Pydantic version issues)
-    job_id = str(uuid.uuid4())
-    jr_dict = {"job_id": job_id, "project_id": project_id, "status": "queued", "deliverables": None}
-    STORE.set(job_id, jr_dict)
-    if PROM and JOBS_CREATED:
-        JOBS_CREATED.inc()
-    logger.info(f"Created job_id: {job_id}")
+    # Your orchestrator must write outputs into jdir and return {name: absolute_path}
+    outputs = orchestrator_func(project_dir=pdir, output_dir=jdir)  # <-- real call
 
-    def _worker():
-        start = time.time()
-        logger.info(f"Worker started for job_id: {job_id}")
+    manifest = {
+        "project_id": pid,
+        "job_id": jid,
+        "output_dir": str(jdir),
+        "deliverables": {k: str(Path(v).relative_to(pdir)) for k, v in (outputs or {}).items() if v},
+    }
+    (jdir / "manifest.json").write_text(json.dumps(manifest, indent=2))
+    return manifest
 
-        def set_status(status: str, extra: Dict[str, Any] | None = None):
-            cur = STORE.get(job_id) or {}
-            cur["status"] = status
-            if extra:
-                cur.update(extra)
-            STORE.set(job_id, cur)
-            logger.info(f"Job {job_id} status updated to {status}, extra: {extra}")
+@app.post("/api/projects/{project_id}/run")
+def run_project(project_id: str):
+    pid = project_id
+    jid = str(uuid.uuid4())
+    from master_fireai_orchestrator import orchestrate as orchestrator_func
+    executor.submit(_run_orchestrator, orchestrator_func, pid, jid)
+    return {"job_id": jid, "status": "queued"}
 
-        try:
-            # Pre-orchestrator setup
-            set_status("routing", {"pct": 10, "step": "routing"})
-            project_json_path = proj_dir / "project.json"
-            if not project_json_path.exists():
-                logger.error(f"project.json not found in {proj_dir}")
-                raise FileNotFoundError(f"project.json not found in {proj_dir}")
-            with project_json_path.open() as f:
-                pj = json.load(f)
-            logger.info(f"Loaded project.json for job_id: {job_id}")
-
-            # Run orchestrator with a hard timeout
-            set_status("running", {"pct": 30, "step": "orchestrator"})
-            with ThreadPoolExecutor(max_workers=1) as ex:
-                fut = ex.submit(_run_orchestrator, pj)
-                try:
-                    manifest = fut.result(timeout=ORCH_TIMEOUT_SECS) or {}
-                    logger.info(f"Orchestrator completed for job_id: {job_id}, manifest: {manifest}")
-                except FuturesTimeoutError:
-                    err = f"Orchestrator exceeded timeout ({ORCH_TIMEOUT_SECS}s)"
-                    logger.error(err)
-                    set_status(
-                        "failed",
-                        {
-                            "step": "timeout",
-                            "pct": 100,
-                            "errors": [err],
-                            "error": _to_dict(ErrorInfo(code="TIMEOUT", message=err, engine="orchestrator")),
-                        },
-                    )
-                    if PROM and JOBS_FAILED:
-                        JOBS_FAILED.inc()
-                    return
-
-            # Collect deliverables
-            dxf = manifest.get("dxf") or next((str(p) for p in proj_dir.glob("*.dxf")), None)
-            ifc = manifest.get("ifc") or next((str(p) for p in proj_dir.glob("*.ifc")), None)
-
-            raw_pdfs = manifest.get("pdfs")
-            if isinstance(raw_pdfs, dict):
-                pdfs = {str(k).lower(): str(v) for k, v in raw_pdfs.items() if v}
-            elif isinstance(raw_pdfs, list):
-                pdfs = {}
-                for p in raw_pdfs:
-                    try:
-                        if p:
-                            name = os.path.splitext(os.path.basename(str(p)))[0].lower()
-                            pdfs[name] = str(p)
-                    except Exception as e:
-                        logger.warning(f"Failed to process PDF: {e}")
-                        continue
-            else:
-                pdfs = {os.path.splitext(p.name)[0].lower(): str(p) for p in proj_dir.glob("*.pdf")}
-
-            extras_list = manifest.get("extras") or []
-            extras: list[Artifact] = []
-            for a in extras_list:
-                try:
-                    if hasattr(a, "model_dump") and callable(getattr(a, "model_dump")):
-                        d = a.model_dump()
-                        extras.append(
-                            Artifact(
-                                kind=d.get("kind", "other"),
-                                name=d.get("name") or os.path.basename(d.get("path", "") or ""),
-                                path=d.get("path", "") or "",
-                                meta=d.get("meta", {}) or {},
-                            )
-                        )
-                    elif isinstance(a, Artifact):
-                        extras.append(a)
-                    elif isinstance(a, dict):
-                        extras.append(
-                            Artifact(
-                                kind=a.get("kind", "other"),
-                                name=a.get("name") or os.path.basename(a.get("path", "") or ""),
-                                path=a.get("path", "") or "",
-                                meta=a.get("meta", {}) or {},
-                            )
-                        )
-                    elif isinstance(a, str):
-                        extras.append(Artifact(kind="other", name=os.path.basename(a), path=str(a), meta={}))
-                except Exception as e:
-                    logger.warning(f"Failed to process extra artifact: {e}")
-                    continue
-                    
-            # Include the originally uploaded file (any extension) as a deliverable
-            upload_matches = glob.glob(f"/data/{project_id}/upload.*")
-            if upload_matches:
-                up = upload_matches[0]
-                ext = Path(up).suffix.lower()
-                base = Path(up).stem
-
-                # make sure these exist
-                pdfs = (pdfs or {})
-                extras = (extras or [])
-
-                if ext == ".dxf":
-                    dxf = up
-                elif ext == ".ifc":
-                    ifc = up
-                elif ext == ".pdf":
-                    # expose PDF as a named deliverable
-                    pdfs[base] = up
-                elif ext == ".dwg":
-                    # DWG goes under "extras" so the UI still shows a download link
-                    extras.append(Artifact(kind="dwg", name=Path(up).name, path=up, meta={}))
-                else:
-                    # any other file type still shows up in the list
-                    extras.append(Artifact(kind="upload", name=Path(up).name, path=up, meta={}))
-            delivs = Deliverables(ifc=ifc, dxf=dxf, pdfs=pdfs, extras=extras)
-            logger.info(f"Collected deliverables for job_id: {job_id}: {delivs}")
-
-            # Optional S3 upload
-            if upload_deliverables_to_s3:
-                logger.info("S3 uploader available, attempting upload")
-                try:
-                    delivs = upload_deliverables_to_s3(delivs, project_id)
-                    logger.info(f"S3 upload successful for job_id: {job_id}")
-                except Exception as e:
-                    logger.warning(f"S3 upload failed for job_id: {job_id}: {e}")
-                    # continue without failing the job
-            else:
-                logger.warning("S3 uploader not available, skipping upload")
-
-            # Done
-            set_status(
-                "succeeded",
-                {
-                    "step": "done",
-                    "pct": 100,
-                    "deliverables": delivs.model_dump() if hasattr(delivs, "model_dump") else (delivs.dict() if hasattr(delivs, "dict") else delivs.__dict__),
-                    "metrics": manifest.get("metrics", {}),
-                },
-            )
-            if PROM and JOBS_COMPLETED:
-                JOBS_COMPLETED.inc()
-            if PROM and JOB_DURATION:
-                JOB_DURATION.observe(time.time() - start)
-            logger.info(f"Job {job_id} completed successfully")
-
-        except Exception as e:
-            if PROM and JOBS_FAILED:
-                JOBS_FAILED.inc()
-            logger.error(f"Job {job_id} failed: {str(e)}\n{traceback.format_exc()}")
-            set_status(
-                "failed",
-                {
-                    "step": "error",
-                    "pct": 100,
-                    "errors": [str(e), traceback.format_exc()],
-                    "error": _to_dict(ErrorInfo(code="ORCH_FAIL", message=str(e), engine="orchestrator", hint="See server logs")),
-                },
-            )
-
-    background.add_task(_worker)
-
-    # Return initial job state as a simple dict (avoid response-model validation)
-    return {"job_id": job_id, "project_id": project_id, "status": "queued"}
-
-    background.add_task(_worker)
-    # Return initial job state as a simple dict (avoid response-model validation)
-    return {"job_id": job_id, "project_id": project_id, "status": "queued"}
-
-
+# --- jobs & results ---
 @app.get("/api/jobs/{job_id}")
-def get_job(job_id: str):
-    job = STORE.get(job_id)
-    if not job:
-        logger.warning(f"Job not found: {job_id}")
-        raise HTTPException(404, "job not found")
-    return job
+def job_status(job_id: str):
+    for p in DATA_ROOT.iterdir():
+        j = p / job_id
+        if j.is_dir():
+            status = "succeeded" if (j / "manifest.json").exists() else "collecting"
+            return {
+                "job_id": job_id,
+                "status": status,
+                "step": "done" if status == "succeeded" else "orchestrator",
+                "pct": 100 if status == "succeeded" else 30,
+            }
+    return JSONResponse({"detail": "Not Found"}, status_code=404)
 
 @app.get("/api/projects/{project_id}/results")
-def get_results(project_id: str):
-    out_dir = OUTPUT_ROOT / project_id
-    if not out_dir.exists():
-        logger.warning(f"Project directory not found: {out_dir}")
-        raise HTTPException(404, "project not found")
-    files = {p.name: str(p) for p in out_dir.glob("*")}
-    logger.info(f"Retrieved results for project_id: {project_id}, files: {files}")
-    return {"deliverables": files, "output_dir": str(out_dir)}
+def project_results(project_id: str):
+    jdir = latest_job_dir(project_id)
+    base = jdir if jdir else proj_dir(project_id)
+    return {"output_dir": str(base), "deliverables": list_artifacts(base)}
 
-@app.get("/api/projects/{project_id}/download/{filename}")
+@app.get("/api/projects/{project_id}/jobs/{job_id}/artifacts")
+def job_artifacts(project_id: str, job_id: str):
+    jdir = job_dir(project_id, job_id)
+    m = jdir / "manifest.json"
+    if m.exists():
+        return json.loads(m.read_text())
+    return {"project_id": project_id, "job_id": job_id, "deliverables": list_artifacts(jdir)}
+
+# --- download (supports nested paths) ---
+@app.get("/api/projects/{project_id}/download/{filename:path}")
 def download(project_id: str, filename: str):
-    path = OUTPUT_ROOT / project_id / filename
-    if not path.exists():
-        logger.warning(f"File not found: {path}")
-        raise HTTPException(404, "file not found")
-    logger.info(f"Downloading file: {path}")
-    return FileResponse(path)
+    pdir = proj_dir(project_id)
+    path = (pdir / filename).resolve()
+    if not str(path).startswith(str(pdir.resolve())):
+        raise HTTPException(status_code=403, detail="Invalid path")
+    if not path.exists() or not path.is_file():
+        raise HTTPException(status_code=404, detail="Not Found")
+    return FR(str(path), filename=path.name)
