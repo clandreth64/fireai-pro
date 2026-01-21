@@ -33,17 +33,24 @@ import concurrent.futures
 import ssl
 from contextlib import asynccontextmanager
 
-# Core Dependencies
-import asyncpg
+# Core Dependencies - make database connections optional
+# asyncpg - optional
+try:
+    import asyncpg
+    ASYNCPG_AVAILABLE = True
+except Exception as e:
+    ASYNCPG_AVAILABLE = False
+    asyncpg = None
+    print(f"⚠️ asyncpg not available: {e}")
 
-# Redis - optional
+# Redis - optional (catches TypeError for Python 3.13 compatibility)
 try:
     import aioredis
     AIOREDIS_AVAILABLE = True
-except ImportError:
+except Exception as e:
     AIOREDIS_AVAILABLE = False
     aioredis = None
-    print("⚠️ aioredis not available - Redis caching disabled")
+    print(f"⚠️ aioredis not available: {e}")
 
 import numpy as np
 import pandas as pd
