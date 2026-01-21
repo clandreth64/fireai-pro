@@ -76,7 +76,7 @@ from PIL import Image, ImageDraw, ImageFont
 # Core CAD libraries
 import ezdxf
 from ezdxf import colors, units, bbox
-from ezdxf.math import Vec3, Vec2, Vec4, Matrix44, BoundingBox
+from ezdxf.math import Vec3, Vec2, Matrix44, BoundingBox
 from ezdxf.entities import DXFEntity
 from ezdxf.query import EntityQuery
 
