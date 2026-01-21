@@ -112,12 +112,36 @@ except ImportError:
 # Production monitoring
 import structlog
 from prometheus_client import Counter, Histogram, Gauge, generate_latest
-import sentry_sdk
+
+# Sentry - optional
+try:
+    import sentry_sdk
+    SENTRY_AVAILABLE = True
+except ImportError:
+    SENTRY_AVAILABLE = False
+    sentry_sdk = None
+    print("⚠️ sentry_sdk not available - error tracking disabled")
 
 # Rate limiting and retries
 from slowapi import Limiter
-import backoff
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+
+# Backoff/Tenacity - optional
+try:
+    import backoff
+    from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+    RETRY_AVAILABLE = True
+except ImportError:
+    RETRY_AVAILABLE = False
+    backoff = None
+    print("⚠️ backoff/tenacity not available - using basic retry")
+    # Create dummy decorators
+    def retry(*args, **kwargs):
+        def decorator(func):
+            return func
+        return decorator
+    stop_after_attempt = None
+    wait_exponential = None
+    retry_if_exception_type = None
 
 # FastAPI and web framework
 from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Request, Response, BackgroundTasks
