@@ -19,66 +19,77 @@ from typing import Dict, Any, Optional
 # ============================================================================
 # ENGINE IMPORTS (with graceful fallbacks)
 # ============================================================================
+# NOTE: We catch ALL exceptions (not just ImportError) because engines may
+# fail during import due to missing dependencies, syntax errors, etc.
+
+IMPORT_ERRORS = {}  # Track what failed and why
 
 # CAD Engine - parses DXF/DWG files
 try:
     import enhanced_cad_engine as cad_engine
     CAD_AVAILABLE = True
-except ImportError:
+except Exception as e:
     CAD_AVAILABLE = False
     cad_engine = None
+    IMPORT_ERRORS['cad_engine'] = str(e)
 
 # Routing Engine - designs pipe layout
 try:
     import fireai_routing_advanced as routing_engine
     ROUTING_AVAILABLE = True
-except ImportError:
+except Exception as e:
     ROUTING_AVAILABLE = False
     routing_engine = None
+    IMPORT_ERRORS['routing_engine'] = str(e)
 
 # Hydraulics Engine - calculates flow/pressure
 try:
     import enhanced_hydraulics_engine as hydraulics_engine
     HYDRAULICS_AVAILABLE = True
-except ImportError:
+except Exception as e:
     HYDRAULICS_AVAILABLE = False
     hydraulics_engine = None
+    IMPORT_ERRORS['hydraulics_engine'] = str(e)
 
 # Codes & Standards - NFPA compliance
 try:
     import fireai_pro_master_Standards as codes_engine
     CODES_AVAILABLE = True
-except ImportError:
+except Exception as e:
     CODES_AVAILABLE = False
     codes_engine = None
+    IMPORT_ERRORS['codes_engine'] = str(e)
 
 # Bracing Engine
 try:
     import enhanced_bracing_engine as bracing_engine
     BRACING_AVAILABLE = True
-except ImportError:
+except Exception as e:
     BRACING_AVAILABLE = False
     bracing_engine = None
+    IMPORT_ERRORS['bracing_engine'] = str(e)
 
 # Products/BOM Engine
 try:
     import master_fireai_products_enhanced as products_engine
     PRODUCTS_AVAILABLE = True
-except ImportError:
+except Exception as e:
     PRODUCTS_AVAILABLE = False
     products_engine = None
+    IMPORT_ERRORS['products_engine'] = str(e)
 
 # Symbol Recognition
 try:
     import fireai_licensed as symbols_engine
     SYMBOLS_AVAILABLE = True
-except ImportError:
+except Exception:
     try:
         import merged_symbols_ai_enhanced as symbols_engine
         SYMBOLS_AVAILABLE = True
-    except ImportError:
+    except Exception as e:
         SYMBOLS_AVAILABLE = False
         symbols_engine = None
+        IMPORT_ERRORS['symbols_engine'] = str(e)
 
 # PDF generation
 try:
@@ -86,15 +97,33 @@ try:
     from reportlab.pdfgen import canvas
     from reportlab.lib.units import inch
     REPORTLAB_AVAILABLE = True
-except ImportError:
+except Exception as e:
     REPORTLAB_AVAILABLE = False
+    IMPORT_ERRORS['reportlab'] = str(e)
 
 # DXF generation
 try:
     import ezdxf
     EZDXF_AVAILABLE = True
-except ImportError:
+except Exception as e:
     EZDXF_AVAILABLE = False
+    IMPORT_ERRORS['ezdxf'] = str(e)
+
+
+def get_engine_status():
+    """Return status of all engines for health checks"""
+    return {
+        "cad": CAD_AVAILABLE,
+        "routing": ROUTING_AVAILABLE,
+        "hydraulics": HYDRAULICS_AVAILABLE,
+        "codes": CODES_AVAILABLE,
+        "bracing": BRACING_AVAILABLE,
+        "products": PRODUCTS_AVAILABLE,
+        "symbols": SYMBOLS_AVAILABLE,
+        "reportlab": REPORTLAB_AVAILABLE,
+        "ezdxf": EZDXF_AVAILABLE,
+        "import_errors": IMPORT_ERRORS
+    }
 
 
 # ============================================================================
