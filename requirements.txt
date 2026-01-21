@@ -3,7 +3,7 @@
 
 # Web Framework
 fastapi
-uvicorn
+uvicorn[standard]
 python-multipart
 
 # Data Processing
@@ -24,7 +24,7 @@ aioredis
 
 # Database
 sqlalchemy
-sqlalchemy-mate==1.4.28.3  # Pin this version to fix uszipcode compatibility
+sqlalchemy-mate==1.4.28.3
 
 # ZIP Code Lookup
 uszipcode
@@ -42,7 +42,7 @@ bcrypt
 # HTTP Client
 requests
 
-# Networking
+# Networking/Graph
 networkx
 
 # Image Processing (for CAD engine)
@@ -50,7 +50,11 @@ opencv-python-headless
 Pillow
 
 # Utilities
-setuptools  # Provides distutils for Python 3.12+
+setuptools
 
-# Redis (optional, for caching)
+# Redis
 redis
+
+# Additional common dependencies
+python-dateutil
+pytz
