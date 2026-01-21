@@ -20,10 +20,12 @@ networkx
 aiofiles
 aiohttp
 asyncpg
+aioredis
 
 # Database
 sqlalchemy
 redis
+motor
 
 # ZIP Code / Jurisdiction
 uszipcode
@@ -67,9 +69,9 @@ prometheus-client
 python-magic
 PyMuPDF
 
-# Visualization
+# Visualization (use non-GUI backend)
 matplotlib
 
-# ML/AI (CPU-only for smaller size)
+# ML/AI
 torch
 torchvision
