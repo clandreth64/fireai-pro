@@ -117,19 +117,55 @@ import secrets
 import aiohttp
 import requests
 
-# File Processing
-import magic
-import fitz  # PyMuPDF
-import ezdxf
-from ezdxf.addons.drawing import matplotlib
-from ezdxf.addons.drawing.properties import Properties, LayoutProperties
+# File Processing - optional dependencies
+try:
+    import magic
+    MAGIC_AVAILABLE = True
+except Exception as e:
+    MAGIC_AVAILABLE = False
+    magic = None
+    print(f"⚠️ python-magic not available: {e}")
 
-# Graphics & Visualization
-import matplotlib.pyplot as plt
-import matplotlib.patches as patches
-from matplotlib.backends.backend_agg import FigureCanvasAgg
-import plotly.graph_objects as go
-import plotly.express as px
+try:
+    import fitz  # PyMuPDF
+    FITZ_AVAILABLE = True
+except ImportError:
+    FITZ_AVAILABLE = False
+    fitz = None
+    print("⚠️ PyMuPDF not available - PDF processing disabled")
+
+import ezdxf
+try:
+    from ezdxf.addons.drawing import matplotlib as ezdxf_matplotlib
+    EZDXF_DRAWING_AVAILABLE = True
+except ImportError:
+    EZDXF_DRAWING_AVAILABLE = False
+    ezdxf_matplotlib = None
+
+# Graphics & Visualization - optional
+try:
+    import matplotlib
+    matplotlib.use('Agg')  # Use non-GUI backend
+    import matplotlib.pyplot as plt
+    import matplotlib.patches as patches
+    from matplotlib.backends.backend_agg import FigureCanvasAgg
+    MATPLOTLIB_AVAILABLE = True
+except Exception as e:
+    MATPLOTLIB_AVAILABLE = False
+    plt = None
+    patches = None
+    FigureCanvasAgg = None
+    print(f"⚠️ matplotlib not available: {e}")
+
+try:
+    import plotly.graph_objects as go
+    import plotly.express as px
+    PLOTLY_AVAILABLE = True
+except ImportError:
+    PLOTLY_AVAILABLE = False
+    go = None
+    px = None
+    print("⚠️ plotly not available - interactive charts disabled")
 
 # PDF Generation
 from reportlab.lib.pagesizes import letter, A4
