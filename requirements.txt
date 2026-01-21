@@ -19,13 +19,10 @@ networkx
 # Async Support
 aiofiles
 aiohttp
-asyncpg
-aioredis
 
 # Database
 sqlalchemy
 redis
-motor
 
 # ZIP Code / Jurisdiction
 uszipcode
@@ -69,8 +66,12 @@ prometheus-client
 python-magic
 PyMuPDF
 
-# Visualization (use non-GUI backend)
+# Visualization
 matplotlib
+
+# Retry logic
+backoff
+tenacity
 
 # ML/AI
 torch
