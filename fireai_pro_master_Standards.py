@@ -73,6 +73,16 @@ try:
 except ImportError:
     print("⚠️ uszipcode not available. Install with: pip install uszipcode")
     USZIPCODE_AVAILABLE = False
+    SearchEngine = None
+    SimpleZipcode = None
+except Exception as e:
+    # Handle sqlalchemy_mate compatibility issues and other errors
+    print(f"⚠️ uszipcode failed to load: {e}")
+    print("   This is often due to sqlalchemy_mate version incompatibility.")
+    print("   Try: pip install sqlalchemy-mate==1.4.28.3")
+    USZIPCODE_AVAILABLE = False
+    SearchEngine = None
+    SimpleZipcode = None
 
 # PDF Generation imports
 try:
