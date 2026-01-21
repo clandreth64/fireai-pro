@@ -97,7 +97,13 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.staticfiles import StaticFiles
 import uvicorn
-from pydantic import BaseModel, Field, validator, BaseSettings
+from pydantic import BaseModel, Field, validator
+
+# BaseSettings moved to pydantic-settings in Pydantic v2
+try:
+    from pydantic_settings import BaseSettings
+except ImportError:
+    from pydantic import BaseSettings  # Fallback for older pydantic
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
