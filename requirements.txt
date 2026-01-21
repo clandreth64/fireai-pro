@@ -1,60 +1,75 @@
-# FireAI Pro - Complete Requirements
-# ==================================
+# FireAI Pro - COMPLETE Production Requirements
+# ==============================================
 
 # Web Framework
 fastapi
 uvicorn[standard]
 python-multipart
+slowapi
 
 # Data Processing
 pandas
 numpy
 
-# PDF Generation
-reportlab
-
-# CAD/DXF Support
-ezdxf
+# Scientific/Engineering
+scipy
+scikit-learn
+networkx
 
 # Async Support
 aiofiles
 aiohttp
 asyncpg
-aioredis
 
 # Database
 sqlalchemy
-sqlalchemy-mate==1.4.28.3
+redis
 
-# ZIP Code Lookup
+# ZIP Code / Jurisdiction
 uszipcode
 
-# Scientific/Engineering
-scipy
-scikit-learn
+# CAD/DXF Support
+ezdxf
 
-# System Monitoring
-psutil
-
-# Security
-bcrypt
-
-# HTTP Client
-requests
-
-# Networking/Graph
-networkx
-
-# Image Processing (for CAD engine)
+# Image Processing
 opencv-python-headless
 Pillow
 
-# Utilities
+# PDF Generation
+reportlab
+
+# Excel Support
+openpyxl
+
+# Security
+bcrypt
+passlib
+PyJWT
+cryptography
+
+# HTTP/Networking
+requests
+certifi
+httpx
+
+# System/Utilities
+psutil
 setuptools
-
-# Redis
-redis
-
-# Additional common dependencies
 python-dateutil
 pytz
+joblib
+
+# Logging/Monitoring
+structlog
+prometheus-client
+
+# File Processing
+python-magic
+PyMuPDF
+
+# Visualization
+matplotlib
+
+# ML/AI (CPU-only for smaller size)
+torch
+torchvision
