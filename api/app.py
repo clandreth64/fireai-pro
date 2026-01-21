@@ -14,7 +14,7 @@ from fastapi.responses import JSONResponse
 from starlette.responses import FileResponse as FR
 from concurrent.futures import ThreadPoolExecutor
 
-APP_VERSION = "1.2.0"
+APP_VERSION = "1.3.0"
 
 # ---- Storage root (mount /data in Railway) ----
 DATA_ROOT = Path(
@@ -37,7 +37,7 @@ def api_key_dep(request: Request):
         raise HTTPException(status_code=401, detail="Invalid or missing API key")
 
 
-app = FastAPI(title="FireAI API", version=APP_VERSION)
+app = FastAPI(title="FireAI Pro API", version=APP_VERSION)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"]
@@ -94,9 +94,20 @@ def write_manifest(pid: str, jid: str, outputs: Dict[str, str]) -> Path:
         "job_id": jid,
         "output_dir": str(jdir),
         # ensure paths are relative to project root so /download route works
-        "deliverables": {name: str(Path(path).relative_to(pdir)) for name, path in outputs.items() if path},
+        "deliverables": {},
         "created": int(time.time()),
     }
+    
+    # Convert paths to be relative to project directory
+    for name, path in outputs.items():
+        if path:
+            try:
+                rel_path = Path(path).relative_to(pdir)
+                manifest["deliverables"][name] = str(rel_path)
+            except ValueError:
+                # If path is not under pdir, use the filename
+                manifest["deliverables"][name] = Path(path).name
+    
     mpath = jdir / "manifest.json"
     mpath.write_text(json.dumps(manifest, indent=2))
     return mpath
@@ -123,25 +134,51 @@ def save_upload_preserving_ext(pdir: Path, file: UploadFile) -> str:
 # ------------------------
 @app.get("/health")
 def health():
+    # Check which engines are available
+    engines = {}
+    try:
+        from orchestrate import CAD_AVAILABLE, ROUTING_AVAILABLE, HYDRAULICS_AVAILABLE
+        from orchestrate import CODES_AVAILABLE, BRACING_AVAILABLE, PRODUCTS_AVAILABLE
+        engines = {
+            "cad": CAD_AVAILABLE,
+            "routing": ROUTING_AVAILABLE,
+            "hydraulics": HYDRAULICS_AVAILABLE,
+            "codes": CODES_AVAILABLE,
+            "bracing": BRACING_AVAILABLE,
+            "products": PRODUCTS_AVAILABLE,
+        }
+    except ImportError:
+        engines = {"status": "orchestrate module not loaded"}
+    
     features = {
         "artifact_publishing": True,
         "enhanced_orchestrator": True,
         "prometheus_metrics": False,
         "s3_upload": False,  # set True if you later add S3 publishing
     }
-    return {"status": "ok", "version": APP_VERSION, "features": features}
+    return {
+        "status": "ok", 
+        "version": APP_VERSION, 
+        "features": features,
+        "engines": engines,
+        "data_root": str(DATA_ROOT)
+    }
 
 
 @app.get("/readiness")
 def readiness():
-    # Don't hard-fail if orchestrator isn't importable; report status instead.
+    # Check if orchestrate module is importable and functional
     try:
-        from master_fireai_orchestrator import orchestrate  # type: ignore
+        from orchestrate import orchestrate
         status = "ready"
-        detail = "orchestrator import OK"
+        detail = "orchestrate module loaded successfully"
+    except ImportError as e:
+        status = "degraded"
+        detail = f"orchestrate import failed: {e}"
     except Exception as e:
-        status = "ready"  # keep 'ready' so clients can proceed; report detail
-        detail = f"orchestrator not importable: {e.__class__.__name__}: {e}"
+        status = "degraded"
+        detail = f"orchestrate error: {e.__class__.__name__}: {e}"
+    
     return {"status": status, "detail": detail, "data_root": str(DATA_ROOT)}
 
 
@@ -208,21 +245,35 @@ async def create_project(
 def _run_job(pid: str, jid: str):
     pdir = proj_dir(pid)
     jdir = job_dir(pid, jid)
-    JOBS[jid] = {"project_id": pid, "status": "collecting", "step": "orchestrator", "pct": 30}
+    JOBS[jid] = {"project_id": pid, "status": "running", "step": "starting", "pct": 10}
 
     outputs: Dict[str, str] = {}
 
-    # Try to import and run the real orchestrator
+    # Try to import and run the orchestrate function
     try:
-        from master_fireai_orchestrator import orchestrate  # type: ignore
+        JOBS[jid].update({"step": "importing_orchestrator", "pct": 20})
+        from orchestrate import orchestrate
+        
+        JOBS[jid].update({"step": "running_engines", "pct": 30})
+        
         # Ensure output dir exists
         jdir.mkdir(parents=True, exist_ok=True)
-        # Call the user's orchestrator; expect dict[name] = absolute path
+        
+        # Call the orchestrate function
         maybe = orchestrate(project_dir=pdir, output_dir=jdir)
+        
+        JOBS[jid].update({"step": "collecting_outputs", "pct": 80})
+        
         if isinstance(maybe, dict):
             outputs = {k: str(Path(v)) for k, v in maybe.items() if v}
+            
     except Exception as e:
+        print(f"🔥 Orchestration error: {e}")
+        import traceback
+        traceback.print_exc()
+        
         # Fallback: write minimal placeholders so client can verify pipeline
+        JOBS[jid].update({"step": "fallback_generation", "pct": 70, "error": str(e)})
         try:
             (jdir / "design.dxf").write_text("0\nSECTION\n2\nENTITIES\n0\nENDSEC\n0\nEOF\n")
             (jdir / "materials.csv").write_text("item,qty\nhead,12\npipe,200ft\n")
@@ -237,10 +288,17 @@ def _run_job(pid: str, jid: str):
             pass
 
     # Write manifest (even if empty)
+    JOBS[jid].update({"step": "writing_manifest", "pct": 90})
     write_manifest(pid, jid, outputs)
 
     # Mark job success (best-effort)
-    JOBS[jid].update({"status": "succeeded", "step": "done", "pct": 100, "output_dir": str(jdir)})
+    JOBS[jid].update({
+        "status": "succeeded", 
+        "step": "done", 
+        "pct": 100, 
+        "output_dir": str(jdir),
+        "outputs": list(outputs.keys())
+    })
 
 
 @app.post("/api/projects/{project_id}/run", dependencies=[Depends(api_key_dep)])
@@ -267,15 +325,31 @@ def job_status(job_id: str):
             "pct": j.get("pct", 0),
             "project_id": j.get("project_id"),
             "output_dir": j.get("output_dir"),
+            "outputs": j.get("outputs", []),
+            "error": j.get("error"),
         }
 
     # Fallback: infer from filesystem (manifest presence)
     for p in DATA_ROOT.iterdir():
         jdir = p / job_id
         if jdir.is_dir():
-            status = "succeeded" if (jdir / "manifest.json").exists() else "collecting"
-            return {"job_id": job_id, "status": status, "step": "done" if status == "succeeded" else "orchestrator",
-                    "pct": 100 if status == "succeeded" else 30, "project_id": p.name, "output_dir": str(jdir)}
+            status = "succeeded" if (jdir / "manifest.json").exists() else "running"
+            outputs = []
+            if (jdir / "manifest.json").exists():
+                try:
+                    manifest = json.loads((jdir / "manifest.json").read_text())
+                    outputs = list(manifest.get("deliverables", {}).keys())
+                except:
+                    pass
+            return {
+                "job_id": job_id, 
+                "status": status, 
+                "step": "done" if status == "succeeded" else "running",
+                "pct": 100 if status == "succeeded" else 50, 
+                "project_id": p.name, 
+                "output_dir": str(jdir),
+                "outputs": outputs
+            }
     return JSONResponse({"detail": "Not Found"}, status_code=404)
 
 
