@@ -35,7 +35,16 @@ from contextlib import asynccontextmanager
 
 # Core Dependencies
 import asyncpg
-import aioredis
+
+# Redis - optional
+try:
+    import aioredis
+    AIOREDIS_AVAILABLE = True
+except ImportError:
+    AIOREDIS_AVAILABLE = False
+    aioredis = None
+    print("⚠️ aioredis not available - Redis caching disabled")
+
 import numpy as np
 import pandas as pd
 from scipy.optimize import minimize, differential_evolution
@@ -47,7 +56,16 @@ from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
 from sklearn.metrics import accuracy_score, mean_absolute_error, r2_score, precision_recall_fscore_support, confusion_matrix
 from sklearn.model_selection import train_test_split
 from sklearn.neighbors import NearestNeighbors
-import cv2
+
+# OpenCV - optional
+try:
+    import cv2
+    CV2_AVAILABLE = True
+except Exception as e:
+    CV2_AVAILABLE = False
+    cv2 = None
+    print(f"⚠️ OpenCV not available: {e}")
+
 from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageEnhance
 import torch
 import torch.nn as nn
