@@ -137,18 +137,10 @@ def health():
     # Check which engines are available
     engines = {}
     try:
-        from orchestrate import CAD_AVAILABLE, ROUTING_AVAILABLE, HYDRAULICS_AVAILABLE
-        from orchestrate import CODES_AVAILABLE, BRACING_AVAILABLE, PRODUCTS_AVAILABLE
-        engines = {
-            "cad": CAD_AVAILABLE,
-            "routing": ROUTING_AVAILABLE,
-            "hydraulics": HYDRAULICS_AVAILABLE,
-            "codes": CODES_AVAILABLE,
-            "bracing": BRACING_AVAILABLE,
-            "products": PRODUCTS_AVAILABLE,
-        }
-    except ImportError:
-        engines = {"status": "orchestrate module not loaded"}
+        from orchestrate import get_engine_status
+        engines = get_engine_status()
+    except Exception as e:
+        engines = {"status": "orchestrate module error", "error": str(e)}
     
     features = {
         "artifact_publishing": True,
