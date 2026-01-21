@@ -1,5 +1,6 @@
 fastapi
 uvicorn
+python-multipart
 uszipcode
 reportlab
 ezdxf
@@ -7,4 +8,7 @@ aiofiles
 pandas
 aiohttp
 asyncpg
-python-multipart
+psutil
+scipy
+bcrypt
+aioredis
