@@ -12,3 +12,6 @@ psutil
 scipy
 bcrypt
 aioredis
+scikit-learn
+redis
+setuptools
