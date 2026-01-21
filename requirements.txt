@@ -65,7 +65,6 @@ structlog
 prometheus-client
 
 # File Processing
-python-magic
 PyMuPDF
 
 # Visualization
