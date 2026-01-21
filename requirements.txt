@@ -6,6 +6,7 @@ fastapi
 uvicorn[standard]
 python-multipart
 slowapi
+pydantic-settings
 
 # Data Processing
 pandas
@@ -19,6 +20,7 @@ networkx
 # Async Support
 aiofiles
 aiohttp
+asyncpg
 
 # Database
 sqlalchemy
