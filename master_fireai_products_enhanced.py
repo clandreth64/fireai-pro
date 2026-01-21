@@ -55,8 +55,18 @@ from contextlib import asynccontextmanager
 import networkx as nx
 import numpy as np
 import pandas as pd
-import motor.motor_asyncio
-from bson import ObjectId
+
+# MongoDB - optional
+try:
+    import motor.motor_asyncio
+    from bson import ObjectId
+    MOTOR_AVAILABLE = True
+except ImportError:
+    MOTOR_AVAILABLE = False
+    motor = None
+    ObjectId = None
+    print("⚠️ motor not available - MongoDB support disabled")
+
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import letter, A4
 from reportlab.lib import colors
@@ -74,13 +84,30 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset
 import joblib
-import mlflow
+
+# MLflow - optional
+try:
+    import mlflow
+    MLFLOW_AVAILABLE = True
+except ImportError:
+    MLFLOW_AVAILABLE = False
+    mlflow = None
+    print("⚠️ mlflow not available - experiment tracking disabled")
+
 from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
 from sklearn.neural_network import MLPRegressor
 from sklearn.model_selection import train_test_split, cross_val_score
 from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
-import optuna
+
+# Optuna - optional
+try:
+    import optuna
+    OPTUNA_AVAILABLE = True
+except ImportError:
+    OPTUNA_AVAILABLE = False
+    optuna = None
+    print("⚠️ optuna not available - hyperparameter tuning disabled")
 
 # Production monitoring
 import structlog
