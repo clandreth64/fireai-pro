@@ -147,7 +147,13 @@ except ImportError:
 from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Request, Response, BackgroundTasks
 from fastapi.responses import StreamingResponse, FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field, validator, BaseSettings
+from pydantic import BaseModel, Field, validator
+
+# BaseSettings moved to pydantic-settings in Pydantic v2
+try:
+    from pydantic_settings import BaseSettings
+except ImportError:
+    from pydantic import BaseSettings  # Fallback for older pydantic
 
 # Configure production logging
 logging.basicConfig(
