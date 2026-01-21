@@ -57,7 +57,20 @@ from scipy.spatial.distance import pdist, squareform, euclidean
 from scipy.spatial import ConvexHull, Voronoi, distance
 from sklearn.cluster import DBSCAN, KMeans
 from sklearn.preprocessing import StandardScaler
-import cv2
+
+# OpenCV - optional, for image-based CAD processing
+try:
+    import cv2
+    CV2_AVAILABLE = True
+except ImportError:
+    CV2_AVAILABLE = False
+    cv2 = None
+    print("⚠️ OpenCV not available - image processing disabled")
+except Exception as e:
+    CV2_AVAILABLE = False
+    cv2 = None
+    print(f"⚠️ OpenCV failed to load: {e} - image processing disabled")
+
 from PIL import Image, ImageDraw, ImageFont
 
 # Core CAD libraries
