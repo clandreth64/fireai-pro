@@ -77,3 +77,7 @@ tenacity
 # ML/AI
 torch
 torchvision
+
+pdfplumber
+PyPDF2
+Pillow
