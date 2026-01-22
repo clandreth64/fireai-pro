@@ -165,12 +165,28 @@ class NFPA13Constants:
     MAX_SPRINKLER_PRESSURE = 175.0  # Maximum for standard sprinklers
     MIN_RESIDUAL_PRESSURE = 0.0    # At base of riser
     
-    # Hazen-Williams C factors
+    # Hazen-Williams C factors by material and age
     C_FACTORS = {
+        # Black steel (unlined)
+        'black_steel': 120,
+        'black_steel_new': 120,
+        'black_steel_10yr': 110,
+        'black_steel_15yr': 100,
+        'black_steel_20yr': 90,
+        
+        # Galvanized steel
+        'galvanized': 120,
+        'galvanized_new': 120,
+        'galvanized_10yr': 100,
+        'galvanized_15yr': 90,
+        
+        # Legacy names (backward compatible)
         'steel_new': 120,
         'steel_black': 120,
         'steel_galvanized': 120,
         'steel_old': 100,
+        
+        # Other materials
         'copper': 150,
         'cpvc': 150,
         'cement_lined': 140,
@@ -180,8 +196,15 @@ class NFPA13Constants:
         'stainless': 150,
     }
     
-    # Standard pipe inside diameters (inches) - Schedule 40
-    PIPE_ID = {
+    # ==========================================================================
+    # PIPE SCHEDULE INSIDE DIAMETERS (inches)
+    # Per NFPA 13 Table 22.4.2.1 and ASTM standards
+    # Sizes from 3/4" to 16"
+    # ==========================================================================
+    
+    # Schedule 40 - Standard Weight (most common)
+    # ASTM A53 / ASTM A135 / ASTM A795
+    PIPE_ID_SCH40 = {
         0.75: 0.824,
         1.0: 1.049,
         1.25: 1.380,
@@ -196,7 +219,300 @@ class NFPA13Constants:
         8.0: 7.981,
         10.0: 10.020,
         12.0: 11.938,
+        14.0: 13.124,
+        16.0: 15.000,
     }
+    
+    # Schedule 10 - Lightweight (common for sprinkler mains)
+    # ASTM A135 / ASTM A795
+    PIPE_ID_SCH10 = {
+        0.75: 0.884,    # Larger ID than Sch40
+        1.0: 1.097,
+        1.25: 1.442,
+        1.5: 1.682,
+        2.0: 2.157,
+        2.5: 2.635,
+        3.0: 3.260,
+        3.5: 3.760,
+        4.0: 4.260,
+        5.0: 5.295,
+        6.0: 6.357,
+        8.0: 8.329,
+        10.0: 10.420,
+        12.0: 12.390,
+        14.0: 13.624,
+        16.0: 15.624,
+    }
+    
+    # Schedule 7 - Thin Wall (used in some sprinkler applications)
+    # ASTM A135 Type F
+    PIPE_ID_SCH7 = {
+        1.0: 1.107,
+        1.25: 1.452,
+        1.5: 1.692,
+        2.0: 2.173,
+        2.5: 2.655,
+        3.0: 3.284,
+        3.5: 3.784,
+        4.0: 4.286,
+        5.0: 5.329,
+        6.0: 6.407,
+        8.0: 8.407,
+        10.0: 10.482,
+        12.0: 12.438,
+        14.0: 13.688,
+        16.0: 15.688,
+    }
+    
+    # Schedule 30 - Intermediate weight
+    PIPE_ID_SCH30 = {
+        0.75: 0.824,    # Same as Sch40 for small sizes
+        1.0: 1.049,
+        1.25: 1.380,
+        1.5: 1.610,
+        2.0: 2.067,
+        2.5: 2.469,
+        3.0: 3.068,
+        3.5: 3.548,
+        4.0: 4.026,
+        5.0: 5.047,
+        6.0: 6.065,
+        8.0: 8.071,     # Slightly larger than Sch40 for big sizes
+        10.0: 10.136,
+        12.0: 12.090,
+        14.0: 13.250,
+        16.0: 15.250,
+    }
+    
+    # Combined lookup by schedule number
+    PIPE_SCHEDULES = {
+        7: PIPE_ID_SCH7,
+        10: PIPE_ID_SCH10,
+        30: PIPE_ID_SCH30,
+        40: PIPE_ID_SCH40,
+    }
+    
+    # Default schedule (for backward compatibility)
+    PIPE_ID = PIPE_ID_SCH40
+    
+    # ==========================================================================
+    # PIPE WALL THICKNESS (inches) - for weight/stress calculations
+    # ==========================================================================
+    
+    PIPE_WALL_SCH40 = {
+        0.75: 0.113,
+        1.0: 0.133,
+        1.25: 0.140,
+        1.5: 0.145,
+        2.0: 0.154,
+        2.5: 0.203,
+        3.0: 0.216,
+        3.5: 0.226,
+        4.0: 0.237,
+        5.0: 0.258,
+        6.0: 0.280,
+        8.0: 0.322,
+        10.0: 0.365,
+        12.0: 0.406,
+        14.0: 0.438,
+        16.0: 0.500,
+    }
+    
+    PIPE_WALL_SCH10 = {
+        0.75: 0.083,
+        1.0: 0.109,
+        1.25: 0.109,
+        1.5: 0.109,
+        2.0: 0.109,
+        2.5: 0.120,
+        3.0: 0.120,
+        3.5: 0.120,
+        4.0: 0.120,
+        5.0: 0.134,
+        6.0: 0.134,
+        8.0: 0.148,
+        10.0: 0.165,
+        12.0: 0.180,
+        14.0: 0.188,
+        16.0: 0.188,
+    }
+    
+    PIPE_WALL_SCH7 = {
+        1.0: 0.083,
+        1.25: 0.083,
+        1.5: 0.083,
+        2.0: 0.083,
+        2.5: 0.083,
+        3.0: 0.083,
+        3.5: 0.083,
+        4.0: 0.083,
+        5.0: 0.109,
+        6.0: 0.109,
+        8.0: 0.109,
+        10.0: 0.134,
+        12.0: 0.156,
+        14.0: 0.156,
+        16.0: 0.156,
+    }
+    
+    # ==========================================================================
+    # PIPE WEIGHT (lbs per linear foot) - empty pipe
+    # ==========================================================================
+    
+    PIPE_WEIGHT_SCH40_EMPTY = {
+        0.75: 0.57,
+        1.0: 0.85,
+        1.25: 1.13,
+        1.5: 1.68,
+        2.0: 2.72,
+        2.5: 4.00,
+        3.0: 5.79,
+        3.5: 7.58,
+        4.0: 9.11,
+        5.0: 14.62,
+        6.0: 18.97,
+        8.0: 28.55,
+        10.0: 40.48,
+        12.0: 53.52,
+        14.0: 63.37,
+        16.0: 82.77,
+    }
+    
+    PIPE_WEIGHT_SCH10_EMPTY = {
+        0.75: 0.42,
+        1.0: 0.54,
+        1.25: 0.69,
+        1.5: 0.86,
+        2.0: 1.11,
+        2.5: 1.61,
+        3.0: 2.09,
+        3.5: 2.41,
+        4.0: 2.81,
+        5.0: 4.30,
+        6.0: 5.37,
+        8.0: 8.40,
+        10.0: 11.91,
+        12.0: 15.74,
+        14.0: 18.66,
+        16.0: 21.31,
+    }
+    
+    # Water weight per linear foot (based on inside diameter)
+    # Formula: weight_water = 0.3405 * ID^2 (lbs/ft)
+    @classmethod
+    def get_water_weight_per_foot(cls, nominal_diameter: float, schedule: int = 40) -> float:
+        """Calculate water weight per linear foot"""
+        inside_dia = cls.get_pipe_id(nominal_diameter, schedule)
+        return 0.3405 * (inside_dia ** 2)
+    
+    @classmethod
+    def get_total_pipe_weight_per_foot(cls, nominal_diameter: float, schedule: int = 40) -> float:
+        """Get total weight (pipe + water) per linear foot"""
+        if schedule == 40:
+            pipe_weight = cls.PIPE_WEIGHT_SCH40_EMPTY.get(nominal_diameter, 0)
+        elif schedule == 10:
+            pipe_weight = cls.PIPE_WEIGHT_SCH10_EMPTY.get(nominal_diameter, 0)
+        else:
+            # Estimate for other schedules
+            pipe_weight = cls.PIPE_WEIGHT_SCH40_EMPTY.get(nominal_diameter, 0) * 0.8
+        
+        water_weight = cls.get_water_weight_per_foot(nominal_diameter, schedule)
+        return pipe_weight + water_weight
+    
+    # ==========================================================================
+    # MATERIAL SPECIFICATIONS
+    # ==========================================================================
+    
+    PIPE_MATERIALS = {
+        'black_steel': {
+            'name': 'Black Steel',
+            'standards': ['ASTM A53', 'ASTM A135', 'ASTM A795'],
+            'c_factor_new': 120,
+            'c_factor_aged': 100,
+            'corrosion_allowance': 0.05,  # inches
+            'max_working_pressure_psi': {
+                'sch7': 150,
+                'sch10': 175,
+                'sch30': 250,
+                'sch40': 300,
+            },
+            'joining_methods': ['threaded', 'grooved', 'welded'],
+            'typical_use': 'wet systems, dry systems',
+        },
+        'galvanized': {
+            'name': 'Galvanized Steel',
+            'standards': ['ASTM A53 Type E/S', 'ASTM A135'],
+            'c_factor_new': 120,
+            'c_factor_aged': 90,
+            'corrosion_allowance': 0.02,  # Better corrosion resistance
+            'max_working_pressure_psi': {
+                'sch7': 150,
+                'sch10': 175,
+                'sch30': 250,
+                'sch40': 300,
+            },
+            'joining_methods': ['threaded', 'grooved'],  # No welding (damages zinc)
+            'typical_use': 'dry systems, wet systems in corrosive environments',
+        },
+    }
+    
+    @classmethod
+    def get_pipe_id(cls, nominal_diameter: float, schedule: int = 40) -> float:
+        """
+        Get inside diameter for a given nominal size and schedule
+        
+        Args:
+            nominal_diameter: Nominal pipe size (inches)
+            schedule: Pipe schedule (7, 10, 30, or 40)
+            
+        Returns:
+            Inside diameter in inches
+        """
+        schedule_table = cls.PIPE_SCHEDULES.get(schedule, cls.PIPE_ID_SCH40)
+        
+        if nominal_diameter in schedule_table:
+            return schedule_table[nominal_diameter]
+        
+        # Find closest size
+        available = sorted(schedule_table.keys())
+        closest = min(available, key=lambda x: abs(x - nominal_diameter))
+        return schedule_table[closest]
+    
+    @classmethod
+    def get_c_factor(cls, material: str, age_years: int = 0) -> int:
+        """
+        Get Hazen-Williams C factor for material and age
+        
+        Args:
+            material: Pipe material ('black_steel', 'galvanized', etc.)
+            age_years: Age of pipe in years
+            
+        Returns:
+            C factor for hydraulic calculations
+        """
+        # Direct lookup first
+        material_lower = material.lower().replace(' ', '_')
+        
+        # Check for aged material
+        if age_years >= 20:
+            aged_key = f"{material_lower}_20yr"
+            if aged_key in cls.C_FACTORS:
+                return cls.C_FACTORS[aged_key]
+        elif age_years >= 15:
+            aged_key = f"{material_lower}_15yr"
+            if aged_key in cls.C_FACTORS:
+                return cls.C_FACTORS[aged_key]
+        elif age_years >= 10:
+            aged_key = f"{material_lower}_10yr"
+            if aged_key in cls.C_FACTORS:
+                return cls.C_FACTORS[aged_key]
+        
+        # Return base value
+        if material_lower in cls.C_FACTORS:
+            return cls.C_FACTORS[material_lower]
+        
+        # Default
+        return 120
     
     # Standard K-factors
     K_FACTORS = {
@@ -215,51 +531,64 @@ class NFPA13Constants:
     }
     
     # Fitting equivalent lengths (feet of pipe) per diameter
+    # Per NFPA 13 Table 22.4.3.1.1
     FITTING_EQUIV_LENGTH = {
         # Format: {fitting_type: {nominal_diameter: equivalent_length}}
         'elbow_90': {
             0.75: 1, 1.0: 1, 1.25: 2, 1.5: 2, 2.0: 3, 2.5: 4, 
-            3.0: 5, 3.5: 5, 4.0: 6, 5.0: 8, 6.0: 10, 8.0: 12
+            3.0: 5, 3.5: 5, 4.0: 6, 5.0: 8, 6.0: 10, 8.0: 12,
+            10.0: 15, 12.0: 18, 14.0: 21, 16.0: 24
         },
         'elbow_45': {
             0.75: 1, 1.0: 1, 1.25: 1, 1.5: 1, 2.0: 1, 2.5: 2,
-            3.0: 2, 3.5: 3, 4.0: 3, 5.0: 4, 6.0: 5, 8.0: 6
+            3.0: 2, 3.5: 3, 4.0: 3, 5.0: 4, 6.0: 5, 8.0: 6,
+            10.0: 8, 12.0: 9, 14.0: 11, 16.0: 12
         },
         'tee_flow_thru': {
             0.75: 1, 1.0: 1, 1.25: 1, 1.5: 1, 2.0: 2, 2.5: 2,
-            3.0: 3, 3.5: 3, 4.0: 4, 5.0: 5, 6.0: 6, 8.0: 8
+            3.0: 3, 3.5: 3, 4.0: 4, 5.0: 5, 6.0: 6, 8.0: 8,
+            10.0: 10, 12.0: 12, 14.0: 14, 16.0: 16
         },
         'tee_flow_turn': {
             0.75: 3, 1.0: 4, 1.25: 5, 1.5: 6, 2.0: 8, 2.5: 10,
-            3.0: 12, 3.5: 14, 4.0: 16, 5.0: 20, 6.0: 25, 8.0: 35
+            3.0: 12, 3.5: 14, 4.0: 16, 5.0: 20, 6.0: 25, 8.0: 35,
+            10.0: 45, 12.0: 55, 14.0: 65, 16.0: 75
         },
         'cross_flow_thru': {
             0.75: 1, 1.0: 1, 1.25: 1, 1.5: 1, 2.0: 2, 2.5: 2,
-            3.0: 3, 3.5: 3, 4.0: 4, 5.0: 5, 6.0: 6, 8.0: 8
+            3.0: 3, 3.5: 3, 4.0: 4, 5.0: 5, 6.0: 6, 8.0: 8,
+            10.0: 10, 12.0: 12, 14.0: 14, 16.0: 16
         },
         'cross_flow_turn': {
             0.75: 3, 1.0: 4, 1.25: 5, 1.5: 6, 2.0: 8, 2.5: 10,
-            3.0: 12, 3.5: 14, 4.0: 16, 5.0: 20, 6.0: 25, 8.0: 35
+            3.0: 12, 3.5: 14, 4.0: 16, 5.0: 20, 6.0: 25, 8.0: 35,
+            10.0: 45, 12.0: 55, 14.0: 65, 16.0: 75
         },
         'gate_valve': {
             0.75: 0, 1.0: 0, 1.25: 1, 1.5: 1, 2.0: 1, 2.5: 1,
-            3.0: 1, 3.5: 1, 4.0: 2, 5.0: 2, 6.0: 3, 8.0: 4
+            3.0: 1, 3.5: 1, 4.0: 2, 5.0: 2, 6.0: 3, 8.0: 4,
+            10.0: 5, 12.0: 6, 14.0: 7, 16.0: 8
         },
         'butterfly_valve': {
-            2.0: 6, 2.5: 7, 3.0: 10, 4.0: 12, 5.0: 9, 6.0: 10, 8.0: 12
+            2.0: 6, 2.5: 7, 3.0: 10, 4.0: 12, 5.0: 9, 6.0: 10, 8.0: 12,
+            10.0: 15, 12.0: 18, 14.0: 21, 16.0: 24
         },
         'check_valve_swing': {
             0.75: 5, 1.0: 7, 1.25: 9, 1.5: 11, 2.0: 14, 2.5: 17,
-            3.0: 20, 4.0: 27, 5.0: 34, 6.0: 40, 8.0: 54
+            3.0: 20, 4.0: 27, 5.0: 34, 6.0: 40, 8.0: 54,
+            10.0: 70, 12.0: 85, 14.0: 100, 16.0: 115
         },
         'alarm_check': {
-            2.0: 15, 2.5: 18, 3.0: 21, 4.0: 27, 6.0: 40, 8.0: 54
+            2.0: 15, 2.5: 18, 3.0: 21, 4.0: 27, 6.0: 40, 8.0: 54,
+            10.0: 70, 12.0: 85, 14.0: 100, 16.0: 115
         },
         'dry_pipe_valve': {
-            3.0: 50, 4.0: 65, 6.0: 85, 8.0: 110
+            3.0: 50, 4.0: 65, 6.0: 85, 8.0: 110,
+            10.0: 140, 12.0: 170, 14.0: 200, 16.0: 230
         },
         'deluge_valve': {
-            3.0: 40, 4.0: 55, 6.0: 75, 8.0: 100
+            3.0: 40, 4.0: 55, 6.0: 75, 8.0: 100,
+            10.0: 130, 12.0: 160, 14.0: 190, 16.0: 220
         },
         'reducer': {
             # Based on larger pipe size, add 50% of tee_flow_turn
@@ -273,6 +602,19 @@ class NFPA13Constants:
         'sprinkler_drop': {
             # Typically 1" drop nipple - use equivalent length
             0.75: 1, 1.0: 1,
+        },
+        'os_and_y_valve': {
+            2.0: 1, 2.5: 1, 3.0: 2, 4.0: 2, 5.0: 3, 6.0: 4, 8.0: 5,
+            10.0: 6, 12.0: 8, 14.0: 9, 16.0: 10
+        },
+        'grooved_coupling': {
+            1.0: 0, 1.25: 0, 1.5: 1, 2.0: 1, 2.5: 1, 3.0: 1,
+            4.0: 1, 5.0: 1, 6.0: 2, 8.0: 2, 10.0: 3, 12.0: 3,
+            14.0: 4, 16.0: 4
+        },
+        'flange': {
+            2.0: 1, 2.5: 1, 3.0: 1, 4.0: 2, 5.0: 2, 6.0: 3, 8.0: 4,
+            10.0: 5, 12.0: 6, 14.0: 7, 16.0: 8
         },
     }
     
@@ -666,9 +1008,10 @@ class HydraulicPipe:
     
     # Physical properties
     nominal_diameter: float         # Nominal diameter (inches)
-    inside_diameter: float = 0.0    # Actual ID (inches)
+    inside_diameter: float = 0.0    # Actual ID (inches) - calculated from schedule
     length_ft: float = 0.0          # Physical length
-    material: str = "steel_new"
+    material: str = "black_steel"   # black_steel, galvanized, cpvc, etc.
+    schedule: int = 40              # Pipe schedule: 7, 10, 30, or 40
     c_factor: int = 120
     pipe_type: PipeType = PipeType.BRANCH_LINE
     
@@ -693,15 +1036,16 @@ class HydraulicPipe:
     notes: str = ""
     
     def __post_init__(self):
-        # Set inside diameter from nominal if not specified
+        # Set inside diameter from nominal and schedule
         if self.inside_diameter == 0.0:
-            self.inside_diameter = NFPA13Constants.PIPE_ID.get(
-                self.nominal_diameter, self.nominal_diameter * 0.95
+            self.inside_diameter = NFPA13Constants.get_pipe_id(
+                self.nominal_diameter, 
+                self.schedule
             )
         
-        # Set C factor from material if not specified
-        if self.c_factor == 120 and self.material in NFPA13Constants.C_FACTORS:
-            self.c_factor = NFPA13Constants.C_FACTORS[self.material]
+        # Set C factor from material if using default
+        if self.c_factor == 120:
+            self.c_factor = NFPA13Constants.get_c_factor(self.material)
         
         # Calculate equivalent lengths for fittings
         self._calculate_equivalent_lengths()
@@ -795,6 +1139,11 @@ class HydraulicPipe:
         if self.velocity_fps > limit:
             return False, f"Velocity {self.velocity_fps:.1f} fps exceeds {limit} fps limit"
         return True, "OK"
+    
+    def get_pipe_specification(self) -> str:
+        """Get full pipe specification string"""
+        material_name = self.material.replace('_', ' ').title()
+        return f'{self.nominal_diameter}" Sch{self.schedule} {material_name}'
 
 
 @dataclass
@@ -1842,7 +2191,7 @@ class NFPA13CalculationSheetGenerator:
         Generate pipe schedule table
         
         Format:
-        PIPE | FROM | TO | SIZE | LENGTH | EQUIV | TOTAL | C | FLOW | VEL | PF | NOTES
+        PIPE | FROM | TO | SIZE | SCH | MATERIAL | LENGTH | EQUIV | TOTAL | C | FLOW | VEL | PF | NOTES
         """
         schedule = []
         
@@ -1855,11 +2204,16 @@ class NFPA13CalculationSheetGenerator:
             # Velocity compliance
             vel_ok, vel_note = pipe.check_velocity_compliance()
             
+            # Material display name
+            material_display = pipe.material.replace('_', ' ').title()
+            
             row = {
                 'pipe': pipe.tag,
                 'from_node': pipe.start_node_id[:6],
                 'to_node': pipe.end_node_id[:6],
                 'nominal_size': pipe.nominal_diameter,
+                'schedule': pipe.schedule,
+                'material': material_display,
                 'inside_dia': round(pipe.inside_diameter, 3),
                 'length_ft': round(pipe.length_ft, 1),
                 'equiv_length_ft': round(pipe.equivalent_length_ft, 1),
@@ -1872,6 +2226,7 @@ class NFPA13CalculationSheetGenerator:
                 'fittings': fitting_summary,
                 'pipe_type': pipe.pipe_type.value,
                 'velocity_ok': vel_ok,
+                'specification': pipe.get_pipe_specification(),
                 'notes': pipe.notes + (f' | {vel_note}' if not vel_ok else ''),
             }
             
@@ -2974,14 +3329,28 @@ class NetworkBuilder:
                 )
                 fittings.append(fitting)
             
+            # Get schedule (default to 40 if not specified)
+            schedule = pipe_data.get('schedule', 40)
+            
+            # Get material (support both old and new naming)
+            material = pipe_data.get('material', 'black_steel')
+            # Map old names to new
+            material_map = {
+                'steel_new': 'black_steel',
+                'steel_black': 'black_steel',
+                'steel_galvanized': 'galvanized',
+            }
+            material = material_map.get(material, material)
+            
             pipe = HydraulicPipe(
                 id=pipe_data.get('id', str(uuid.uuid4())[:8]),
                 start_node_id=pipe_data.get('start', pipe_data.get('start_node', '')),
                 end_node_id=pipe_data.get('end', pipe_data.get('end_node', '')),
                 nominal_diameter=pipe_data.get('diameter', 1.0),
                 length_ft=pipe_data.get('length', 10.0),
-                material=pipe_data.get('material', 'steel_new'),
-                c_factor=pipe_data.get('c_factor', 120),
+                material=material,
+                schedule=schedule,
+                c_factor=pipe_data.get('c_factor', NFPA13Constants.get_c_factor(material)),
                 pipe_type=PipeType(pipe_data.get('pipe_type', 'branch_line')),
                 fittings=fittings,
             )
