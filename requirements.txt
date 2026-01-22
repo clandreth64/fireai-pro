@@ -81,3 +81,7 @@ torchvision
 pdfplumber
 PyPDF2
 Pillow
+
+pdf2image
+PyMuPDF
+requests
