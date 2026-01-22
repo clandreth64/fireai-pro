@@ -1,11 +1,17 @@
 #!/usr/bin/env python3
 """
-FireAI Pro - Production Orchestrator v5.0
-==========================================
-BULLETPROOF VERSION with comprehensive error handling
-Every output generator is wrapped in try/except to prevent crashes
+FireAI Pro - Master Integrated Orchestrator v6.0
+=================================================
+Complete automated fire sprinkler design from construction documents.
 
-VERSION: 5.0.0-PRODUCTION
+WORKFLOW:
+1. ANALYZE - Parse uploaded documents (PDF, DXF, images)
+2. CLASSIFY - Determine occupancy, hazard class, code requirements
+3. DESIGN - Create zone-by-zone sprinkler layout
+4. VERIFY - Run compliance through standards engine (790+ rules)
+5. DELIVER - Generate DXF, PDF reports, BOM with pricing
+
+VERSION: 6.0.0-PRODUCTION
 """
 
 import os
@@ -21,40 +27,42 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Any
 from enum import Enum
 
-# Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("FireAI")
 
+
 # =============================================================================
-# SAFE IMPORTS WITH FALLBACKS
+# IMPORTS
 # =============================================================================
 
+# Document analyzer
+try:
+    from document_analyzer import analyze_documents, BuildingAnalyzer
+    ANALYZER_AVAILABLE = True
+    logger.info("✅ Document analyzer loaded")
+except Exception as e:
+    ANALYZER_AVAILABLE = False
+    logger.warning(f"⚠️ Document analyzer not available: {e}")
+
+# Standards engine
 STANDARDS_ENGINE_AVAILABLE = False
 try:
-    from fireai_pro_master_Standards import (
-        EnhancedFireAIProMaster,
-        HazardClassification,
-        ComplianceLevel
-    )
+    from fireai_pro_master_Standards import EnhancedFireAIProMaster
     STANDARDS_ENGINE_AVAILABLE = True
-    logger.info("✅ Standards engine loaded")
+    logger.info("✅ Standards engine loaded (790+ NFPA rules)")
 except Exception as e:
     logger.warning(f"⚠️ Standards engine not available: {e}")
-    class HazardClassification(Enum):
-        LIGHT_HAZARD = "light_hazard"
-        ORDINARY_HAZARD_GROUP_1 = "ordinary_hazard_group_1"
-        ORDINARY_HAZARD_GROUP_2 = "ordinary_hazard_group_2"
-        EXTRA_HAZARD_GROUP_1 = "extra_hazard_group_1"
-        EXTRA_HAZARD_GROUP_2 = "extra_hazard_group_2"
 
+# DXF generation
 EZDXF_AVAILABLE = False
 try:
     import ezdxf
     EZDXF_AVAILABLE = True
     logger.info("✅ ezdxf loaded")
-except Exception as e:
-    logger.warning(f"⚠️ ezdxf not available: {e}")
+except:
+    logger.warning("⚠️ ezdxf not available")
 
+# PDF generation
 REPORTLAB_AVAILABLE = False
 try:
     from reportlab.lib.pagesizes import letter
@@ -65,24 +73,54 @@ try:
     from reportlab.lib.enums import TA_CENTER
     REPORTLAB_AVAILABLE = True
     logger.info("✅ reportlab loaded")
-except Exception as e:
-    logger.warning(f"⚠️ reportlab not available: {e}")
+except:
+    logger.warning("⚠️ reportlab not available")
 
 
 # =============================================================================
-# NFPA 13 CONSTANTS
+# CONSTANTS
 # =============================================================================
 
 HAZARD_REQUIREMENTS = {
-    'light_hazard': {'max_coverage': 225, 'max_spacing': 15, 'min_spacing': 6, 'density': 0.10, 'design_area': 1500, 'hose_stream': 100, 'duration': 30},
-    'ordinary_hazard_group_1': {'max_coverage': 130, 'max_spacing': 15, 'min_spacing': 6, 'density': 0.15, 'design_area': 1500, 'hose_stream': 250, 'duration': 60},
-    'ordinary_hazard_group_2': {'max_coverage': 130, 'max_spacing': 15, 'min_spacing': 6, 'density': 0.20, 'design_area': 1500, 'hose_stream': 250, 'duration': 60},
-    'extra_hazard_group_1': {'max_coverage': 100, 'max_spacing': 12, 'min_spacing': 6, 'density': 0.30, 'design_area': 2500, 'hose_stream': 500, 'duration': 90},
-    'extra_hazard_group_2': {'max_coverage': 100, 'max_spacing': 12, 'min_spacing': 6, 'density': 0.40, 'design_area': 2500, 'hose_stream': 500, 'duration': 120},
+    'light_hazard': {'coverage': 225, 'spacing': 15, 'min_spacing': 6, 'density': 0.10, 'area': 1500, 'hose': 100, 'duration': 30},
+    'ordinary_hazard_group_1': {'coverage': 130, 'spacing': 15, 'min_spacing': 6, 'density': 0.15, 'area': 1500, 'hose': 250, 'duration': 60},
+    'ordinary_hazard_group_2': {'coverage': 130, 'spacing': 15, 'min_spacing': 6, 'density': 0.20, 'area': 1500, 'hose': 250, 'duration': 60},
+    'extra_hazard_group_1': {'coverage': 100, 'spacing': 12, 'min_spacing': 6, 'density': 0.30, 'area': 2500, 'hose': 500, 'duration': 90},
+    'extra_hazard_group_2': {'coverage': 100, 'spacing': 12, 'min_spacing': 6, 'density': 0.40, 'area': 2500, 'hose': 500, 'duration': 120},
 }
 
-HANGER_SPACING = {1.0: 12, 1.25: 12, 1.5: 12, 2.0: 12, 2.5: 12, 3.0: 15, 4.0: 15, 6.0: 15, 8.0: 15}
-PIPE_DATA = {1.0: 1.049, 1.25: 1.380, 1.5: 1.610, 2.0: 2.067, 2.5: 2.469, 3.0: 3.068, 4.0: 4.026, 6.0: 6.065}
+HANGER_SPACING = {1.0: 12, 1.25: 12, 1.5: 12, 2.0: 12, 2.5: 12, 3.0: 15, 4.0: 15, 6.0: 15}
+PIPE_ID = {1.0: 1.049, 1.25: 1.380, 1.5: 1.610, 2.0: 2.067, 2.5: 2.469, 3.0: 3.068, 4.0: 4.026, 6.0: 6.065}
+
+# Pricing (typical 2024 prices)
+PRICING = {
+    'sprinkler_pendant': 45.00,
+    'sprinkler_upright': 48.00,
+    'sprinkler_sidewall': 55.00,
+    'pipe_1': 4.50,      # per foot
+    'pipe_1.25': 5.25,
+    'pipe_1.5': 6.00,
+    'pipe_2': 8.50,
+    'pipe_2.5': 12.00,
+    'pipe_3': 16.00,
+    'pipe_4': 24.00,
+    'pipe_6': 45.00,
+    'tee': 18.00,
+    'elbow': 12.00,
+    'coupling': 8.00,
+    'reducer': 15.00,
+    'hanger': 12.00,
+    'brace_lateral': 85.00,
+    'brace_longitudinal': 95.00,
+    'brace_4way': 175.00,
+    'valve_os_y': 450.00,
+    'valve_alarm_check': 1200.00,
+    'valve_flow_switch': 350.00,
+    'valve_drain': 125.00,
+    'valve_test': 85.00,
+    'valve_fdc': 650.00,
+    'labor_rate': 85.00,  # per hour
+}
 
 
 # =============================================================================
@@ -90,16 +128,30 @@ PIPE_DATA = {1.0: 1.049, 1.25: 1.380, 1.5: 1.610, 2.0: 2.067, 2.5: 2.469, 3.0: 3
 # =============================================================================
 
 @dataclass
+class Zone:
+    id: str
+    name: str
+    area: float
+    height: float
+    hazard: str
+    x_offset: float = 0
+    y_offset: float = 0
+    width: float = 0
+    length: float = 0
+
+
+@dataclass
 class Sprinkler:
     id: str
     x: float
     y: float
     z: float
+    zone_id: str
     k_factor: float = 5.6
-    temp_rating: int = 165
+    temp: int = 165
     coverage: float = 130
-    flow: float = 0.0
-    pressure: float = 0.0
+    flow: float = 0
+    pressure: float = 0
 
 
 @dataclass
@@ -112,10 +164,11 @@ class Pipe:
     y2: float
     z2: float
     diameter: float
-    pipe_type: str
-    length: float = 0.0
-    flow: float = 0.0
-    velocity: float = 0.0
+    type: str
+    zone_id: str = ""
+    length: float = 0
+    flow: float = 0
+    velocity: float = 0
     
     def __post_init__(self):
         if self.length == 0:
@@ -142,7 +195,7 @@ class Valve:
     size: float
 
 
-@dataclass 
+@dataclass
 class Hanger:
     id: str
     x: float
@@ -165,261 +218,428 @@ class Brace:
 class Design:
     project_id: str
     project_name: str
-    hazard_class: str
-    area: float
-    height: float
+    building_area: float
+    building_height: float
+    
+    zones: List[Zone] = field(default_factory=list)
     sprinklers: List[Sprinkler] = field(default_factory=list)
     pipes: List[Pipe] = field(default_factory=list)
     fittings: List[Fitting] = field(default_factory=list)
     valves: List[Valve] = field(default_factory=list)
     hangers: List[Hanger] = field(default_factory=list)
     braces: List[Brace] = field(default_factory=list)
-    demand_gpm: float = 0.0
-    pressure_psi: float = 0.0
+    
+    demand_gpm: float = 0
+    pressure_psi: float = 0
+    
     compliant: bool = True
-    score: float = 100.0
+    score: float = 100
     violations: List[str] = field(default_factory=list)
     recommendations: List[str] = field(default_factory=list)
+    
+    # Cost estimate
+    material_cost: float = 0
+    labor_cost: float = 0
+    total_cost: float = 0
+    
+    # Analysis info
+    analysis_confidence: float = 0
+    jurisdiction: str = ""
+    codes_applied: List[str] = field(default_factory=list)
 
 
 # =============================================================================
-# DESIGN ENGINE
+# MULTI-ZONE DESIGN ENGINE
 # =============================================================================
 
-def design_system(area: float, height: float, hazard: str, project_id: str, project_name: str) -> Design:
-    """Design complete sprinkler system"""
-    logger.info(f"Designing system: {area} sqft, {height}' ceiling, {hazard}")
+class MultiZoneDesigner:
+    """Designs sprinkler systems for multi-zone buildings"""
     
-    design = Design(
-        project_id=project_id,
-        project_name=project_name,
-        hazard_class=hazard,
-        area=area,
-        height=height
-    )
+    def __init__(self):
+        self.c_factor = 120
     
-    req = HAZARD_REQUIREMENTS.get(hazard, HAZARD_REQUIREMENTS['ordinary_hazard_group_1'])
-    side = math.sqrt(area)
-    
-    # Calculate spacing
-    spacing = min(req['max_spacing'] * 0.80, math.sqrt(req['max_coverage'] * 0.85))
-    coverage = spacing * spacing
-    offset = spacing / 2
-    
-    # Sprinkler layout
-    num_x = int((side - offset) / spacing) + 1
-    num_y = int((side - offset) / spacing) + 1
-    spk_z = height - 0.5
-    
-    counter = 1
-    for i in range(num_x):
-        for j in range(num_y):
-            x = min(offset + i * spacing, side - 1)
-            y = min(offset + j * spacing, side - 1)
-            design.sprinklers.append(Sprinkler(
-                id=f"SP-{counter:03d}", x=x, y=y, z=spk_z,
-                k_factor=5.6, temp_rating=165, coverage=coverage
-            ))
-            counter += 1
-    
-    logger.info(f"  Created {len(design.sprinklers)} sprinklers")
-    
-    # Pipe network
-    pipe_z = height - 1.0
-    rx, ry = 5.0, 5.0  # Riser location
-    
-    # Riser
-    design.pipes.append(Pipe(
-        id="P-001-RISER", x1=rx, y1=ry, z1=0, x2=rx, y2=ry, z2=pipe_z,
-        diameter=4.0, pipe_type="riser"
-    ))
-    
-    # Feed main
-    design.pipes.append(Pipe(
-        id="P-002-MAIN", x1=rx, y1=ry, z1=pipe_z, x2=side-5, y2=ry, z2=pipe_z,
-        diameter=4.0, pipe_type="main"
-    ))
-    
-    # Branch lines
-    unique_x = sorted(set(round(s.x, 0) for s in design.sprinklers))
-    pid = 3
-    for bx in unique_x:
-        branch_spks = [s for s in design.sprinklers if abs(s.x - bx) < 2]
-        if branch_spks:
-            max_y = max(s.y for s in branch_spks)
-            num = len(branch_spks)
-            dia = 1.0 if num <= 2 else (1.25 if num <= 4 else (1.5 if num <= 6 else (2.0 if num <= 10 else 2.5)))
+    def design(self, project_data: Dict) -> Design:
+        """Design complete multi-zone sprinkler system"""
+        
+        design = Design(
+            project_id=project_data.get('project_id', f'FP-{uuid.uuid4().hex[:8].upper()}'),
+            project_name=project_data.get('project_name', 'Fire Sprinkler Project'),
+            building_area=project_data.get('building_area_sqft', 10000),
+            building_height=project_data.get('ceiling_height_ft', 12)
+        )
+        
+        # Create zones from project data or use single zone
+        zones_data = project_data.get('zones', [])
+        if not zones_data:
+            # Single zone covering whole building
+            zones_data = [{
+                'zone_id': 'ZONE-001',
+                'zone_name': 'Main Area',
+                'area_sqft': design.building_area,
+                'ceiling_height_ft': design.building_height,
+                'hazard_class': project_data.get('hazard_class', 'ordinary_hazard_group_1')
+            }]
+        
+        # Create zone objects and calculate positions
+        total_area = sum(z.get('area_sqft', 0) for z in zones_data)
+        if total_area == 0:
+            total_area = design.building_area
+        
+        x_offset = 0
+        for i, zd in enumerate(zones_data):
+            zone_area = zd.get('area_sqft', 0)
+            if zone_area == 0:
+                zone_area = design.building_area / len(zones_data)
             
-            design.pipes.append(Pipe(
-                id=f"P-{pid:03d}-BR", x1=bx, y1=ry, z1=pipe_z, x2=bx, y2=max_y+2, z2=pipe_z,
-                diameter=dia, pipe_type="branch"
-            ))
-            pid += 1
-    
-    logger.info(f"  Created {len(design.pipes)} pipes")
-    
-    # Calculate hydraulics
-    density = req['density']
-    hose = req['hose_stream']
-    active_count = min(len(design.sprinklers), int(req['design_area'] / req['max_coverage']))
-    
-    for i, spk in enumerate(design.sprinklers):
-        if i < active_count:
-            spk.flow = max(density * spk.coverage, 15)
-            spk.pressure = (spk.flow / spk.k_factor) ** 2
-    
-    for pipe in design.pipes:
-        if pipe.pipe_type == "riser" or pipe.pipe_type == "main":
-            pipe.flow = sum(s.flow for s in design.sprinklers)
-        elif pipe.pipe_type == "branch":
-            branch_spks = [s for s in design.sprinklers if abs(s.x - pipe.x1) < 2]
-            pipe.flow = sum(s.flow for s in branch_spks)
+            # Calculate zone dimensions (assume rectangular)
+            zone_width = math.sqrt(zone_area)
+            zone_length = zone_area / zone_width if zone_width > 0 else zone_width
+            
+            zone = Zone(
+                id=zd.get('zone_id', f'ZONE-{i+1:03d}'),
+                name=zd.get('zone_name', f'Zone {i+1}'),
+                area=zone_area,
+                height=zd.get('ceiling_height_ft', design.building_height),
+                hazard=zd.get('hazard_class', 'ordinary_hazard_group_1'),
+                x_offset=x_offset,
+                y_offset=0,
+                width=zone_width,
+                length=zone_length
+            )
+            design.zones.append(zone)
+            x_offset += zone_width + 5  # 5' gap between zones
         
-        if pipe.diameter > 0 and pipe.length > 0:
-            inner = PIPE_DATA.get(pipe.diameter, pipe.diameter)
-            pipe.velocity = 0.4085 * pipe.flow / (inner ** 2) if inner > 0 else 0
-    
-    design.demand_gpm = sum(s.flow for s in design.sprinklers if s.flow > 0) + hose
-    design.pressure_psi = max((s.pressure for s in design.sprinklers if s.pressure > 0), default=7) + 20
-    
-    logger.info(f"  Hydraulics: {design.demand_gpm:.0f} GPM @ {design.pressure_psi:.1f} PSI")
-    
-    # Fittings
-    fid = 1
-    for pipe in design.pipes:
-        if pipe.pipe_type == "branch":
-            design.fittings.append(Fitting(id=f"F-{fid:03d}", x=pipe.x1, y=pipe.y1, z=pipe.z1, type="tee", size=3.0))
-            fid += 1
-    
-    # Sprinkler tees
-    for spk in design.sprinklers:
-        branch = next((p for p in design.pipes if p.pipe_type == "branch" and abs(p.x1 - spk.x) < 2), None)
-        if branch:
-            design.fittings.append(Fitting(id=f"F-{fid:03d}", x=spk.x, y=spk.y, z=branch.z1, type="tee", size=branch.diameter))
-            fid += 1
-    
-    # Elbow at riser
-    design.fittings.append(Fitting(id=f"F-{fid:03d}", x=rx, y=ry, z=pipe_z, type="elbow", size=4.0))
-    
-    logger.info(f"  Created {len(design.fittings)} fittings")
-    
-    # Hangers
-    hid = 1
-    for pipe in design.pipes:
-        if pipe.pipe_type == "riser":
-            continue
-        max_space = HANGER_SPACING.get(pipe.diameter, 12)
-        num = max(1, int(math.ceil(pipe.length / max_space)))
-        for i in range(num):
-            frac = (i + 0.5) / num
-            design.hangers.append(Hanger(
-                id=f"H-{hid:03d}",
-                x=pipe.x1 + (pipe.x2 - pipe.x1) * frac,
-                y=pipe.y1 + (pipe.y2 - pipe.y1) * frac,
-                z=pipe.z1,
-                size=pipe.diameter
-            ))
-            hid += 1
-    
-    logger.info(f"  Created {len(design.hangers)} hangers")
-    
-    # Valves
-    design.valves = [
-        Valve(id="V-001", x=rx, y=ry, z=2.0, type="os_y", size=4.0),
-        Valve(id="V-002", x=rx, y=ry, z=3.0, type="alarm_check", size=4.0),
-        Valve(id="V-003", x=rx, y=ry, z=4.0, type="flow_switch", size=4.0),
-        Valve(id="V-004", x=rx+1, y=ry, z=1.5, type="drain", size=2.0),
-        Valve(id="V-005", x=50, y=50, z=height-1, type="test", size=1.0),
-        Valve(id="V-006", x=rx-3, y=ry, z=3.0, type="fdc", size=4.0),
-    ]
-    logger.info(f"  Created {len(design.valves)} valves")
-    
-    # Seismic braces
-    bid = 1
-    for pipe in design.pipes:
-        if pipe.diameter < 2.5:
-            continue
-        num_lat = max(1, int(math.ceil(pipe.length / 40)))
-        for i in range(num_lat):
-            frac = (i + 0.5) / num_lat
-            design.braces.append(Brace(
-                id=f"B-{bid:03d}",
-                x=pipe.x1 + (pipe.x2 - pipe.x1) * frac,
-                y=pipe.y1 + (pipe.y2 - pipe.y1) * frac,
-                z=pipe.z1, type="lateral", size=pipe.diameter
-            ))
-            bid += 1
+        logger.info(f"Created {len(design.zones)} zones")
         
-        if pipe.pipe_type in ["main", "riser"]:
-            num_long = max(1, int(math.ceil(pipe.length / 80)))
-            for i in range(num_long):
-                frac = (i + 0.5) / num_long
-                design.braces.append(Brace(
-                    id=f"B-{bid:03d}",
+        # Design each zone
+        for zone in design.zones:
+            self._design_zone(design, zone)
+        
+        # Design main piping (connects all zones)
+        self._design_main_piping(design)
+        
+        # Add valves
+        self._add_valves(design)
+        
+        # Calculate hydraulics
+        self._calculate_hydraulics(design)
+        
+        # Calculate costs
+        self._calculate_costs(design)
+        
+        return design
+    
+    def _design_zone(self, design: Design, zone: Zone):
+        """Design sprinkler layout for a single zone"""
+        
+        req = HAZARD_REQUIREMENTS.get(zone.hazard, HAZARD_REQUIREMENTS['ordinary_hazard_group_1'])
+        
+        # Calculate spacing
+        spacing = min(req['spacing'] * 0.80, math.sqrt(req['coverage'] * 0.85))
+        coverage = spacing * spacing
+        offset = spacing / 2
+        
+        # Calculate grid
+        num_x = max(1, int((zone.width - offset) / spacing) + 1)
+        num_y = max(1, int((zone.length - offset) / spacing) + 1)
+        
+        spk_z = zone.height - 0.5
+        pipe_z = zone.height - 1.0
+        
+        # Create sprinklers
+        spk_start = len(design.sprinklers)
+        for i in range(num_x):
+            for j in range(num_y):
+                x = zone.x_offset + min(offset + i * spacing, zone.width - 1)
+                y = zone.y_offset + min(offset + j * spacing, zone.length - 1)
+                
+                design.sprinklers.append(Sprinkler(
+                    id=f"SP-{len(design.sprinklers)+1:03d}",
+                    x=x, y=y, z=spk_z,
+                    zone_id=zone.id,
+                    k_factor=5.6, temp=165, coverage=coverage
+                ))
+        
+        logger.info(f"  Zone {zone.name}: {len(design.sprinklers) - spk_start} sprinklers")
+        
+        # Create branch lines for this zone
+        zone_sprinklers = [s for s in design.sprinklers if s.zone_id == zone.id]
+        unique_x = sorted(set(round(s.x, 0) for s in zone_sprinklers))
+        
+        for bx in unique_x:
+            branch_spks = [s for s in zone_sprinklers if abs(s.x - bx) < 2]
+            if branch_spks:
+                min_y = min(s.y for s in branch_spks)
+                max_y = max(s.y for s in branch_spks)
+                
+                # Size branch
+                num = len(branch_spks)
+                dia = 1.0 if num <= 2 else (1.25 if num <= 4 else (1.5 if num <= 6 else (2.0 if num <= 10 else 2.5)))
+                
+                design.pipes.append(Pipe(
+                    id=f"P-{len(design.pipes)+1:03d}-BR",
+                    x1=bx, y1=min_y - 2, z1=pipe_z,
+                    x2=bx, y2=max_y + 2, z2=pipe_z,
+                    diameter=dia, type="branch", zone_id=zone.id
+                ))
+                
+                # Add fittings for sprinkler tees
+                for spk in branch_spks:
+                    design.fittings.append(Fitting(
+                        id=f"F-{len(design.fittings)+1:03d}",
+                        x=spk.x, y=spk.y, z=pipe_z,
+                        type="tee", size=dia
+                    ))
+        
+        # Add hangers for branch lines
+        zone_pipes = [p for p in design.pipes if p.zone_id == zone.id]
+        for pipe in zone_pipes:
+            max_space = HANGER_SPACING.get(pipe.diameter, 12)
+            num_hangers = max(1, int(math.ceil(pipe.length / max_space)))
+            for i in range(num_hangers):
+                frac = (i + 0.5) / num_hangers
+                design.hangers.append(Hanger(
+                    id=f"H-{len(design.hangers)+1:03d}",
                     x=pipe.x1 + (pipe.x2 - pipe.x1) * frac,
                     y=pipe.y1 + (pipe.y2 - pipe.y1) * frac,
-                    z=pipe.z1, type="longitudinal", size=pipe.diameter
+                    z=pipe.z1,
+                    size=pipe.diameter
                 ))
-                bid += 1
     
-    logger.info(f"  Created {len(design.braces)} braces")
+    def _design_main_piping(self, design: Design):
+        """Design main piping connecting all zones"""
+        
+        if not design.zones:
+            return
+        
+        # Riser location
+        rx, ry = 5.0, 5.0
+        pipe_z = design.building_height - 1.0
+        
+        # Riser
+        design.pipes.append(Pipe(
+            id=f"P-{len(design.pipes)+1:03d}-RISER",
+            x1=rx, y1=ry, z1=0, x2=rx, y2=ry, z2=pipe_z,
+            diameter=4.0, type="riser"
+        ))
+        
+        # Feed main (spans all zones)
+        max_x = max(z.x_offset + z.width for z in design.zones)
+        design.pipes.append(Pipe(
+            id=f"P-{len(design.pipes)+1:03d}-MAIN",
+            x1=rx, y1=ry, z1=pipe_z, x2=max_x, y2=ry, z2=pipe_z,
+            diameter=4.0, type="main"
+        ))
+        
+        # Cross mains to each zone
+        for zone in design.zones:
+            zone_center_x = zone.x_offset + zone.width / 2
+            
+            # Cross main from feed main to zone
+            design.pipes.append(Pipe(
+                id=f"P-{len(design.pipes)+1:03d}-XMAIN",
+                x1=zone_center_x, y1=ry, z1=pipe_z,
+                x2=zone_center_x, y2=zone.y_offset + zone.length / 2, z2=pipe_z,
+                diameter=3.0, type="cross_main", zone_id=zone.id
+            ))
+            
+            # Tee at connection
+            design.fittings.append(Fitting(
+                id=f"F-{len(design.fittings)+1:03d}",
+                x=zone_center_x, y=ry, z=pipe_z,
+                type="tee", size=4.0
+            ))
+        
+        # Elbow at riser
+        design.fittings.append(Fitting(
+            id=f"F-{len(design.fittings)+1:03d}",
+            x=rx, y=ry, z=pipe_z,
+            type="elbow", size=4.0
+        ))
+        
+        # Main piping hangers
+        main_pipes = [p for p in design.pipes if p.type in ["main", "cross_main"]]
+        for pipe in main_pipes:
+            max_space = HANGER_SPACING.get(pipe.diameter, 15)
+            num = max(1, int(math.ceil(pipe.length / max_space)))
+            for i in range(num):
+                frac = (i + 0.5) / num
+                design.hangers.append(Hanger(
+                    id=f"H-{len(design.hangers)+1:03d}",
+                    x=pipe.x1 + (pipe.x2 - pipe.x1) * frac,
+                    y=pipe.y1 + (pipe.y2 - pipe.y1) * frac,
+                    z=pipe.z1,
+                    size=pipe.diameter
+                ))
+        
+        # Seismic bracing for large pipes
+        for pipe in design.pipes:
+            if pipe.diameter < 2.5:
+                continue
+            
+            # Lateral braces
+            num_lat = max(1, int(math.ceil(pipe.length / 40)))
+            for i in range(num_lat):
+                frac = (i + 0.5) / num_lat
+                design.braces.append(Brace(
+                    id=f"B-{len(design.braces)+1:03d}",
+                    x=pipe.x1 + (pipe.x2 - pipe.x1) * frac,
+                    y=pipe.y1 + (pipe.y2 - pipe.y1) * frac,
+                    z=pipe.z1, type="lateral", size=pipe.diameter
+                ))
+            
+            # Longitudinal for mains
+            if pipe.type in ["main", "riser"]:
+                num_long = max(1, int(math.ceil(pipe.length / 80)))
+                for i in range(num_long):
+                    frac = (i + 0.5) / num_long
+                    design.braces.append(Brace(
+                        id=f"B-{len(design.braces)+1:03d}",
+                        x=pipe.x1 + (pipe.x2 - pipe.x1) * frac,
+                        y=pipe.y1 + (pipe.y2 - pipe.y1) * frac,
+                        z=pipe.z1, type="longitudinal", size=pipe.diameter
+                    ))
     
-    return design
+    def _add_valves(self, design: Design):
+        """Add required valves"""
+        rx, ry = 5.0, 5.0
+        
+        design.valves = [
+            Valve(id="V-001", x=rx, y=ry, z=2.0, type="os_y", size=4.0),
+            Valve(id="V-002", x=rx, y=ry, z=3.0, type="alarm_check", size=4.0),
+            Valve(id="V-003", x=rx, y=ry, z=4.0, type="flow_switch", size=4.0),
+            Valve(id="V-004", x=rx+1, y=ry, z=1.5, type="drain", size=2.0),
+            Valve(id="V-005", x=50, y=50, z=design.building_height-1, type="test", size=1.0),
+            Valve(id="V-006", x=rx-3, y=ry, z=3.0, type="fdc", size=4.0),
+        ]
+    
+    def _calculate_hydraulics(self, design: Design):
+        """Calculate system hydraulics"""
+        
+        # Get most demanding zone
+        max_density = 0
+        max_hose = 0
+        for zone in design.zones:
+            req = HAZARD_REQUIREMENTS.get(zone.hazard, HAZARD_REQUIREMENTS['ordinary_hazard_group_1'])
+            if req['density'] > max_density:
+                max_density = req['density']
+                max_hose = req['hose']
+        
+        if max_density == 0:
+            req = HAZARD_REQUIREMENTS['ordinary_hazard_group_1']
+            max_density = req['density']
+            max_hose = req['hose']
+        
+        # Calculate sprinkler flows
+        active_count = min(len(design.sprinklers), 15)  # Typical remote area
+        for i, spk in enumerate(design.sprinklers):
+            if i < active_count:
+                spk.flow = max(max_density * spk.coverage, 15)
+                spk.pressure = (spk.flow / spk.k_factor) ** 2
+        
+        # Calculate pipe flows
+        for pipe in design.pipes:
+            if pipe.type == "riser" or pipe.type == "main":
+                pipe.flow = sum(s.flow for s in design.sprinklers)
+            elif pipe.type == "branch":
+                branch_spks = [s for s in design.sprinklers if abs(s.x - pipe.x1) < 2]
+                pipe.flow = sum(s.flow for s in branch_spks)
+            elif pipe.type == "cross_main":
+                zone_spks = [s for s in design.sprinklers if s.zone_id == pipe.zone_id]
+                pipe.flow = sum(s.flow for s in zone_spks)
+            
+            if pipe.diameter > 0:
+                inner = PIPE_ID.get(pipe.diameter, pipe.diameter)
+                pipe.velocity = 0.4085 * pipe.flow / (inner ** 2) if inner > 0 else 0
+        
+        design.demand_gpm = sum(s.flow for s in design.sprinklers if s.flow > 0) + max_hose
+        design.pressure_psi = max((s.pressure for s in design.sprinklers if s.pressure > 0), default=7) + 25
+    
+    def _calculate_costs(self, design: Design):
+        """Calculate material and labor costs"""
+        
+        material = 0
+        labor_hours = 0
+        
+        # Sprinklers
+        material += len(design.sprinklers) * PRICING['sprinkler_pendant']
+        labor_hours += len(design.sprinklers) * 0.5  # 30 min per head
+        
+        # Pipe
+        for pipe in design.pipes:
+            key = f"pipe_{int(pipe.diameter)}" if pipe.diameter == int(pipe.diameter) else f"pipe_{pipe.diameter}"
+            price = PRICING.get(key, PRICING.get('pipe_2', 8.50))
+            material += pipe.length * price
+            labor_hours += pipe.length * 0.1  # 6 min per foot
+        
+        # Fittings
+        for fit in design.fittings:
+            material += PRICING.get(fit.type, 15)
+            labor_hours += 0.25  # 15 min per fitting
+        
+        # Valves
+        for v in design.valves:
+            material += PRICING.get(f"valve_{v.type}", 200)
+            labor_hours += 1.0  # 1 hour per valve
+        
+        # Hangers
+        material += len(design.hangers) * PRICING['hanger']
+        labor_hours += len(design.hangers) * 0.25
+        
+        # Braces
+        for b in design.braces:
+            material += PRICING.get(f"brace_{b.type}", PRICING['brace_lateral'])
+            labor_hours += 0.5
+        
+        design.material_cost = material
+        design.labor_cost = labor_hours * PRICING['labor_rate']
+        design.total_cost = design.material_cost + design.labor_cost
 
 
 # =============================================================================
-# COMPLIANCE CHECK
+# COMPLIANCE CHECKER
 # =============================================================================
 
 def check_compliance(design: Design, zip_code: str = "") -> Design:
     """Run compliance check"""
-    logger.info("Running compliance check...")
     
     if STANDARDS_ENGINE_AVAILABLE and zip_code:
         try:
             master = EnhancedFireAIProMaster()
-            req = HAZARD_REQUIREMENTS.get(design.hazard_class, HAZARD_REQUIREMENTS['ordinary_hazard_group_1'])
             
-            # Calculate actual spacing
-            spacing_x = spacing_y = 12.0
-            if len(design.sprinklers) >= 2:
-                x_vals = sorted(set(s.x for s in design.sprinklers))
-                if len(x_vals) >= 2:
-                    spacing_x = x_vals[1] - x_vals[0]
-                y_vals = sorted(set(s.y for s in design.sprinklers))
-                if len(y_vals) >= 2:
-                    spacing_y = y_vals[1] - y_vals[0]
+            # Find primary hazard
+            primary_hazard = 'ordinary_hazard_group_1'
+            if design.zones:
+                primary_hazard = design.zones[0].hazard
             
             project_data = {
                 'project_id': design.project_id,
                 'project_name': design.project_name,
-                'building_area': design.area,
-                'building_height': design.height,
+                'building_area': design.building_area,
+                'building_height': design.building_height,
                 'stories': 1,
                 'construction_type': 'Type II-B',
-                'hazard_classification': design.hazard_class,
-                'design_density': req['density'],
-                'design_area': req['design_area'],
-                'ceiling_height': design.height,
-                'sprinkler_spacing_x': spacing_x,
-                'sprinkler_spacing_y': spacing_y,
+                'hazard_classification': primary_hazard,
                 'sprinkler_required': True,
                 'system_types': ['wet_pipe_sprinkler'],
-                'water_supply_static_pressure': 80,
-                'water_supply_flow_pressure': 65,
-                'water_supply_flow_rate': design.demand_gpm * 1.2
             }
             
             result = master.analyze_project(project_data, zip_code)
+            
             design.score = result.overall_compliance_score
             design.compliant = design.score >= 80 and len(result.critical_violations) == 0
             design.violations = [f"{v.rule_id}: {v.notes}" for v in result.critical_violations]
             design.recommendations = result.recommendations
             
-            logger.info(f"  Standards engine: {design.score:.1f}% score")
+            if result.jurisdiction_info:
+                design.jurisdiction = f"{result.jurisdiction_info.city}, {result.jurisdiction_info.state_code}"
+            
+            design.codes_applied = ['NFPA 13', 'IBC', 'IFC']
+            
+            logger.info(f"Standards engine: {design.score:.1f}% score")
             
         except Exception as e:
-            logger.warning(f"  Standards engine error: {e}, using basic check")
+            logger.warning(f"Standards engine error: {e}")
             design = _basic_compliance(design)
     else:
         design = _basic_compliance(design)
@@ -429,214 +649,193 @@ def check_compliance(design: Design, zip_code: str = "") -> Design:
 
 def _basic_compliance(design: Design) -> Design:
     """Basic compliance check"""
-    req = HAZARD_REQUIREMENTS.get(design.hazard_class, HAZARD_REQUIREMENTS['ordinary_hazard_group_1'])
     
-    # Check spacing
-    for i, s1 in enumerate(design.sprinklers):
-        for s2 in design.sprinklers[i+1:]:
-            dist = math.sqrt((s1.x - s2.x)**2 + (s1.y - s2.y)**2)
-            if dist < req['min_spacing']:
-                design.violations.append(f"Spacing violation: {s1.id} and {s2.id} at {dist:.1f}' (min {req['min_spacing']}')")
+    for zone in design.zones:
+        req = HAZARD_REQUIREMENTS.get(zone.hazard, HAZARD_REQUIREMENTS['ordinary_hazard_group_1'])
+        
+        zone_spks = [s for s in design.sprinklers if s.zone_id == zone.id]
+        for i, s1 in enumerate(zone_spks):
+            for s2 in zone_spks[i+1:]:
+                dist = math.sqrt((s1.x - s2.x)**2 + (s1.y - s2.y)**2)
+                if dist < req['min_spacing']:
+                    design.violations.append(f"Spacing: {s1.id} and {s2.id} at {dist:.1f}' (min {req['min_spacing']}')")
     
-    # Check velocity
     for pipe in design.pipes:
         if pipe.velocity > 32 and pipe.length > 1:
-            design.violations.append(f"Velocity violation: {pipe.id} at {pipe.velocity:.1f} fps (max 32)")
+            design.violations.append(f"Velocity: {pipe.id} at {pipe.velocity:.1f} fps (max 32)")
     
     design.compliant = len(design.violations) == 0
     design.score = 100.0 if design.compliant else max(0, 100 - len(design.violations) * 10)
+    design.codes_applied = ['NFPA 13']
     
-    logger.info(f"  Basic check: {design.score:.1f}% score")
     return design
 
 
 # =============================================================================
-# DXF GENERATOR - BULLETPROOF
+# OUTPUT GENERATORS
 # =============================================================================
 
 def generate_dxf(design: Design, path: str) -> bool:
-    """Generate DXF with comprehensive error handling"""
-    logger.info(f"Generating DXF: {path}")
+    """Generate DXF drawing"""
     
     if not EZDXF_AVAILABLE:
-        logger.error("ezdxf not available, cannot generate DXF")
+        logger.error("ezdxf not available")
         return False
     
     try:
         doc = ezdxf.new('R2010')
         msp = doc.modelspace()
         
-        # Create layers
+        # Layers
         layers = [
             ('FIRE-PIPE', 1), ('FIRE-SPRINKLER', 4), ('FIRE-FITTING', 6),
-            ('FIRE-VALVE', 3), ('FIRE-HANGER', 8), ('FIRE-BRACE', 5), ('FIRE-TEXT', 7)
+            ('FIRE-VALVE', 3), ('FIRE-HANGER', 8), ('FIRE-BRACE', 5),
+            ('FIRE-TEXT', 7), ('FIRE-ZONE', 2)
         ]
-        for name, color in layers:
+        for name, color in layers.items() if isinstance(layers, dict) else layers:
             try:
                 doc.layers.add(name, color=color)
-            except Exception as e:
-                logger.warning(f"Layer {name} error: {e}")
+            except:
+                pass
         
-        entities_added = 0
+        # Draw zone boundaries
+        for zone in design.zones:
+            pts = [
+                (zone.x_offset, zone.y_offset),
+                (zone.x_offset + zone.width, zone.y_offset),
+                (zone.x_offset + zone.width, zone.y_offset + zone.length),
+                (zone.x_offset, zone.y_offset + zone.length),
+                (zone.x_offset, zone.y_offset)
+            ]
+            msp.add_lwpolyline(pts, dxfattribs={'layer': 'FIRE-ZONE'})
+            msp.add_text(zone.name, dxfattribs={'layer': 'FIRE-ZONE', 'height': 1.5}).set_placement(
+                (zone.x_offset + zone.width/2, zone.y_offset + zone.length + 2))
         
         # Draw pipes
         for pipe in design.pipes:
-            try:
-                if pipe.pipe_type == "riser":
-                    msp.add_circle((pipe.x1, pipe.y1), radius=1.5, dxfattribs={'layer': 'FIRE-PIPE'})
-                    msp.add_line((pipe.x1-1, pipe.y1-1), (pipe.x1+1, pipe.y1+1), dxfattribs={'layer': 'FIRE-PIPE'})
-                    msp.add_line((pipe.x1-1, pipe.y1+1), (pipe.x1+1, pipe.y1-1), dxfattribs={'layer': 'FIRE-PIPE'})
-                else:
-                    msp.add_line((pipe.x1, pipe.y1), (pipe.x2, pipe.y2), dxfattribs={'layer': 'FIRE-PIPE'})
-                    mid_x, mid_y = (pipe.x1 + pipe.x2) / 2, (pipe.y1 + pipe.y2) / 2
-                    msp.add_text(f'{pipe.diameter}"', dxfattribs={'layer': 'FIRE-TEXT', 'height': 0.8}).set_placement((mid_x, mid_y + 1))
-                entities_added += 1
-            except Exception as e:
-                logger.warning(f"Pipe {pipe.id} error: {e}")
-        
-        logger.info(f"  Added {entities_added} pipe entities")
+            if pipe.type == "riser":
+                msp.add_circle((pipe.x1, pipe.y1), radius=1.5, dxfattribs={'layer': 'FIRE-PIPE'})
+                msp.add_line((pipe.x1-1, pipe.y1-1), (pipe.x1+1, pipe.y1+1), dxfattribs={'layer': 'FIRE-PIPE'})
+                msp.add_line((pipe.x1-1, pipe.y1+1), (pipe.x1+1, pipe.y1-1), dxfattribs={'layer': 'FIRE-PIPE'})
+            else:
+                msp.add_line((pipe.x1, pipe.y1), (pipe.x2, pipe.y2), dxfattribs={'layer': 'FIRE-PIPE'})
+                mid_x, mid_y = (pipe.x1 + pipe.x2) / 2, (pipe.y1 + pipe.y2) / 2
+                msp.add_text(f'{pipe.diameter}"', dxfattribs={'layer': 'FIRE-TEXT', 'height': 0.6}).set_placement((mid_x, mid_y + 0.8))
         
         # Draw sprinklers
-        spk_count = 0
         for spk in design.sprinklers:
-            try:
-                msp.add_circle((spk.x, spk.y), radius=0.8, dxfattribs={'layer': 'FIRE-SPRINKLER'})
-                msp.add_line((spk.x-0.5, spk.y), (spk.x+0.5, spk.y), dxfattribs={'layer': 'FIRE-SPRINKLER'})
-                msp.add_line((spk.x, spk.y-0.5), (spk.x, spk.y+0.5), dxfattribs={'layer': 'FIRE-SPRINKLER'})
-                msp.add_text(spk.id, dxfattribs={'layer': 'FIRE-TEXT', 'height': 0.5}).set_placement((spk.x+1.2, spk.y))
-                spk_count += 1
-            except Exception as e:
-                logger.warning(f"Sprinkler {spk.id} error: {e}")
-        
-        logger.info(f"  Added {spk_count} sprinkler entities")
+            msp.add_circle((spk.x, spk.y), radius=0.6, dxfattribs={'layer': 'FIRE-SPRINKLER'})
+            msp.add_line((spk.x-0.4, spk.y), (spk.x+0.4, spk.y), dxfattribs={'layer': 'FIRE-SPRINKLER'})
+            msp.add_line((spk.x, spk.y-0.4), (spk.x, spk.y+0.4), dxfattribs={'layer': 'FIRE-SPRINKLER'})
         
         # Draw fittings
-        fit_count = 0
         for fit in design.fittings:
-            try:
-                if fit.type == "tee":
-                    msp.add_line((fit.x-0.5, fit.y), (fit.x+0.5, fit.y), dxfattribs={'layer': 'FIRE-FITTING'})
-                    msp.add_line((fit.x, fit.y-0.5), (fit.x, fit.y+0.5), dxfattribs={'layer': 'FIRE-FITTING'})
-                    msp.add_circle((fit.x, fit.y), radius=0.2, dxfattribs={'layer': 'FIRE-FITTING'})
-                elif fit.type == "elbow":
-                    msp.add_arc((fit.x, fit.y), radius=0.4, start_angle=0, end_angle=90, dxfattribs={'layer': 'FIRE-FITTING'})
-                fit_count += 1
-            except Exception as e:
-                logger.warning(f"Fitting {fit.id} error: {e}")
-        
-        logger.info(f"  Added {fit_count} fitting entities")
+            if fit.type == "tee":
+                msp.add_circle((fit.x, fit.y), radius=0.15, dxfattribs={'layer': 'FIRE-FITTING'})
+            elif fit.type == "elbow":
+                msp.add_arc((fit.x, fit.y), radius=0.3, start_angle=0, end_angle=90, dxfattribs={'layer': 'FIRE-FITTING'})
         
         # Draw valves
         valve_labels = {"os_y": "OS&Y", "alarm_check": "ACV", "flow_switch": "FS", "drain": "MD", "test": "IT", "fdc": "FDC"}
         for v in design.valves:
-            try:
-                msp.add_lwpolyline([(v.x, v.y+0.6), (v.x+0.6, v.y), (v.x, v.y-0.6), (v.x-0.6, v.y), (v.x, v.y+0.6)], dxfattribs={'layer': 'FIRE-VALVE'})
-                msp.add_text(valve_labels.get(v.type, "V"), dxfattribs={'layer': 'FIRE-TEXT', 'height': 0.4}).set_placement((v.x+1, v.y))
-            except Exception as e:
-                logger.warning(f"Valve {v.id} error: {e}")
+            msp.add_lwpolyline([(v.x, v.y+0.5), (v.x+0.5, v.y), (v.x, v.y-0.5), (v.x-0.5, v.y), (v.x, v.y+0.5)], dxfattribs={'layer': 'FIRE-VALVE'})
+            msp.add_text(valve_labels.get(v.type, "V"), dxfattribs={'layer': 'FIRE-TEXT', 'height': 0.4}).set_placement((v.x+0.8, v.y))
         
         # Draw hangers
         for h in design.hangers:
-            try:
-                msp.add_lwpolyline([(h.x-0.3, h.y+0.3), (h.x+0.3, h.y+0.3), (h.x, h.y)], dxfattribs={'layer': 'FIRE-HANGER'})
-            except Exception as e:
-                logger.warning(f"Hanger {h.id} error: {e}")
+            msp.add_lwpolyline([(h.x-0.25, h.y+0.25), (h.x+0.25, h.y+0.25), (h.x, h.y)], dxfattribs={'layer': 'FIRE-HANGER'})
         
         # Draw braces
         for b in design.braces:
-            try:
-                label = "L" if b.type == "lateral" else "LG"
-                msp.add_circle((b.x, b.y), radius=0.4, dxfattribs={'layer': 'FIRE-BRACE'})
-                msp.add_text(label, dxfattribs={'layer': 'FIRE-BRACE', 'height': 0.3}).set_placement((b.x-0.15, b.y-0.1))
-            except Exception as e:
-                logger.warning(f"Brace {b.id} error: {e}")
+            msp.add_circle((b.x, b.y), radius=0.3, dxfattribs={'layer': 'FIRE-BRACE'})
         
         # Legend
-        lx, ly = -35, 10
-        try:
-            msp.add_text("SYMBOL LEGEND", dxfattribs={'layer': 'FIRE-TEXT', 'height': 1.2}).set_placement((lx, ly))
-            msp.add_circle((lx+1.5, ly-3), radius=0.8, dxfattribs={'layer': 'FIRE-SPRINKLER'})
-            msp.add_text("Sprinkler Head (K5.6, 165F)", dxfattribs={'layer': 'FIRE-TEXT', 'height': 0.6}).set_placement((lx+4, ly-3))
-            msp.add_line((lx, ly-6), (lx+3, ly-6), dxfattribs={'layer': 'FIRE-PIPE'})
-            msp.add_text("Fire Sprinkler Pipe", dxfattribs={'layer': 'FIRE-TEXT', 'height': 0.6}).set_placement((lx+4, ly-6))
-            msp.add_lwpolyline([(lx+1.5, ly-8.5), (lx+2, ly-9), (lx+1.5, ly-9.5), (lx+1, ly-9), (lx+1.5, ly-8.5)], dxfattribs={'layer': 'FIRE-VALVE'})
-            msp.add_text("Valve", dxfattribs={'layer': 'FIRE-TEXT', 'height': 0.6}).set_placement((lx+4, ly-9))
-            msp.add_lwpolyline([(lx+1.2, ly-11.7), (lx+1.8, ly-11.7), (lx+1.5, ly-12)], dxfattribs={'layer': 'FIRE-HANGER'})
-            msp.add_text("Hanger", dxfattribs={'layer': 'FIRE-TEXT', 'height': 0.6}).set_placement((lx+4, ly-12))
-            msp.add_circle((lx+1.5, ly-15), radius=0.4, dxfattribs={'layer': 'FIRE-BRACE'})
-            msp.add_text("Seismic Brace", dxfattribs={'layer': 'FIRE-TEXT', 'height': 0.6}).set_placement((lx+4, ly-15))
-        except Exception as e:
-            logger.warning(f"Legend error: {e}")
+        lx, ly = -30, 10
+        msp.add_text("LEGEND", dxfattribs={'layer': 'FIRE-TEXT', 'height': 1.0}).set_placement((lx, ly))
+        msp.add_circle((lx+1, ly-3), radius=0.6, dxfattribs={'layer': 'FIRE-SPRINKLER'})
+        msp.add_text("Sprinkler (K5.6, 165F)", dxfattribs={'layer': 'FIRE-TEXT', 'height': 0.5}).set_placement((lx+3, ly-3))
+        msp.add_line((lx, ly-5), (lx+2, ly-5), dxfattribs={'layer': 'FIRE-PIPE'})
+        msp.add_text("Fire Pipe", dxfattribs={'layer': 'FIRE-TEXT', 'height': 0.5}).set_placement((lx+3, ly-5))
+        msp.add_lwpolyline([(lx+1, ly-6.5), (lx+1.5, ly-7), (lx+1, ly-7.5), (lx+0.5, ly-7), (lx+1, ly-6.5)], dxfattribs={'layer': 'FIRE-VALVE'})
+        msp.add_text("Valve", dxfattribs={'layer': 'FIRE-TEXT', 'height': 0.5}).set_placement((lx+3, ly-7))
         
         # Title block
-        tbx, tby = -35, -25
+        tbx, tby = -30, -20
         pipe_length = sum(p.length for p in design.pipes)
-        try:
-            msp.add_lwpolyline([(tbx, tby), (tbx+55, tby), (tbx+55, tby+15), (tbx, tby+15), (tbx, tby)], dxfattribs={'layer': 'FIRE-TEXT'})
-            msp.add_text(design.project_name[:50], dxfattribs={'layer': 'FIRE-TEXT', 'height': 1.2}).set_placement((tbx+2, tby+11))
-            msp.add_text(f"Project: {design.project_id}", dxfattribs={'layer': 'FIRE-TEXT', 'height': 0.8}).set_placement((tbx+2, tby+8))
-            status = "COMPLIANT" if design.compliant else "NON-COMPLIANT"
-            msp.add_text(f"Status: {status} ({design.score:.0f}%)", dxfattribs={'layer': 'FIRE-TEXT', 'height': 0.7}).set_placement((tbx+2, tby+5))
-            msp.add_text(f"Demand: {design.demand_gpm:.0f} GPM @ {design.pressure_psi:.1f} PSI", dxfattribs={'layer': 'FIRE-TEXT', 'height': 0.6}).set_placement((tbx+2, tby+3))
-            msp.add_text(f"Sprinklers: {len(design.sprinklers)} | Pipe: {pipe_length:.0f} LF | Fittings: {len(design.fittings)}", dxfattribs={'layer': 'FIRE-TEXT', 'height': 0.5}).set_placement((tbx+2, tby+1))
-        except Exception as e:
-            logger.warning(f"Title block error: {e}")
+        msp.add_lwpolyline([(tbx, tby), (tbx+50, tby), (tbx+50, tby+12), (tbx, tby+12), (tbx, tby)], dxfattribs={'layer': 'FIRE-TEXT'})
+        msp.add_text(design.project_name[:40], dxfattribs={'layer': 'FIRE-TEXT', 'height': 1.0}).set_placement((tbx+2, tby+9))
+        msp.add_text(f"Project: {design.project_id}", dxfattribs={'layer': 'FIRE-TEXT', 'height': 0.7}).set_placement((tbx+2, tby+7))
+        status = "COMPLIANT" if design.compliant else "NON-COMPLIANT"
+        msp.add_text(f"Status: {status} ({design.score:.0f}%)", dxfattribs={'layer': 'FIRE-TEXT', 'height': 0.6}).set_placement((tbx+2, tby+5))
+        msp.add_text(f"Demand: {design.demand_gpm:.0f} GPM @ {design.pressure_psi:.1f} PSI", dxfattribs={'layer': 'FIRE-TEXT', 'height': 0.5}).set_placement((tbx+2, tby+3))
+        msp.add_text(f"Sprinklers: {len(design.sprinklers)} | Pipe: {pipe_length:.0f} LF | Est: ${design.total_cost:,.0f}", dxfattribs={'layer': 'FIRE-TEXT', 'height': 0.5}).set_placement((tbx+2, tby+1))
         
-        # Save
         doc.saveas(path)
-        logger.info(f"  DXF saved successfully: {path}")
+        logger.info(f"DXF saved: {path}")
         return True
         
     except Exception as e:
-        logger.error(f"DXF generation failed: {e}")
-        logger.error(traceback.format_exc())
+        logger.error(f"DXF error: {e}")
+        traceback.print_exc()
         return False
 
 
-# =============================================================================
-# PDF GENERATOR - BULLETPROOF
-# =============================================================================
-
 def generate_pdf(design: Design, path: str) -> bool:
     """Generate PDF compliance report"""
-    logger.info(f"Generating PDF: {path}")
     
     if not REPORTLAB_AVAILABLE:
-        logger.error("reportlab not available")
         return False
     
     try:
         doc = SimpleDocTemplate(path, pagesize=letter, topMargin=0.5*inch, bottomMargin=0.5*inch)
         styles = getSampleStyleSheet()
-        title_style = ParagraphStyle('Title', parent=styles['Heading1'], fontSize=18, alignment=TA_CENTER)
+        title_style = ParagraphStyle('Title', parent=styles['Heading1'], fontSize=16, alignment=TA_CENTER)
         story = []
         
         # Title
         story.append(Paragraph("FIRE SPRINKLER SYSTEM", title_style))
         story.append(Paragraph("COMPLIANCE REPORT", title_style))
-        story.append(Spacer(1, 20))
+        story.append(Spacer(1, 15))
         
         # Project info
         story.append(Paragraph("PROJECT INFORMATION", styles['Heading2']))
         info = [
             ["Project Name:", design.project_name],
             ["Project ID:", design.project_id],
-            ["Hazard Class:", design.hazard_class.replace('_', ' ').title()],
-            ["Building Area:", f"{design.area:,.0f} sq ft"],
-            ["Ceiling Height:", f"{design.height} ft"]
+            ["Building Area:", f"{design.building_area:,.0f} sq ft"],
+            ["Zones:", str(len(design.zones))],
         ]
+        if design.jurisdiction:
+            info.append(["Jurisdiction:", design.jurisdiction])
         t = Table(info, colWidths=[2.5*inch, 4*inch])
         t.setStyle(TableStyle([('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold')]))
         story.append(t)
-        story.append(Spacer(1, 20))
+        story.append(Spacer(1, 15))
+        
+        # Zone breakdown
+        if design.zones:
+            story.append(Paragraph("ZONE ANALYSIS", styles['Heading2']))
+            zone_data = [["Zone", "Area (sqft)", "Hazard Class", "Sprinklers"]]
+            for zone in design.zones:
+                zone_spks = len([s for s in design.sprinklers if s.zone_id == zone.id])
+                zone_data.append([zone.name, f"{zone.area:,.0f}", zone.hazard.replace('_', ' ').title(), str(zone_spks)])
+            zt = Table(zone_data, colWidths=[1.5*inch, 1.5*inch, 2*inch, 1*inch])
+            zt.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.darkblue),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                ('GRID', (0, 0), (-1, -1), 1, colors.black)
+            ]))
+            story.append(zt)
+            story.append(Spacer(1, 15))
         
         # Compliance
         story.append(Paragraph("COMPLIANCE STATUS", styles['Heading2']))
         status_color = colors.green if design.compliant else colors.red
         status = [
-            ["Overall Status:", "COMPLIANT" if design.compliant else "NON-COMPLIANT"],
-            ["Compliance Score:", f"{design.score:.1f}%"],
-            ["Critical Violations:", str(len(design.violations))]
+            ["Status:", "COMPLIANT" if design.compliant else "NON-COMPLIANT"],
+            ["Score:", f"{design.score:.1f}%"],
+            ["Codes Applied:", ", ".join(design.codes_applied) if design.codes_applied else "NFPA 13"],
+            ["Violations:", str(len(design.violations))]
         ]
         st = Table(status, colWidths=[2.5*inch, 4*inch])
         st.setStyle(TableStyle([
@@ -645,41 +844,35 @@ def generate_pdf(design: Design, path: str) -> bool:
             ('TEXTCOLOR', (1, 0), (1, 0), colors.white)
         ]))
         story.append(st)
-        story.append(Spacer(1, 20))
+        story.append(Spacer(1, 15))
         
         # System summary
         story.append(Paragraph("SYSTEM SUMMARY", styles['Heading2']))
         pipe_length = sum(p.length for p in design.pipes)
         comp = [
-            ["Component", "Quantity", "Notes"],
-            ["Sprinklers", str(len(design.sprinklers)), f"K={design.sprinklers[0].k_factor if design.sprinklers else 'N/A'}"],
-            ["Pipe", f"{pipe_length:.0f} LF", "Schedule 40 Black Steel"],
+            ["Component", "Qty", "Notes"],
+            ["Sprinklers", str(len(design.sprinklers)), "K=5.6, 165°F"],
+            ["Pipe", f"{pipe_length:.0f} LF", "Sch 40 Black Steel"],
             ["Fittings", str(len(design.fittings)), "Malleable Iron"],
-            ["Valves", str(len(design.valves)), "Per NFPA 13 Ch. 12"],
-            ["Hangers", str(len(design.hangers)), "Per NFPA 13 Sec. 16"],
-            ["Seismic Braces", str(len(design.braces)), "Per NFPA 13 Ch. 18"]
+            ["Valves", str(len(design.valves)), "Per NFPA 13 Ch.12"],
+            ["Hangers", str(len(design.hangers)), "Per NFPA 13 Sec.16"],
+            ["Seismic Braces", str(len(design.braces)), "Per NFPA 13 Ch.18"]
         ]
         ct = Table(comp, colWidths=[2*inch, 1.5*inch, 2.5*inch])
         ct.setStyle(TableStyle([
             ('BACKGROUND', (0, 0), (-1, 0), colors.darkblue),
             ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
             ('GRID', (0, 0), (-1, -1), 1, colors.black)
         ]))
         story.append(ct)
-        story.append(Spacer(1, 20))
+        story.append(Spacer(1, 15))
         
         # Hydraulics
         story.append(Paragraph("HYDRAULIC SUMMARY", styles['Heading2']))
-        req = HAZARD_REQUIREMENTS.get(design.hazard_class, HAZARD_REQUIREMENTS['ordinary_hazard_group_1'])
         hyd = [
             ["Parameter", "Value"],
             ["System Demand", f"{design.demand_gpm:.0f} GPM"],
             ["System Pressure", f"{design.pressure_psi:.1f} PSI"],
-            ["Design Density", f"{req['density']} GPM/sq ft"],
-            ["Hose Stream Allowance", f"{req['hose_stream']} GPM"],
-            ["Duration", f"{req['duration']} minutes"]
         ]
         ht = Table(hyd, colWidths=[3*inch, 3*inch])
         ht.setStyle(TableStyle([
@@ -688,41 +881,57 @@ def generate_pdf(design: Design, path: str) -> bool:
             ('GRID', (0, 0), (-1, -1), 1, colors.black)
         ]))
         story.append(ht)
+        story.append(Spacer(1, 15))
+        
+        # Cost estimate
+        story.append(Paragraph("COST ESTIMATE", styles['Heading2']))
+        cost = [
+            ["Category", "Amount"],
+            ["Materials", f"${design.material_cost:,.2f}"],
+            ["Labor", f"${design.labor_cost:,.2f}"],
+            ["TOTAL", f"${design.total_cost:,.2f}"]
+        ]
+        costt = Table(cost, colWidths=[3*inch, 3*inch])
+        costt.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.darkblue),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('BACKGROUND', (0, -1), (-1, -1), colors.lightgrey),
+            ('FONTNAME', (0, -1), (-1, -1), 'Helvetica-Bold'),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black)
+        ]))
+        story.append(costt)
         
         # Violations
         if design.violations:
-            story.append(Spacer(1, 15))
-            story.append(Paragraph("VIOLATIONS", styles['Heading3']))
-            for v in design.violations[:10]:
+            story.append(PageBreak())
+            story.append(Paragraph("VIOLATIONS", styles['Heading2']))
+            for v in design.violations[:15]:
                 story.append(Paragraph(f"• {v}", styles['Normal']))
         
         doc.build(story)
-        logger.info(f"  PDF saved successfully: {path}")
+        logger.info(f"PDF saved: {path}")
         return True
         
     except Exception as e:
-        logger.error(f"PDF generation failed: {e}")
-        logger.error(traceback.format_exc())
+        logger.error(f"PDF error: {e}")
         return False
 
 
-# =============================================================================
-# BOM GENERATOR - BULLETPROOF
-# =============================================================================
-
 def generate_bom(design: Design, path: str) -> bool:
-    """Generate bill of materials CSV"""
-    logger.info(f"Generating BOM: {path}")
+    """Generate bill of materials with pricing"""
     
     try:
         with open(path, 'w', newline='') as f:
             w = csv.writer(f)
-            w.writerow(["Item", "Description", "Size", "Material", "Qty", "Unit", "NFPA Ref"])
+            w.writerow(["Item", "Description", "Size", "Material", "Qty", "Unit", "Unit Price", "Total", "NFPA Ref"])
             
             item = 1
             
             # Sprinklers
-            w.writerow([item, "Sprinkler Head, Pendant, QR, K5.6, 165F", '1/2"', "Brass/Chrome", len(design.sprinklers), "EA", "Sec 8.5"])
+            price = PRICING['sprinkler_pendant']
+            total = len(design.sprinklers) * price
+            w.writerow([item, "Sprinkler Head, Pendant, QR, K5.6, 165F", '1/2"', "Brass/Chrome", 
+                        len(design.sprinklers), "EA", f"${price:.2f}", f"${total:.2f}", "Sec 8.5"])
             item += 1
             
             # Pipes by size
@@ -730,45 +939,64 @@ def generate_bom(design: Design, path: str) -> bool:
             for p in design.pipes:
                 pipe_groups[p.diameter] = pipe_groups.get(p.diameter, 0) + p.length
             for dia, length in sorted(pipe_groups.items()):
-                w.writerow([item, "Pipe, Schedule 40, Black Steel", f'{dia}"', "Steel", round(length, 1), "LF", "Ch 22"])
+                key = f"pipe_{int(dia)}" if dia == int(dia) else f"pipe_{dia}"
+                price = PRICING.get(key, 8.50)
+                total = length * price
+                w.writerow([item, "Pipe, Schedule 40, Black Steel", f'{dia}"', "Steel", 
+                            f"{length:.1f}", "LF", f"${price:.2f}", f"${total:.2f}", "Ch 22"])
                 item += 1
             
-            # Fittings by type
+            # Fittings
             fit_groups = {}
             for f in design.fittings:
-                key = (f.type, f.size)
-                fit_groups[key] = fit_groups.get(key, 0) + 1
+                fit_groups[(f.type, f.size)] = fit_groups.get((f.type, f.size), 0) + 1
             for (ftype, size), qty in fit_groups.items():
-                w.writerow([item, f"{ftype.title()} Fitting", f'{size}"', "Malleable Iron", qty, "EA", "Ch 22"])
+                price = PRICING.get(ftype, 15)
+                total = qty * price
+                w.writerow([item, f"{ftype.title()} Fitting", f'{size}"', "Malleable Iron", 
+                            qty, "EA", f"${price:.2f}", f"${total:.2f}", "Ch 22"])
                 item += 1
             
             # Valves
             for v in design.valves:
-                w.writerow([item, f"{v.type.replace('_', ' ').title()} Valve", f'{v.size}"', "Various", 1, "EA", "Ch 12"])
+                price = PRICING.get(f"valve_{v.type}", 200)
+                w.writerow([item, f"{v.type.replace('_', ' ').title()} Valve", f'{v.size}"', 
+                            "Various", 1, "EA", f"${price:.2f}", f"${price:.2f}", "Ch 12"])
                 item += 1
             
-            # Hangers by size
+            # Hangers
             hanger_groups = {}
             for h in design.hangers:
                 hanger_groups[h.size] = hanger_groups.get(h.size, 0) + 1
             for size, qty in hanger_groups.items():
-                w.writerow([item, "Clevis Hanger", f'{size}" pipe', "Steel/Zinc", qty, "EA", "Sec 16.4"])
+                price = PRICING['hanger']
+                total = qty * price
+                w.writerow([item, "Clevis Hanger", f'{size}" pipe', "Steel/Zinc", 
+                            qty, "EA", f"${price:.2f}", f"${total:.2f}", "Sec 16.4"])
                 item += 1
             
-            # Braces by type
+            # Braces
             brace_groups = {}
             for b in design.braces:
                 brace_groups[b.type] = brace_groups.get(b.type, 0) + 1
             for btype, qty in brace_groups.items():
-                w.writerow([item, f"Seismic Brace, {btype.title()}", "Per Design", "Steel", qty, "EA", "Ch 18"])
+                price = PRICING.get(f"brace_{btype}", 85)
+                total = qty * price
+                w.writerow([item, f"Seismic Brace, {btype.title()}", "Per Design", "Steel", 
+                            qty, "EA", f"${price:.2f}", f"${total:.2f}", "Ch 18"])
                 item += 1
+            
+            # Totals
+            w.writerow([])
+            w.writerow(["", "", "", "", "", "", "Material Total:", f"${design.material_cost:,.2f}", ""])
+            w.writerow(["", "", "", "", "", "", "Labor:", f"${design.labor_cost:,.2f}", ""])
+            w.writerow(["", "", "", "", "", "", "GRAND TOTAL:", f"${design.total_cost:,.2f}", ""])
         
-        logger.info(f"  BOM saved successfully: {path}")
+        logger.info(f"BOM saved: {path}")
         return True
         
     except Exception as e:
-        logger.error(f"BOM generation failed: {e}")
-        logger.error(traceback.format_exc())
+        logger.error(f"BOM error: {e}")
         return False
 
 
@@ -779,14 +1007,13 @@ def generate_bom(design: Design, path: str) -> bool:
 def orchestrate(project_dir: str, output_dir: str) -> Dict[str, str]:
     """
     Main orchestration function.
-    Returns dict of {filename: filepath} for generated files.
+    Analyzes documents, designs system, checks compliance, generates outputs.
     """
     logger.info("=" * 60)
-    logger.info("🔥 FireAI Pro Orchestrator v5.0 - BULLETPROOF")
+    logger.info("🔥 FireAI Pro Master Orchestrator v6.0")
     logger.info("=" * 60)
     start = datetime.now()
     
-    # Ensure output directory exists
     Path(output_dir).mkdir(parents=True, exist_ok=True)
     
     # Load project data
@@ -803,102 +1030,116 @@ def orchestrate(project_dir: str, output_dir: str) -> Dict[str, str]:
     if os.path.exists(json_path):
         try:
             with open(json_path) as f:
-                loaded = json.load(f)
-                project_data.update(loaded)
-            logger.info(f"Loaded project.json from {project_dir}")
+                project_data.update(json.load(f))
         except Exception as e:
             logger.warning(f"Could not load project.json: {e}")
     
-    logger.info(f"Project: {project_data.get('project_name')}")
-    logger.info(f"Area: {project_data.get('building_area_sqft')} sqft")
-    logger.info(f"Hazard: {project_data.get('hazard_class')}")
-    
-    # STEP 1: Design system
+    # STEP 1: Analyze documents
     logger.info("-" * 40)
-    logger.info("STEP 1: Designing sprinkler system")
-    design = design_system(
-        area=project_data.get('building_area_sqft', 10000),
-        height=project_data.get('ceiling_height_ft', 12),
-        hazard=project_data.get('hazard_class', 'ordinary_hazard_group_1'),
-        project_id=project_data.get('project_id', 'FP-UNKNOWN'),
-        project_name=project_data.get('project_name', 'Fire Sprinkler Project')
-    )
+    logger.info("STEP 1: Document Analysis")
     
-    # STEP 2: Compliance check
+    if ANALYZER_AVAILABLE:
+        try:
+            analyzed = analyze_documents(project_dir, project_data)
+            # Merge analyzed data with manual overrides
+            for key in ['building_area_sqft', 'ceiling_height_ft', 'hazard_class', 'zones']:
+                if key in analyzed and analyzed[key]:
+                    if key not in project_data or not project_data[key]:
+                        project_data[key] = analyzed[key]
+            
+            project_data['analysis_confidence'] = analyzed.get('analysis_confidence', 0)
+            logger.info(f"  Confidence: {project_data.get('analysis_confidence', 0):.0f}%")
+        except Exception as e:
+            logger.warning(f"  Document analysis failed: {e}")
+    else:
+        logger.info("  Document analyzer not available, using manual data")
+    
+    logger.info(f"  Area: {project_data.get('building_area_sqft')} sqft")
+    logger.info(f"  Hazard: {project_data.get('hazard_class')}")
+    
+    # STEP 2: Design system
     logger.info("-" * 40)
-    logger.info("STEP 2: Running compliance check")
+    logger.info("STEP 2: System Design")
+    
+    designer = MultiZoneDesigner()
+    design = designer.design(project_data)
+    
+    logger.info(f"  Zones: {len(design.zones)}")
+    logger.info(f"  Sprinklers: {len(design.sprinklers)}")
+    logger.info(f"  Pipe: {sum(p.length for p in design.pipes):.0f} LF")
+    logger.info(f"  Demand: {design.demand_gpm:.0f} GPM @ {design.pressure_psi:.1f} PSI")
+    
+    # STEP 3: Compliance check
+    logger.info("-" * 40)
+    logger.info("STEP 3: Compliance Check")
+    
     design = check_compliance(design, project_data.get('zip_code', ''))
     
-    # STEP 3: Generate outputs
+    logger.info(f"  Score: {design.score:.1f}%")
+    logger.info(f"  Status: {'✅ COMPLIANT' if design.compliant else '❌ NON-COMPLIANT'}")
+    
+    # STEP 4: Generate outputs
     logger.info("-" * 40)
-    logger.info("STEP 3: Generating output files")
+    logger.info("STEP 4: Generate Outputs")
     
     outputs = {}
     
-    # Generate DXF
-    dxf_path = os.path.join(output_dir, 'design.dxf')
-    if generate_dxf(design, dxf_path):
-        outputs['design.dxf'] = dxf_path
-    else:
-        logger.error("DXF generation failed!")
+    if EZDXF_AVAILABLE:
+        dxf_path = os.path.join(output_dir, 'design.dxf')
+        if generate_dxf(design, dxf_path):
+            outputs['design.dxf'] = dxf_path
     
-    # Generate PDF
-    pdf_path = os.path.join(output_dir, 'compliance_report.pdf')
-    if generate_pdf(design, pdf_path):
-        outputs['compliance_report.pdf'] = pdf_path
-    else:
-        logger.error("PDF generation failed!")
+    if REPORTLAB_AVAILABLE:
+        pdf_path = os.path.join(output_dir, 'compliance_report.pdf')
+        if generate_pdf(design, pdf_path):
+            outputs['compliance_report.pdf'] = pdf_path
     
-    # Generate BOM
     bom_path = os.path.join(output_dir, 'bill_of_materials.csv')
     if generate_bom(design, bom_path):
         outputs['bill_of_materials.csv'] = bom_path
-    else:
-        logger.error("BOM generation failed!")
     
-    # Generate summary JSON
+    # Summary JSON
     summary_path = os.path.join(output_dir, 'summary.json')
     try:
         summary = {
             'project_id': design.project_id,
             'project_name': design.project_name,
-            'hazard_class': design.hazard_class,
             'compliant': design.compliant,
             'score': design.score,
+            'jurisdiction': design.jurisdiction,
+            'codes_applied': design.codes_applied,
+            'zones': [{'id': z.id, 'name': z.name, 'area': z.area, 'hazard': z.hazard} for z in design.zones],
             'system': {
                 'sprinklers': len(design.sprinklers),
-                'pipe_length_ft': round(sum(p.length for p in design.pipes), 1),
+                'pipe_ft': round(sum(p.length for p in design.pipes), 1),
                 'fittings': len(design.fittings),
                 'valves': len(design.valves),
                 'hangers': len(design.hangers),
                 'braces': len(design.braces)
             },
-            'hydraulics': {
-                'demand_gpm': round(design.demand_gpm, 1),
-                'pressure_psi': round(design.pressure_psi, 1)
-            },
+            'hydraulics': {'demand_gpm': round(design.demand_gpm, 1), 'pressure_psi': round(design.pressure_psi, 1)},
+            'cost': {'material': round(design.material_cost, 2), 'labor': round(design.labor_cost, 2), 'total': round(design.total_cost, 2)},
             'violations': design.violations
         }
         with open(summary_path, 'w') as f:
             json.dump(summary, f, indent=2)
         outputs['summary.json'] = summary_path
-        logger.info(f"  Summary saved: {summary_path}")
     except Exception as e:
-        logger.error(f"Summary generation failed: {e}")
+        logger.error(f"Summary error: {e}")
     
-    # Done
     elapsed = (datetime.now() - start).total_seconds()
     logger.info("=" * 60)
-    logger.info(f"🎉 COMPLETE in {elapsed:.2f} seconds")
-    logger.info(f"   Files generated: {list(outputs.keys())}")
+    logger.info(f"🎉 COMPLETE in {elapsed:.2f}s")
+    logger.info(f"   Est. Cost: ${design.total_cost:,.2f}")
     logger.info("=" * 60)
     
     return outputs
 
 
 def get_engine_status() -> Dict[str, Any]:
-    """Return engine status for health checks"""
+    """Get engine status for health checks"""
     return {
+        'document_analyzer': ANALYZER_AVAILABLE,
         'standards_engine': STANDARDS_ENGINE_AVAILABLE,
         'ezdxf': EZDXF_AVAILABLE,
         'reportlab': REPORTLAB_AVAILABLE,
@@ -909,9 +1150,9 @@ def get_engine_status() -> Dict[str, Any]:
 
 
 if __name__ == "__main__":
-    print("🔥 FireAI Pro Orchestrator v5.0 - BULLETPROOF")
+    print("🔥 FireAI Pro Master Orchestrator v6.0")
     print("=" * 50)
     status = get_engine_status()
     for k, v in status.items():
         print(f"  {'✅' if v else '❌'} {k}")
-    print("\nReady for orchestration!")
+    print("\nReady!")
