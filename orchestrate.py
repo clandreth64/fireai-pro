@@ -90,12 +90,28 @@ try:
         ASCE7SeismicParameters,
         BraceLocationOptimizer,
         HardwareSelectionEngine,
-        NFPA13Chapter9Validator
+        NFPA13Chapter9Validator,
+        PipeSegment
     )
     ENGINE_STATUS['bracing_engine'] = True
-    logger.info("✅ Bracing Engine loaded")
+    logger.info("✅ Bracing Engine loaded (ASCE 7-22, NFPA 13 Ch.9)")
+except ImportError as e:
+    logger.warning(f"⚠️ Bracing Engine import failed: {e}")
+    # Create stub classes for graceful degradation
+    SeismicZoneAnalyzer = None
+    ASCE7SeismicParameters = None
+    BraceLocationOptimizer = None
+    HardwareSelectionEngine = None
+    NFPA13Chapter9Validator = None
+    PipeSegment = None
 except Exception as e:
-    logger.warning(f"⚠️ Bracing Engine: {e}")
+    logger.warning(f"⚠️ Bracing Engine error: {e}")
+    SeismicZoneAnalyzer = None
+    ASCE7SeismicParameters = None
+    BraceLocationOptimizer = None
+    HardwareSelectionEngine = None
+    NFPA13Chapter9Validator = None
+    PipeSegment = None
 
 # 4. Products/Cost Engine - Supplier pricing
 try:
@@ -106,8 +122,16 @@ try:
     )
     ENGINE_STATUS['products_engine'] = True
     logger.info("✅ Products Engine loaded")
+except ImportError as e:
+    logger.warning(f"⚠️ Products Engine import failed: {e}")
+    ProductionFireAIService = None
+    BOMItem = None
+    ProductionConfig = None
 except Exception as e:
-    logger.warning(f"⚠️ Products Engine: {e}")
+    logger.warning(f"⚠️ Products Engine error: {e}")
+    ProductionFireAIService = None
+    BOMItem = None
+    ProductionConfig = None
 
 # 5. Standards Engine - NFPA compliance
 try:
@@ -710,7 +734,7 @@ async def run_seismic_analysis(design: DesignResult, zip_code: str, latitude: fl
             ))
             hanger_id += 1
     
-    if not ENGINE_STATUS['bracing_engine']:
+    if not ENGINE_STATUS['bracing_engine'] or SeismicZoneAnalyzer is None:
         # Basic bracing calculation
         brace_id = 1
         for p in design.pipes:
@@ -769,21 +793,36 @@ async def run_seismic_analysis(design: DesignResult, zip_code: str, latitude: fl
         # Optimize brace locations
         optimizer = BraceLocationOptimizer()
         
-        # Convert pipes to format expected by optimizer
+        # Convert pipes to PipeSegment format expected by optimizer
         pipe_segments = []
         for p in design.pipes:
             if p.diameter >= 2.5:
-                pipe_segments.append(type('PipeSegment', (), {
-                    'segment_id': p.id,
-                    'diameter': p.diameter,
-                    'length': p.length,
-                    'schedule': 'schedule_40',
-                    'material': 'steel',
-                    'elevation': p.start[2],
-                    'start_location': p.start,
-                    'end_location': p.end,
-                    'weight_per_foot': p.diameter * 3.5
-                })())
+                # Use the PipeSegment class from bracing engine if available
+                if PipeSegment is not None:
+                    pipe_segments.append(PipeSegment(
+                        segment_id=p.id,
+                        diameter=p.diameter,
+                        length=p.length,
+                        schedule='schedule_40',
+                        material='steel',
+                        elevation=p.start[2],
+                        start_location=p.start,
+                        end_location=p.end
+                    ))
+                else:
+                    # Fallback mock segment
+                    pipe_segments.append(type('PipeSegment', (), {
+                        'segment_id': p.id,
+                        'diameter': p.diameter,
+                        'length': p.length,
+                        'schedule': 'schedule_40',
+                        'material': 'steel',
+                        'elevation': p.start[2],
+                        'start_location': p.start,
+                        'end_location': p.end,
+                        'weight_per_foot': p.diameter * 3.5,
+                        'water_weight_per_foot': (p.diameter / 12) ** 2 * 3.14159 / 4 * 62.4
+                    })())
         
         if pipe_segments:
             optimized = optimizer.optimize_brace_locations(
@@ -956,7 +995,7 @@ async def run_cost_analysis(design: DesignResult) -> Dict[str, Any]:
     result['total_cost'] = result['material_cost'] + result['labor_cost']
     
     # Try enhanced pricing if available
-    if ENGINE_STATUS['products_engine']:
+    if ENGINE_STATUS['products_engine'] and ProductionConfig is not None and ProductionFireAIService is not None:
         try:
             config = ProductionConfig()
             service = ProductionFireAIService(config)
