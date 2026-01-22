@@ -21,7 +21,7 @@ WORKFLOW:
 7. COMPLIANCE → 790+ NFPA rules validation
 8. OUTPUT → DXF shop drawings, PDF reports, priced BOM
 
-VERSION: 10.0.0-UNIFIED-PRODUCTION
+VERSION: 11.0.0-UNIFIED-PRODUCTION
 """
 
 import os
@@ -48,6 +48,7 @@ logger = logging.getLogger("FireAI.Orchestrator")
 ENGINE_STATUS = {
     'cad_engine': False,
     'hydraulics_engine': False,
+    'calc_sheets': False,
     'bracing_engine': False,
     'products_engine': False,
     'standards_engine': False,
@@ -72,16 +73,38 @@ except Exception as e:
 try:
     from enhanced_hydraulics_engine import (
         get_hydraulics_status,
+        get_engine_status,
         hydraulics_enabled,
         HydraulicNetwork,
+        HydraulicNode,
+        HydraulicPipe,
         NetworkNode,
         NetworkPipe,
-        LayoutDataParser
+        LayoutDataParser,
+        AutoSprinkHydraulicsEngine,
+        NetworkBuilder,
+        WaterSupplyData,
+        SystemType,
+        NFPA13Constants,
     )
     ENGINE_STATUS['hydraulics_engine'] = hydraulics_enabled
-    logger.info(f"{'✅' if hydraulics_enabled else '⚠️'} Hydraulics Engine: {'enabled' if hydraulics_enabled else 'limited'}")
+    logger.info(f"{'✅' if hydraulics_enabled else '⚠️'} Hydraulics Engine v3.0: {'enabled' if hydraulics_enabled else 'limited'}")
 except Exception as e:
     logger.warning(f"⚠️ Hydraulics Engine: {e}")
+
+# 2b. NFPA 13 Calculation Sheet Generator
+try:
+    from nfpa13_calc_sheets import (
+        NFPA13CalcSheetGenerator,
+        ProjectInfo,
+    )
+    ENGINE_STATUS['calc_sheets'] = True
+    logger.info("✅ NFPA 13 Calc Sheet Generator loaded")
+except Exception as e:
+    logger.warning(f"⚠️ Calc Sheet Generator: {e}")
+    ENGINE_STATUS['calc_sheets'] = False
+    NFPA13CalcSheetGenerator = None
+    ProjectInfo = None
 
 # 3. Enhanced Bracing Engine - Seismic analysis
 try:
@@ -1549,6 +1572,48 @@ async def orchestrate_async(project_dir: str, output_dir: str) -> Dict[str, str]
     if generate_bom_csv(design, cost_result, bom_path):
         outputs['bill_of_materials.csv'] = bom_path
     
+    # Generate NFPA 13 Hydraulic Calculation Sheets (permit-ready)
+    if ENGINE_STATUS.get('calc_sheets') and NFPA13CalcSheetGenerator is not None:
+        try:
+            calc_sheet_gen = NFPA13CalcSheetGenerator()
+            proj_info = ProjectInfo(
+                project_name=project_data.get('project_name', 'Fire Sprinkler Project'),
+                project_number=project_data.get('project_id', ''),
+                address=project_data.get('address', ''),
+                city=project_data.get('city', ''),
+                state=project_data.get('state', ''),
+                zip_code=project_data.get('zip_code', ''),
+                contractor_name=project_data.get('contractor_name', ''),
+                contractor_license=project_data.get('contractor_license', ''),
+            )
+            
+            # Build network for calc sheets
+            builder = NetworkBuilder()
+            network = builder.build_sample_network()  # TODO: Build from actual design
+            network.system_type = SystemType.WET
+            
+            engine = AutoSprinkHydraulicsEngine()
+            import asyncio
+            hydraulic_results = asyncio.get_event_loop().run_until_complete(
+                engine.analyze_network(network, output_dir=output_dir)
+            )
+            
+            calc_files = calc_sheet_gen.generate_from_network(
+                network=network,
+                solution=hydraulic_results.get('solution', {}),
+                project_info=proj_info,
+                output_dir=output_dir
+            )
+            
+            for fmt, path in calc_files.items():
+                if os.path.exists(path):
+                    outputs[f'hydraulic_calcs.{fmt}'] = path
+            
+            engines_used.append('NFPA 13 Calc Sheets')
+            logger.info(f"  Generated {len(calc_files)} hydraulic calculation files")
+        except Exception as e:
+            logger.warning(f"Calc sheet generation error: {e}")
+    
     # Summary JSON
     summary_path = os.path.join(output_dir, 'summary.json')
     summary = {
@@ -1613,7 +1678,7 @@ def get_engine_status() -> Dict[str, Any]:
 # =============================================================================
 
 if __name__ == "__main__":
-    print("🔥 FireAI Pro Unified Orchestrator v10.0")
+    print("🔥 FireAI Pro Unified Orchestrator v11.0")
     print("=" * 60)
     print("\n📋 ENGINE STATUS:")
     for engine, status in ENGINE_STATUS.items():
