@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-FireAI Pro - Unified Production Orchestrator v13.0
+FireAI Pro - Unified Production Orchestrator v14.0
 ===================================================
 Integrates ALL engines for complete fire sprinkler system design.
 
@@ -12,22 +12,24 @@ INTEGRATED ENGINES:
 5. professional_dxf_engine - Shop drawings with dimensions & schedules
 6. fitting_takeoff_bom - Complete fitting detection & accurate BOMs
 7. pipe_sizing_optimizer - Intelligent pipe sizing with velocity check
-8. enhanced_bracing_engine - ASCE 7-22 seismic, NFPA 13 Ch.9 bracing
-9. master_fireai_products_enhanced - Real supplier pricing, cost analysis
-10. fireai_pro_master_Standards - 790+ NFPA compliance rules
+8. bim_3d_engine - 3D BIM coordination & clash detection
+9. enhanced_bracing_engine - ASCE 7-22 seismic, NFPA 13 Ch.9 bracing
+10. master_fireai_products_enhanced - Real supplier pricing, cost analysis
+11. fireai_pro_master_Standards - 790+ NFPA compliance rules
 
 WORKFLOW:
-1. UPLOAD → Documents (DXF, PDF, images)
+1. UPLOAD → Documents (DXF, PDF, images, IFC)
 2. EXTRACT → Building geometry, rooms, obstructions
 3. DESIGN → Sprinkler layout per hazard class
 4. HYDRAULICS → Hardy Cross network analysis, pressure/flow
 5. OPTIMIZE → Intelligent pipe sizing for cost/velocity
-6. BRACING → ASCE 7-22 seismic analysis, hardware selection
-7. COSTING → Fitting takeoff, accurate BOM, labor hours
-8. COMPLIANCE → 790+ NFPA rules validation
-9. OUTPUT → Professional DXF, node-by-node calcs, PDF reports
+6. 3D/BIM → Generate 3D model, clash detection
+7. BRACING → ASCE 7-22 seismic analysis, hardware selection
+8. COSTING → Fitting takeoff, accurate BOM, labor hours
+9. COMPLIANCE → 790+ NFPA rules validation
+10. OUTPUT → Professional DXF, IFC, node-by-node calcs, PDF reports
 
-VERSION: 13.0.0-UNIFIED-PRODUCTION
+VERSION: 14.0.0-UNIFIED-PRODUCTION
 """
 
 import os
@@ -59,6 +61,7 @@ ENGINE_STATUS = {
     'professional_dxf': False,
     'fitting_bom': False,
     'pipe_optimizer': False,
+    'bim_3d': False,
     'bracing_engine': False,
     'products_engine': False,
     'standards_engine': False,
@@ -187,6 +190,26 @@ except Exception as e:
     CostComparisonGenerator = None
     optimize_pipe_sizes = None
     VELOCITY_LIMITS = None
+
+# 2g. 3D BIM Coordination & Clash Detection Engine
+try:
+    from bim_3d_engine import (
+        BIMModel,
+        ClashDetectionEngine,
+        BIMExporter,
+        create_bim_model_from_design,
+        run_clash_detection_on_design,
+    )
+    ENGINE_STATUS['bim_3d'] = True
+    logger.info("✅ 3D BIM & Clash Detection Engine loaded")
+except Exception as e:
+    logger.warning(f"⚠️ 3D BIM Engine: {e}")
+    ENGINE_STATUS['bim_3d'] = False
+    BIMModel = None
+    ClashDetectionEngine = None
+    BIMExporter = None
+    create_bim_model_from_design = None
+    run_clash_detection_on_design = None
 
 # 3. Enhanced Bracing Engine - Seismic analysis
 try:
@@ -1526,6 +1549,95 @@ def run_pipe_optimization(design: DesignResult, source_pressure: float = 80.0,
         
     except Exception as e:
         logger.error(f"Pipe optimization error: {e}")
+        import traceback
+        traceback.print_exc()
+        return {'success': False, 'error': str(e)}
+
+
+def run_3d_clash_detection(design: DesignResult, 
+                           obstructions: List[Dict[str, Any]] = None,
+                           output_dir: str = None) -> Dict[str, Any]:
+    """
+    Run 3D BIM clash detection
+    
+    Args:
+        design: Design result with pipes, sprinklers, etc.
+        obstructions: List of obstructions (beams, ducts, columns)
+        output_dir: Directory for 3D exports (optional)
+        
+    Returns:
+        Clash detection results with 3D model data
+    """
+    if not ENGINE_STATUS.get('bim_3d', False) or create_bim_model_from_design is None:
+        logger.warning("3D BIM engine not available")
+        return {'success': False, 'error': '3D BIM engine not available'}
+    
+    try:
+        # Convert design to format expected by BIM engine
+        design_data = {
+            'sprinklers': [
+                {
+                    'id': s.id, 'x': s.x, 'y': s.y, 'z': getattr(s, 'z', 10),
+                    'orientation': getattr(s, 'orientation', 'pendant'),
+                    'k_factor': getattr(s, 'k_factor', 5.6),
+                    'coverage': getattr(s, 'coverage', 130)
+                }
+                for s in design.sprinklers
+            ],
+            'pipes': [
+                {
+                    'id': p.id, 'type': p.type, 
+                    'start': p.start, 'end': p.end,
+                    'diameter': p.diameter
+                }
+                for p in design.pipes
+            ],
+            'valves': [
+                {'type': v.type, 'size': getattr(v, 'size', 4), 'location': v.location}
+                for v in design.valves
+            ],
+            'hangers': [
+                {'id': h.id, 'pipe_size': getattr(h, 'pipe_size', 1.0), 'location': h.location}
+                for h in design.hangers
+            ],
+        }
+        
+        # Run clash detection
+        result = run_clash_detection_on_design(design_data, obstructions or [])
+        
+        # Export 3D files if output_dir provided
+        if output_dir:
+            import os
+            os.makedirs(output_dir, exist_ok=True)
+            
+            model = create_bim_model_from_design(
+                design_data, design.project_name, design.project_id
+            )
+            
+            # Add obstructions
+            if obstructions:
+                for obs in obstructions:
+                    model.add_obstruction(
+                        obs.get('id', 'OBS'),
+                        obs.get('min_point', (0,0,0)),
+                        obs.get('max_point', (1,1,1)),
+                        obs.get('type', 'obstruction')
+                    )
+            
+            exporter = BIMExporter(model)
+            result['exports'] = {
+                'obj': exporter.export_obj(f"{output_dir}/model.obj"),
+                'stl': exporter.export_stl(f"{output_dir}/model.stl"),
+                'ifc': exporter.export_ifc(f"{output_dir}/model.ifc"),
+                'json': exporter.export_json(f"{output_dir}/model.json"),
+            }
+        
+        result['success'] = True
+        logger.info(f"3D clash detection complete: {result['total_clashes']} clashes found")
+        return result
+        
+    except Exception as e:
+        logger.error(f"3D clash detection error: {e}")
         import traceback
         traceback.print_exc()
         return {'success': False, 'error': str(e)}
