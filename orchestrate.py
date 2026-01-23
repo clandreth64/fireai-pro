@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-FireAI Pro - Unified Production Orchestrator v12.0
+FireAI Pro - Unified Production Orchestrator v13.0
 ===================================================
 Integrates ALL engines for complete fire sprinkler system design.
 
@@ -11,21 +11,23 @@ INTEGRATED ENGINES:
 4. node_by_node_tables - AHJ-compliant node-by-node hydraulic tables
 5. professional_dxf_engine - Shop drawings with dimensions & schedules
 6. fitting_takeoff_bom - Complete fitting detection & accurate BOMs
-7. enhanced_bracing_engine - ASCE 7-22 seismic, NFPA 13 Ch.9 bracing
-8. master_fireai_products_enhanced - Real supplier pricing, cost analysis
-9. fireai_pro_master_Standards - 790+ NFPA compliance rules
+7. pipe_sizing_optimizer - Intelligent pipe sizing with velocity check
+8. enhanced_bracing_engine - ASCE 7-22 seismic, NFPA 13 Ch.9 bracing
+9. master_fireai_products_enhanced - Real supplier pricing, cost analysis
+10. fireai_pro_master_Standards - 790+ NFPA compliance rules
 
 WORKFLOW:
 1. UPLOAD → Documents (DXF, PDF, images)
 2. EXTRACT → Building geometry, rooms, obstructions
 3. DESIGN → Sprinkler layout per hazard class
 4. HYDRAULICS → Hardy Cross network analysis, pressure/flow
-5. BRACING → ASCE 7-22 seismic analysis, hardware selection
-6. COSTING → Fitting takeoff, accurate BOM, labor hours
-7. COMPLIANCE → 790+ NFPA rules validation
-8. OUTPUT → Professional DXF, node-by-node calcs, PDF reports
+5. OPTIMIZE → Intelligent pipe sizing for cost/velocity
+6. BRACING → ASCE 7-22 seismic analysis, hardware selection
+7. COSTING → Fitting takeoff, accurate BOM, labor hours
+8. COMPLIANCE → 790+ NFPA rules validation
+9. OUTPUT → Professional DXF, node-by-node calcs, PDF reports
 
-VERSION: 12.0.0-UNIFIED-PRODUCTION
+VERSION: 13.0.0-UNIFIED-PRODUCTION
 """
 
 import os
@@ -56,6 +58,7 @@ ENGINE_STATUS = {
     'node_tables': False,
     'professional_dxf': False,
     'fitting_bom': False,
+    'pipe_optimizer': False,
     'bracing_engine': False,
     'products_engine': False,
     'standards_engine': False,
@@ -162,6 +165,28 @@ except Exception as e:
     AccurateBOMGenerator = None
     CompleteBOM = None
     generate_complete_bom = None
+
+# 2f. Intelligent Pipe Sizing Optimizer
+try:
+    from pipe_sizing_optimizer import (
+        IntelligentPipeSizer,
+        HydraulicCalculator,
+        VelocityReportGenerator,
+        CostComparisonGenerator,
+        optimize_pipe_sizes,
+        VELOCITY_LIMITS,
+    )
+    ENGINE_STATUS['pipe_optimizer'] = True
+    logger.info("✅ Intelligent Pipe Sizing Optimizer loaded")
+except Exception as e:
+    logger.warning(f"⚠️ Pipe Sizing Optimizer: {e}")
+    ENGINE_STATUS['pipe_optimizer'] = False
+    IntelligentPipeSizer = None
+    HydraulicCalculator = None
+    VelocityReportGenerator = None
+    CostComparisonGenerator = None
+    optimize_pipe_sizes = None
+    VELOCITY_LIMITS = None
 
 # 3. Enhanced Bracing Engine - Seismic analysis
 try:
@@ -1419,6 +1444,91 @@ def generate_node_by_node_tables(design: DesignResult, hydraulic_result: Dict[st
     except Exception as e:
         logger.error(f"Node-by-node table generation error: {e}")
         return {}
+
+
+def run_pipe_optimization(design: DesignResult, source_pressure: float = 80.0,
+                          required_pressure: float = 15.0) -> Dict[str, Any]:
+    """
+    Run intelligent pipe sizing optimization
+    
+    Args:
+        design: Design result with pipes and sprinklers
+        source_pressure: Available pressure at source (PSI)
+        required_pressure: Required pressure at remote sprinkler (PSI)
+        
+    Returns:
+        Optimization result dictionary
+    """
+    if not ENGINE_STATUS.get('pipe_optimizer', False) or optimize_pipe_sizes is None:
+        logger.warning("Pipe sizing optimizer not available")
+        return {'success': False, 'error': 'Pipe optimizer not available'}
+    
+    try:
+        # Convert design pipes to optimizer format
+        pipes = []
+        for p in design.pipes:
+            # Estimate sprinkler count downstream (simplified)
+            sprinkler_count = 1
+            if p.type == 'main' or p.type == 'cross_main':
+                sprinkler_count = len(design.sprinklers) // 2
+            elif p.type == 'feed_main':
+                sprinkler_count = len(design.sprinklers)
+            elif p.type == 'riser':
+                sprinkler_count = len(design.sprinklers)
+            
+            pipes.append({
+                'id': p.id,
+                'type': p.type,
+                'start_node': f"N-{p.start[0]:.0f}-{p.start[1]:.0f}",
+                'end_node': f"N-{p.end[0]:.0f}-{p.end[1]:.0f}",
+                'length': p.length,
+                'diameter': p.diameter,
+                'c_factor': 120,
+                'sprinkler_count': sprinkler_count
+            })
+        
+        # Create nodes from sprinklers and pipe endpoints
+        nodes = []
+        
+        # Add source node
+        nodes.append({
+            'id': 'SOURCE',
+            'x': design.pipes[0].start[0] if design.pipes else 0,
+            'y': design.pipes[0].start[1] if design.pipes else 0,
+            'elevation': 0,
+            'type': 'source'
+        })
+        
+        # Add sprinkler nodes
+        for s in design.sprinklers:
+            nodes.append({
+                'id': s.id,
+                'x': s.x,
+                'y': s.y,
+                'elevation': getattr(s, 'z', 10),
+                'type': 'sprinkler',
+                'k_factor': getattr(s, 'k_factor', 5.6)
+            })
+        
+        # Run optimization
+        result = optimize_pipe_sizes(
+            pipes=pipes,
+            nodes=nodes,
+            source_node_id='SOURCE',
+            source_pressure=source_pressure,
+            required_pressure=required_pressure,
+            system_demand=design.system_demand,
+            hose_allowance=250.0
+        )
+        
+        logger.info(f"Pipe optimization complete: {result['cost_savings_percent']:.1f}% savings")
+        return result
+        
+    except Exception as e:
+        logger.error(f"Pipe optimization error: {e}")
+        import traceback
+        traceback.print_exc()
+        return {'success': False, 'error': str(e)}
 
 
 def generate_pdf_report(design: DesignResult, output_path: str) -> bool:
