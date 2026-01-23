@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-FireAI Pro - Unified Production Orchestrator v15.0
+FireAI Pro - Unified Production Orchestrator v16.0
 ===================================================
-NOW WITH PDF/IMAGE AI VISION ANALYSIS!
+PROFESSIONAL OUTPUT - AutoSprink Quality!
 
 INTEGRATED ENGINES:
 1. enhanced_cad_engine - Extracts building geometry from DXF/DWG/IFC
@@ -50,6 +50,9 @@ ENGINE_STATUS = {
     'calc_sheets': False,
     'node_tables': False,
     'professional_dxf': False,
+    'professional_bom': False,  # NEW!
+    'professional_hydraulics': False,  # NEW!
+    'professional_shop_drawing': False,  # NEW!
     'fitting_bom': False,
     'pipe_optimizer': False,
     'bim_3d': False,
@@ -224,6 +227,46 @@ try:
     ENGINE_STATUS['reportlab'] = True
 except:
     pass
+
+# PROFESSIONAL ENGINES - AutoSprink Quality Output!
+try:
+    from professional_bom_generator import (
+        ProfessionalBOMGenerator,
+        generate_professional_bom,
+        DetailedBOM
+    )
+    ENGINE_STATUS['professional_bom'] = True
+    logger.info("✅ Professional BOM Generator loaded")
+except Exception as e:
+    logger.warning(f"⚠️ Professional BOM: {e}")
+    ProfessionalBOMGenerator = None
+    generate_professional_bom = None
+
+try:
+    from professional_hydraulics import (
+        ProfessionalHydraulicCalculator,
+        calculate_hydraulics as calc_hydraulics_pro,
+        HydraulicResult
+    )
+    ENGINE_STATUS['professional_hydraulics'] = True
+    logger.info("✅ Professional Hydraulics Calculator loaded")
+except Exception as e:
+    logger.warning(f"⚠️ Professional Hydraulics: {e}")
+    ProfessionalHydraulicCalculator = None
+    calc_hydraulics_pro = None
+
+try:
+    from professional_shop_drawing import (
+        ProfessionalShopDrawingEngine,
+        generate_professional_shop_drawing,
+        SheetConfig
+    )
+    ENGINE_STATUS['professional_shop_drawing'] = True
+    logger.info("✅ Professional Shop Drawing Engine loaded")
+except Exception as e:
+    logger.warning(f"⚠️ Professional Shop Drawing: {e}")
+    ProfessionalShopDrawingEngine = None
+    generate_professional_shop_drawing = None
 
 
 # =============================================================================
@@ -1269,21 +1312,85 @@ async def orchestrate_async(project_dir: str, output_dir: str) -> Dict[str, str]
     logger.info(f"  📊 Total: ${design.total_cost:,.0f} (${design.cost_per_sqft:.2f}/sqft)")
     
     # =========================================================================
-    # STEP 7: Generate Outputs
+    # STEP 7: Generate Outputs (PROFESSIONAL QUALITY!)
     # =========================================================================
     logger.info("-" * 50)
-    logger.info("STEP 5: Generate Outputs")
+    logger.info("STEP 5: Generate Outputs (Professional Quality)")
     
     outputs = {}
     
-    if generate_dxf_output(design, os.path.join(output_dir, 'design.dxf')):
-        outputs['design.dxf'] = os.path.join(output_dir, 'design.dxf')
+    # Professional Shop Drawing (DXF)
+    dxf_path = os.path.join(output_dir, 'design.dxf')
+    if ENGINE_STATUS.get('professional_shop_drawing') and generate_professional_shop_drawing:
+        logger.info("  📐 Generating professional shop drawing...")
+        if generate_professional_shop_drawing(design, dxf_path):
+            outputs['design.dxf'] = dxf_path
+            engines_used.append('Professional Shop Drawing')
+    elif generate_dxf_output(design, dxf_path):
+        outputs['design.dxf'] = dxf_path
     
-    if generate_bom_csv(design, os.path.join(output_dir, 'bill_of_materials.csv')):
-        outputs['bill_of_materials.csv'] = os.path.join(output_dir, 'bill_of_materials.csv')
+    # Professional BOM (CSV)
+    bom_path = os.path.join(output_dir, 'bill_of_materials.csv')
+    bom_json_path = os.path.join(output_dir, 'bill_of_materials.json')
+    if ENGINE_STATUS.get('professional_bom') and generate_professional_bom:
+        logger.info("  📋 Generating professional BOM...")
+        try:
+            bom = generate_professional_bom(
+                design, 
+                output_csv=bom_path,
+                output_json=bom_json_path,
+                seismic_category=design.seismic_design_category,
+                ceiling_height=project_data.get('ceiling_height_ft', 12)
+            )
+            outputs['bill_of_materials.csv'] = bom_path
+            outputs['bill_of_materials.json'] = bom_json_path
+            engines_used.append('Professional BOM Generator')
+            
+            # Update costs with professional BOM totals
+            design.total_cost = bom.grand_total
+            design.cost_per_sqft = design.total_cost / design.building_area if design.building_area > 0 else 0
+            costs['material_total'] = bom.material_total
+            costs['labor_hours'] = bom.labor_hours_total
+            costs['labor_cost'] = bom.labor_cost
+            costs['total'] = bom.grand_total
+        except Exception as e:
+            logger.error(f"Professional BOM failed: {e}")
+            if generate_bom_csv(design, bom_path):
+                outputs['bill_of_materials.csv'] = bom_path
+    elif generate_bom_csv(design, bom_path):
+        outputs['bill_of_materials.csv'] = bom_path
     
-    if generate_pdf_report(design, os.path.join(output_dir, 'compliance_report.pdf')):
-        outputs['compliance_report.pdf'] = os.path.join(output_dir, 'compliance_report.pdf')
+    # Professional Hydraulic Calculations
+    hydraulics_txt_path = os.path.join(output_dir, 'hydraulic_calculations.txt')
+    hydraulics_json_path = os.path.join(output_dir, 'hydraulic_calculations.json')
+    if ENGINE_STATUS.get('professional_hydraulics') and calc_hydraulics_pro:
+        logger.info("  💧 Generating professional hydraulic calcs...")
+        try:
+            water_supply = project_data.get('water_supply', {})
+            hyd_result = calc_hydraulics_pro(
+                design,
+                water_supply=water_supply,
+                hazard_class=project_data['hazard_class'],
+                output_json=hydraulics_json_path,
+                output_txt=hydraulics_txt_path
+            )
+            outputs['hydraulic_calculations.txt'] = hydraulics_txt_path
+            outputs['hydraulic_calculations.json'] = hydraulics_json_path
+            engines_used.append('Professional Hydraulics')
+            
+            # Update hydraulics with professional results
+            hydraulics['system_demand_gpm'] = hyd_result.system_demand_gpm
+            hydraulics['system_pressure_psi'] = hyd_result.system_pressure_psi
+            hydraulics['available_pressure_psi'] = hyd_result.available_pressure_psi
+            hydraulics['safety_margin_psi'] = hyd_result.safety_margin_psi
+            hydraulics['status'] = hyd_result.status
+        except Exception as e:
+            logger.error(f"Professional hydraulics failed: {e}")
+    
+    # PDF Compliance Report
+    pdf_path = os.path.join(output_dir, 'compliance_report.pdf')
+    if generate_pdf_report(design, pdf_path):
+        outputs['compliance_report.pdf'] = pdf_path
     
     # Summary JSON
     summary = {
@@ -1298,11 +1405,14 @@ async def orchestrate_async(project_dir: str, output_dir: str) -> Dict[str, str]
         'k_factor': sprinklers[0].k_factor if sprinklers else 5.6,
         'pipes': len(all_pipes),
         'pipe_footage': sum(p.length for p in all_pipes),
+        'fittings': len(all_fittings),
+        'valves': len(valves),
         'hydraulics': hydraulics,
         'costs': costs,
         'compliance_status': design.compliance_status,
         'seismic_design_category': design.seismic_design_category,
-        'engines_used': engines_used
+        'engines_used': engines_used,
+        'professional_outputs': list(outputs.keys())
     }
     
     with open(os.path.join(output_dir, 'summary.json'), 'w') as f:
@@ -1315,6 +1425,7 @@ async def orchestrate_async(project_dir: str, output_dir: str) -> Dict[str, str]
     logger.info(f"🎉 COMPLETE in {elapsed:.2f}s")
     logger.info(f"   📁 Files: {list(outputs.keys())}")
     logger.info(f"   💰 Cost: ${design.total_cost:,.0f}")
+    logger.info(f"   🔧 Engines: {len(engines_used)}")
     logger.info("=" * 70)
     
     return outputs
@@ -1331,7 +1442,7 @@ def get_engine_status() -> Dict[str, Any]:
 
 
 if __name__ == "__main__":
-    print("🔥 FireAI Pro Unified Orchestrator v15.0")
+    print("🔥 FireAI Pro Unified Orchestrator v16.0 - PROFESSIONAL")
     print("=" * 60)
     print("\n📋 ENGINE STATUS:")
     for engine, status in ENGINE_STATUS.items():
