@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FireAI Pro — Output Format Selection</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f5f5f5;min-height:100vh;display:flex;align-items:flex-start;justify-content:center;padding:32px 16px}
+.card{background:#fff;border-radius:14px;border:1px solid #e5e5e5;width:100%;max-width:680px;overflow:hidden}
+.header{padding:22px 24px 16px;border-bottom:1px solid #f0f0f0}
+.header h1{font-size:17px;font-weight:600;color:#111}
+.header p{font-size:13px;color:#666;margin-top:4px}
+.body{padding:20px 24px}
+.section-label{font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:#999;margin-bottom:8px;margin-top:20px;display:flex;align-items:center;gap:8px}
+.section-label:first-child{margin-top:0}
+.sec-toggle{font-size:10px;color:#1a73e8;cursor:pointer;text-transform:none;letter-spacing:0;font-weight:500;margin-left:auto;border:none;background:none;font-family:inherit;padding:0}
+.fmt-grid{display:grid;grid-template-columns:1fr 1fr;gap:7px}
+.fmt-item{border-radius:9px;border:1.5px solid #e8e8e8;padding:10px 12px;cursor:pointer;transition:border-color .15s,background .15s;display:flex;align-items:flex-start;gap:9px;user-select:none}
+.fmt-item:hover:not(.disabled){border-color:#c0c0c0}
+.fmt-item.selected{border-color:#1a73e8;background:#f0f6ff}
+.fmt-item.disabled{opacity:.42;cursor:not-allowed;border-style:dashed}
+.fmt-check{width:16px;height:16px;border-radius:4px;border:1.5px solid #ccc;flex-shrink:0;margin-top:1px;display:flex;align-items:center;justify-content:center;transition:background .15s,border-color .15s}
+.fmt-item.selected .fmt-check{background:#1a73e8;border-color:#1a73e8}
+.checkmark{display:none;width:10px;height:10px}
+.fmt-item.selected .checkmark{display:block}
+.fmt-name{font-size:12px;font-weight:500;color:#111;line-height:1.3}
+.fmt-desc{font-size:11px;color:#777;margin-top:2px;line-height:1.4}
+.fmt-badge{display:inline-block;font-size:9px;padding:1px 5px;border-radius:5px;margin-left:4px;font-weight:500;vertical-align:middle;white-space:nowrap}
+.b-free{background:#e8f5e9;color:#2e7d32}
+.b-paid{background:#fff3e0;color:#e65100}
+.b-revit{background:#e8eaf6;color:#3949ab}
+.b-auto{background:#fce4ec;color:#c62828}
+.b-ahj{background:#f3e5f5;color:#6a1b9a}
+.divider{height:1px;background:#f0f0f0;margin:18px 0}
+
+/* Drawing set */
+.drawing-set{border-radius:10px;border:1.5px solid #e65100;background:#fff8f5;padding:14px}
+.drawing-set-title{font-size:12px;font-weight:600;color:#bf360c;margin-bottom:3px}
+.drawing-set-desc{font-size:11px;color:#795548;margin-bottom:12px}
+.sheet-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:10px}
+.sheet-item{border-radius:8px;border:1.5px solid #ffccbc;background:#fff;padding:8px 10px;cursor:pointer;transition:border-color .15s,background .15s;user-select:none}
+.sheet-item:hover{border-color:#e65100}
+.sheet-item.selected{border-color:#e65100;background:#fff3ee}
+.sheet-num{font-size:11px;font-weight:600;color:#e65100;display:flex;align-items:center;gap:5px;margin-bottom:3px}
+.sheet-check{width:12px;height:12px;border-radius:3px;border:1.5px solid #ffccbc;flex-shrink:0;display:flex;align-items:center;justify-content:center;transition:background .15s,border-color .15s}
+.sheet-item.selected .sheet-check{background:#e65100;border-color:#e65100}
+.sheet-checkmark{display:none;width:8px;height:8px}
+.sheet-item.selected .sheet-checkmark{display:block}
+.sheet-title{font-size:10px;color:#555;line-height:1.3}
+.sheet-extras{display:flex;gap:6px}
+.sheet-extras .fmt-item.selected{border-color:#e65100;background:#fff3ee}
+.sheet-extras .fmt-item.selected .fmt-check{background:#e65100;border-color:#e65100}
+
+.note{margin-top:12px;padding:9px 12px;border-radius:8px;font-size:11px;line-height:1.5}
+.note-info{background:#e8f4fd;border:1px solid #90caf9;color:#0d47a1}
+.note-tip{background:#fff8e1;border:1px solid #ffe082;color:#5d4037}
+.footer{padding:14px 24px;border-top:1px solid #f0f0f0;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.sel-count{font-size:12px;color:#666;flex:1;min-width:140px}
+.sel-count span{font-weight:600;color:#111}
+.btn-reset{padding:7px 14px;border-radius:8px;border:1px solid #e0e0e0;background:#fff;font-size:12px;color:#555;cursor:pointer;font-family:inherit}
+.btn-reset:hover{background:#f5f5f5}
+.btn-generate{padding:8px 22px;border-radius:8px;border:none;background:#1a73e8;color:#fff;font-size:13px;font-weight:500;cursor:pointer;font-family:inherit;transition:background .15s}
+.btn-generate:hover:not(:disabled){background:#1557b0}
+.btn-generate:disabled{background:#b0c4e8;cursor:default}
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="header">
+    <h1>FireAI Pro — Select output formats</h1>
+    <p>Choose exactly what gets generated. Selections are saved per project.</p>
+  </div>
+  <div class="body">
+
+    <!-- Construction drawings -->
+    <div class="section-label">
+      Construction drawings
+      <button class="sec-toggle" onclick="toggleAllSheets()">Select all sheets</button>
+    </div>
+    <div class="drawing-set">
+      <div class="drawing-set-title">Full construction drawing set — DXF (AutoCAD / Autosprink ready)</div>
+      <div class="drawing-set-desc">ANSI D · Professional titleblock · NFPA 13 standard · AHJ-ready</div>
+      <div class="sheet-grid">
+        <div class="sheet-item selected" data-key="sheet_fp00" onclick="toggleSheet(this)">
+          <div class="sheet-num"><div class="sheet-check"><svg class="sheet-checkmark" viewBox="0 0 8 8" fill="none"><polyline points="1,4 3,6 7,2" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>FP0.0</div>
+          <div class="sheet-title">Cover sheet &amp; sheet index</div>
+        </div>
+        <div class="sheet-item selected" data-key="sheet_fp10" onclick="toggleSheet(this)">
+          <div class="sheet-num"><div class="sheet-check"><svg class="sheet-checkmark" viewBox="0 0 8 8" fill="none"><polyline points="1,4 3,6 7,2" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>FP1.x</div>
+          <div class="sheet-title">Floor plan(s) — sprinkler layout</div>
+        </div>
+        <div class="sheet-item selected" data-key="sheet_fp20" onclick="toggleSheet(this)">
+          <div class="sheet-num"><div class="sheet-check"><svg class="sheet-checkmark" viewBox="0 0 8 8" fill="none"><polyline points="1,4 3,6 7,2" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>FP2.0</div>
+          <div class="sheet-title">Riser diagram</div>
+        </div>
+        <div class="sheet-item selected" data-key="sheet_fp30" onclick="toggleSheet(this)">
+          <div class="sheet-num"><div class="sheet-check"><svg class="sheet-checkmark" viewBox="0 0 8 8" fill="none"><polyline points="1,4 3,6 7,2" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>FP3.0</div>
+          <div class="sheet-title">Hydraulic calculations</div>
+        </div>
+        <div class="sheet-item selected" data-key="sheet_fp40" onclick="toggleSheet(this)">
+          <div class="sheet-num"><div class="sheet-check"><svg class="sheet-checkmark" viewBox="0 0 8 8" fill="none"><polyline points="1,4 3,6 7,2" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>FP4.0</div>
+          <div class="sheet-title">Sprinkler &amp; pipe schedules</div>
+        </div>
+        <div class="sheet-item selected" data-key="sheet_fp50" onclick="toggleSheet(this)">
+          <div class="sheet-num"><div class="sheet-check"><svg class="sheet-checkmark" viewBox="0 0 8 8" fill="none"><polyline points="1,4 3,6 7,2" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>FP5.0</div>
+          <div class="sheet-title">Installation details</div>
+        </div>
+        <div class="sheet-item" data-key="sheet_fp51" onclick="toggleSheet(this)">
+          <div class="sheet-num"><div class="sheet-check"><svg class="sheet-checkmark" viewBox="0 0 8 8" fill="none"><polyline points="1,4 3,6 7,2" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>FP5.x</div>
+          <div class="sheet-title">Section cuts &amp; elevations</div>
+        </div>
+        <div class="sheet-item selected" data-key="sheet_fp60" onclick="toggleSheet(this)">
+          <div class="sheet-num"><div class="sheet-check"><svg class="sheet-checkmark" viewBox="0 0 8 8" fill="none"><polyline points="1,4 3,6 7,2" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>FP6.0</div>
+          <div class="sheet-title">Bill of materials</div>
+        </div>
+      </div>
+      <!-- Drawing output variants -->
+      <div class="sheet-extras">
+        <div class="fmt-item selected" data-key="dwg_pdf" onclick="toggle(this)" style="flex:1">
+          <div class="fmt-check"><svg class="checkmark" viewBox="0 0 10 10" fill="none"><polyline points="1.5,5 4,7.5 8.5,2.5" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+          <div><div class="fmt-name">PDF print set <span class="fmt-badge b-ahj">AHJ submittal</span></div><div class="fmt-desc">Stamped PDF of all selected sheets</div></div>
+        </div>
+        <div class="fmt-item" data-key="dwg_3d" onclick="toggle(this)" style="flex:1">
+          <div class="fmt-check"><svg class="checkmark" viewBox="0 0 10 10" fill="none"><polyline points="1.5,5 4,7.5 8.5,2.5" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+          <div><div class="fmt-name">3D DXF overlay <span class="fmt-badge b-auto">Autosprink</span></div><div class="fmt-desc">3D pipe network over 2D plan</div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- BIM / 3D -->
+    <div class="section-label">BIM &amp; 3D exports</div>
+    <div class="fmt-grid">
+      <div class="fmt-item selected" data-key="ifc" onclick="toggle(this)">
+        <div class="fmt-check"><svg class="checkmark" viewBox="0 0 10 10" fill="none"><polyline points="1.5,5 4,7.5 8.5,2.5" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+        <div><div class="fmt-name">IFC <span class="fmt-badge b-revit">Revit</span></div><div class="fmt-desc">Full BIM model — Architecture → Link IFC</div></div>
+      </div>
+      <div class="fmt-item" data-key="step" onclick="toggle(this)">
+        <div class="fmt-check"><svg class="checkmark" viewBox="0 0 10 10" fill="none"><polyline points="1.5,5 4,7.5 8.5,2.5" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+        <div><div class="fmt-name">STEP</div><div class="fmt-desc">Solid geometry — SolidWorks, Rhino, Inventor</div></div>
+      </div>
+      <div class="fmt-item disabled">
+        <div class="fmt-check"></div>
+        <div><div class="fmt-name">RVT <span class="fmt-badge b-paid">not possible</span></div><div class="fmt-desc">Use IFC → Revit instead</div></div>
+      </div>
+      <div class="fmt-item disabled">
+        <div class="fmt-check"></div>
+        <div><div class="fmt-name">DWG <span class="fmt-badge b-paid">licensed SDK</span></div><div class="fmt-desc">Use DXF — same data, no cost</div></div>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- Hydraulics & compliance -->
+    <div class="section-label">Hydraulics &amp; compliance</div>
+    <div class="fmt-grid">
+      <div class="fmt-item selected" data-key="hydraulics_json" onclick="toggle(this)">
+        <div class="fmt-check"><svg class="checkmark" viewBox="0 0 10 10" fill="none"><polyline points="1.5,5 4,7.5 8.5,2.5" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+        <div><div class="fmt-name">Hydraulics JSON <span class="fmt-badge b-auto">Autosprink</span></div><div class="fmt-desc">Demand, pressure &amp; flow data</div></div>
+      </div>
+      <div class="fmt-item selected" data-key="nfpa_cert" onclick="toggle(this)">
+        <div class="fmt-check"><svg class="checkmark" viewBox="0 0 10 10" fill="none"><polyline points="1.5,5 4,7.5 8.5,2.5" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+        <div><div class="fmt-name">NFPA 13 cert</div><div class="fmt-desc">Compliance certificate PDF</div></div>
+      </div>
+      <div class="fmt-item selected" data-key="ahj_package" onclick="toggle(this)">
+        <div class="fmt-check"><svg class="checkmark" viewBox="0 0 10 10" fill="none"><polyline points="1.5,5 4,7.5 8.5,2.5" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+        <div><div class="fmt-name">AHJ permit package <span class="fmt-badge b-ahj">submittal</span></div><div class="fmt-desc">Full package for inspection submittal</div></div>
+      </div>
+      <div class="fmt-item selected" data-key="bom_xlsx" onclick="toggle(this)">
+        <div class="fmt-check"><svg class="checkmark" viewBox="0 0 10 10" fill="none"><polyline points="1.5,5 4,7.5 8.5,2.5" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+        <div><div class="fmt-name">BOM Excel</div><div class="fmt-desc">Full bill of materials + pricing</div></div>
+      </div>
+    </div>
+
+    <div class="note note-info" id="note" style="margin-top:12px">
+      Select the sheets and formats above. The DXF drawing set and PDF print set are independent — generate one or both.
+    </div>
+
+  </div>
+
+  <div class="footer">
+    <div class="sel-count">Selected: <span id="count">—</span></div>
+    <button class="btn-reset" onclick="resetDefaults()">Reset defaults</button>
+    <button class="btn-generate" id="genbtn" onclick="generate()">Generate outputs</button>
+  </div>
+</div>
+
+<script>
+const SHEET_DEFAULTS = new Set(['sheet_fp00','sheet_fp10','sheet_fp20','sheet_fp30','sheet_fp40','sheet_fp50','sheet_fp60']);
+const FMT_DEFAULTS   = new Set(['dwg_pdf','ifc','hydraulics_json','nfpa_cert','ahj_package','bom_xlsx']);
+const ALL_SHEETS     = ['sheet_fp00','sheet_fp10','sheet_fp20','sheet_fp30','sheet_fp40','sheet_fp50','sheet_fp51','sheet_fp60'];
+
+const NOTES = {
+  ifc:             '<strong>Revit import:</strong> Architecture → Insert → Link IFC → select model.ifc. Loads as a linked MEP model.',
+  dwg_3d:          '<strong>Autosprink 3D:</strong> File → Import → DXF → select layout_3d.dxf. Pipe network, elevations, and heads import together.',
+  hydraulics_json: '<strong>Autosprink hydraulic import:</strong> Pair with DXF 3D — Autosprink reads the pipe network from DXF and demand/pressure data from the JSON in one session.',
+  ahj_package:     '<strong>AHJ submittal:</strong> Includes the PDF print set, hydraulic calc cover, NFPA 13 cert, and the hydraulic design information sign per §27.2.',
+  sheet_fp30:      '<strong>FP3.0 — Hydraulic calcs:</strong> Demand curve graph, node-by-node calcs, water supply analysis, and residual pressure summary.',
+  sheet_fp20:      '<strong>FP2.0 — Riser diagram:</strong> OS&Y valve, alarm check valve, flow switch, main drain, inspector\'s test, and FDC connections.',
+  sheet_fp10:      '<strong>FP1.x — Floor plans:</strong> One sheet per floor. Sprinkler layout, pipe runs with sizes, valve locations, coverage circles, north arrow, scale bar, symbol legend, and general notes.',
+  dwg_pdf:         '<strong>PDF print set:</strong> Stamped PDF of every selected sheet, scaled and formatted for AHJ submittal. Generated alongside the DXF set.',
+};
+
+function toggle(el) {
+  if (el.classList.contains('disabled')) return;
+  el.classList.toggle('selected');
+  updateCount(); updateNote(el.dataset.key);
+}
+function toggleSheet(el) {
+  el.classList.toggle('selected');
+  updateCount(); updateNote(el.dataset.key);
+}
+function toggleAllSheets() {
+  const allOn = ALL_SHEETS.every(k => document.querySelector(`[data-key="${k}"]`)?.classList.contains('selected'));
+  ALL_SHEETS.forEach(k => {
+    const el = document.querySelector(`[data-key="${k}"]`);
+    if (el) el.classList.toggle('selected', !allOn);
+  });
+  updateCount();
+}
+function updateCount() {
+  const sheets = document.querySelectorAll('.sheet-item.selected').length;
+  const fmts   = document.querySelectorAll('.fmt-item.selected:not(.disabled)').length;
+  document.getElementById('count').textContent = `${sheets} sheet${sheets!==1?'s':''} + ${fmts} format${fmts!==1?'s':''}`;
+  document.getElementById('genbtn').disabled = (sheets + fmts) === 0;
+}
+function updateNote(key) {
+  if (NOTES[key]) {
+    const el = document.getElementById('note');
+    el.className = 'note note-tip';
+    el.innerHTML = NOTES[key];
+  }
+}
+function resetDefaults() {
+  ALL_SHEETS.forEach(k => {
+    const el = document.querySelector(`[data-key="${k}"]`);
+    if (el) el.classList.toggle('selected', SHEET_DEFAULTS.has(k));
+  });
+  document.querySelectorAll('.fmt-item:not(.disabled)').forEach(el => {
+    el.classList.toggle('selected', FMT_DEFAULTS.has(el.dataset.key));
+  });
+  updateCount();
+  document.getElementById('note').className = 'note note-info';
+  document.getElementById('note').innerHTML = 'Select the sheets and formats above. The DXF drawing set and PDF print set are independent — generate one or both.';
+}
+function generate() {
+  const sheets  = [...document.querySelectorAll('.sheet-item.selected')].map(el => el.dataset.key);
+  const formats = [...document.querySelectorAll('.fmt-item.selected:not(.disabled)')].map(el => el.dataset.key);
+  const btn = document.getElementById('genbtn');
+  btn.textContent = 'Queuing job...';
+  btn.disabled = true;
+  fetch('/api/generate', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ selected_sheets: sheets, selected_formats: formats }),
+  })
+  .then(r=>r.json())
+  .then(data=>{btn.textContent='✓ Job queued';btn.style.background='#2e7d32';console.log(data);})
+  .catch(()=>{btn.textContent='Error — check console';btn.style.background='#c62828';btn.disabled=false;});
+}
+resetDefaults();
+</script>
+</body>
+</html>
