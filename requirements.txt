@@ -1,6 +1,11 @@
 # FireAI Pro - COMPLETE Production Requirements
 # ==============================================
-
+anthropic>=0.25.0       # Claude API SDK — already in your repo likely
+httpx>=0.27.0           # Async HTTP — Gmail + Outlook OAuth calls
+ezdxf>=1.3.0            # 2D + 3D DXF generation (replaces dxf-writer JS)
+ifcopenshell>=0.7.0     # IFC generation for Revit import
+reportlab>=4.0.0        # PDF stamped drawings
+openpyxl>=3.1.0         # BOM Excel export
 # Web Framework
 fastapi
 uvicorn[standard]
