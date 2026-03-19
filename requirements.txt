@@ -6,6 +6,42 @@ ezdxf>=1.3.0            # 2D + 3D DXF generation (replaces dxf-writer JS)
 ifcopenshell>=0.7.0     # IFC generation for Revit import
 reportlab>=4.0.0        # PDF stamped drawings
 openpyxl>=3.1.0         # BOM Excel export
+# FireAI Pro — requirements.txt
+# Add these to your existing requirements.txt
+# Run: pip install -r requirements.txt
+
+# ── Core API ──────────────────────────────────────────────────────────────────
+fastapi>=0.111.0
+uvicorn[standard]>=0.29.0
+pydantic>=2.0.0
+
+# ── AI / Claude ───────────────────────────────────────────────────────────────
+anthropic>=0.25.0
+
+# ── HTTP (email escalator OAuth calls) ───────────────────────────────────────
+httpx>=0.27.0
+
+# ── Drawing generation ────────────────────────────────────────────────────────
+ezdxf>=1.3.0             # 2D + 3D DXF generation
+reportlab>=4.0.0         # PDF stamped drawings
+
+# ── BIM / IFC ─────────────────────────────────────────────────────────────────
+ifcopenshell>=0.7.0      # IFC generation for Revit import
+
+# ── Data exports ──────────────────────────────────────────────────────────────
+openpyxl>=3.1.0          # BOM Excel export
+
+# ── PDF rendering (DXF → PDF, optional but recommended) ──────────────────────
+matplotlib>=3.8.0        # ezdxf matplotlib backend for PDF export
+
+# ── Utilities ─────────────────────────────────────────────────────────────────
+python-multipart>=0.0.9  # FastAPI file uploads
+python-dotenv>=1.0.0     # .env file support for local testing
+
+# ── STEP solid geometry (optional — large install, only if needed) ─────────────
+# pythonocc-core>=7.7.0
+
+
 # Web Framework
 fastapi
 uvicorn[standard]
