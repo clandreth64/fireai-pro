@@ -1,403 +1,247 @@
-# app.py — FireAI minimal backend with job-scoped artifacts
-# Works with local storage out of the box. Optional X-API-Key check via env FIREAI_API_KEY.
+"""
+FireAI Pro — API Server  (api/app.py)
+======================================
+Drop this into your api/ folder, replacing the existing app.py.
+Adds the /api/generate endpoint the format selector posts to,
+plus status polling and artifact download.
 
+Run locally:
+  cd api && uvicorn app:app --reload --port 8000
+
+Railway start command (Procfile):
+  web: uvicorn api.app:app --host 0.0.0.0 --port $PORT
+"""
+
+import asyncio
+import json
+import logging
 import os
 import uuid
-import json
-import time
+from datetime import datetime
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Optional
 
-from fastapi import FastAPI, UploadFile, File, Form, Body, Request, HTTPException, Depends
+from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
-from starlette.responses import FileResponse as FR
-from concurrent.futures import ThreadPoolExecutor
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 
-APP_VERSION = "1.3.0"
+# ── Import FireAI Pro modules ─────────────────────────────────────────────────
+import sys
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
-# ---- Storage root (mount /data in Railway) ----
-DATA_ROOT = Path(
-    os.environ.get("FIREAI_LOCAL_STORAGE")
-    or os.environ.get("FIREAI_DATA_ROOT")
-    or "/data/projects"
+from fireai_orchestrator_v2 import FireAIOrchestrator
+from fireai_drawing_engine   import FireAIDrawingEngine
+from fireai_schemas.job_models import GenerateRequest, JobStatus, JobResult
+
+log = logging.getLogger("fireai.api")
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+
+# ── App setup ──────────────────────────────────────────────────────────────────
+
+app = FastAPI(
+    title="FireAI Pro API",
+    version="2.0.0",
+    description="AI-powered fire sprinkler design system",
 )
-DATA_ROOT.mkdir(parents=True, exist_ok=True)
 
-# ---- Optional API key enforcement (pass in X-API-Key) ----
-REQUIRED_API_KEY = os.environ.get("FIREAI_API_KEY")  # if unset -> no auth required
-
-
-def api_key_dep(request: Request):
-    """Optional 'X-API-Key' header check if FIREAI_API_KEY is set."""
-    if not REQUIRED_API_KEY:
-        return
-    sent = request.headers.get("x-api-key") or request.headers.get("X-API-Key")
-    if sent != REQUIRED_API_KEY:
-        raise HTTPException(status_code=401, detail="Invalid or missing API key")
-
-
-app = FastAPI(title="FireAI Pro API", version=APP_VERSION)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"]
+    allow_origins=["*"],        # tighten in production
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
-# In-memory job tracker (best-effort)
-JOBS: Dict[str, Dict[str, Any]] = {}
+# Serve the format selector and any other static files from repo root
+REPO_ROOT    = Path(__file__).parent.parent
+OUTPUTS_DIR  = REPO_ROOT / "outputs"
+OUTPUTS_DIR.mkdir(exist_ok=True)
 
-# Thread pool for background runs
-executor = ThreadPoolExecutor(max_workers=int(os.environ.get("FIREAI_MAX_WORKERS", "4")))
+# ── In-memory job store (swap for Redis/Postgres in prod) ─────────────────────
 
+_jobs: dict[str, dict] = {}
 
-# ------------------------
-# Helpers
-# ------------------------
-def proj_dir(pid: str) -> Path:
-    p = DATA_ROOT / pid
-    p.mkdir(parents=True, exist_ok=True)
-    return p
+def _set_job(job_id: str, **kwargs):
+    if job_id not in _jobs:
+        _jobs[job_id] = {"job_id": job_id, "created_at": datetime.utcnow().isoformat()}
+    _jobs[job_id].update(kwargs)
 
-
-def job_dir(pid: str, jid: str) -> Path:
-    j = proj_dir(pid) / jid
-    j.mkdir(parents=True, exist_ok=True)
-    return j
+def _get_job(job_id: str) -> dict:
+    if job_id not in _jobs:
+        raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
+    return _jobs[job_id]
 
 
-def latest_job_dir(pid: str) -> Optional[Path]:
-    p = proj_dir(pid)
-    jobs = [d for d in p.iterdir() if d.is_dir()]
-    return sorted(jobs, key=lambda d: d.stat().st_mtime, reverse=True)[0] if jobs else None
+# ── Background worker ─────────────────────────────────────────────────────────
 
-
-def list_artifacts(base: Path, pid: str) -> Dict[str, str]:
-    """Return {name: relative_path_from_project_root} for everything under base."""
-    out: Dict[str, str] = {}
-    pdir = proj_dir(pid)
-    for f in base.rglob("*"):
-        if f.is_file():
-            try:
-                rel = f.relative_to(pdir)
-            except ValueError:
-                # Safety: if file isn't under proj dir, skip
-                continue
-            out[f.name] = str(rel)
-    return out
-
-
-def write_manifest(pid: str, jid: str, outputs: Dict[str, str]) -> Path:
-    pdir = proj_dir(pid)
-    jdir = job_dir(pid, jid)
-    manifest = {
-        "project_id": pid,
-        "job_id": jid,
-        "output_dir": str(jdir),
-        # ensure paths are relative to project root so /download route works
-        "deliverables": {},
-        "created": int(time.time()),
-    }
-    
-    # Convert paths to be relative to project directory
-    for name, path in outputs.items():
-        if path:
-            try:
-                rel_path = Path(path).relative_to(pdir)
-                manifest["deliverables"][name] = str(rel_path)
-            except ValueError:
-                # If path is not under pdir, use the filename
-                manifest["deliverables"][name] = Path(path).name
-    
-    mpath = jdir / "manifest.json"
-    mpath.write_text(json.dumps(manifest, indent=2))
-    return mpath
-
-
-def save_upload_preserving_ext(pdir: Path, file: UploadFile) -> str:
+async def _run_job(job_id: str, request: "GenerateRequest"):
     """
-    Save uploaded file with its original filename AND 'upload.<ext>' alias.
-    Returns the alias path.
+    Full pipeline:
+      1. Orchestrator  — parallel agents + NFPA 13 compliance loop
+      2. Drawing engine — generates selected DXF sheets + PDF print set
     """
-    raw = file.filename or "upload.dwg"
-    orig_name = Path(raw).name
-    data = file.file.read() if hasattr(file, "file") else None
-    if data is None:
-        data = b""
-    (pdir / orig_name).write_bytes(data)
-    alias = "upload" + Path(orig_name).suffix.lower()
-    (pdir / alias).write_bytes(data)
-    return alias
+    job_output_dir = OUTPUTS_DIR / job_id
+    job_output_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        # ── Step 1: orchestrator ───────────────────────────────────────────
+        _set_job(job_id, status="running", stage="agents",
+                 message="Running parallel design agents...")
+        log.info(f"[{job_id}] Starting orchestrator")
+
+        orchestrator = FireAIOrchestrator()
+        orch_result  = await orchestrator.run(
+            project_context  = request.project_context,
+            selected_formats = set(request.selected_formats or []),
+        )
+
+        _set_job(job_id, stage="drawings",
+                 message="Generating construction drawings...",
+                 orchestrator_result=orch_result)
+
+        # ── Step 2: drawing engine ─────────────────────────────────────────
+        log.info(f"[{job_id}] Starting drawing engine")
+
+        drawing_engine = FireAIDrawingEngine(
+            project           = request.project_context,
+            cad_output        = orch_result.get("artifacts", {}).get("cad_layout")        or {},
+            hydraulics_output = orch_result.get("artifacts", {}).get("hydraulics_report") or {},
+            bracing_output    = orch_result.get("artifacts", {}).get("bracing_and_bom")   or {},
+            compliance_result = type("CR", (), {
+                "compliant":  orch_result.get("metadata", {}).get("compliant", False),
+                "violations": [],
+                "summary":    orch_result.get("metadata", {}).get("nfpa_summary", ""),
+            })(),
+        )
+
+        # Only generate the sheets the designer selected
+        selected_sheets = set(request.selected_sheets or [
+            "sheet_fp00","sheet_fp10","sheet_fp20",
+            "sheet_fp30","sheet_fp40","sheet_fp50","sheet_fp60",
+        ])
+
+        drawing_manifest = drawing_engine.generate_selected(
+            output_dir      = str(job_output_dir),
+            selected_sheets = selected_sheets,
+            include_pdf     = "dwg_pdf" in (request.selected_formats or []),
+            include_3d      = "dwg_3d"  in (request.selected_formats or []),
+        )
+
+        # ── Collect all published files ────────────────────────────────────
+        all_files = (orch_result.get("published_files", []) +
+                     [m["filename"] for m in drawing_manifest if not m.get("error")])
+
+        _set_job(
+            job_id,
+            status          = "complete" if orch_result["metadata"]["compliant"] else "partial",
+            stage           = "done",
+            message         = "Complete" if orch_result["metadata"]["compliant"] else "Partial — human review required",
+            compliant       = orch_result["metadata"]["compliant"],
+            iterations_used = orch_result["metadata"]["iterations_used"],
+            published_files = all_files,
+            drawing_manifest= drawing_manifest,
+            output_dir      = str(job_output_dir),
+            completed_at    = datetime.utcnow().isoformat(),
+            requires_human_review = orch_result.get("requires_human_review", False),
+            frozen_violations     = orch_result["metadata"].get("frozen_violations", []),
+        )
+
+        log.info(f"[{job_id}] Done — {len(all_files)} file(s), compliant={orch_result['metadata']['compliant']}")
+
+    except Exception as e:
+        log.exception(f"[{job_id}] Job failed: {e}")
+        _set_job(job_id, status="failed", stage="error", message=str(e),
+                 completed_at=datetime.utcnow().isoformat())
 
 
-# ------------------------
-# Health / readiness
-# ------------------------
+# ── Routes ────────────────────────────────────────────────────────────────────
+
+@app.get("/")
+async def root():
+    return {"service": "FireAI Pro API", "version": "2.0.0", "status": "online"}
+
 @app.get("/health")
-def health():
-    # Check which engines are available
-    engines = {}
-    try:
-        from orchestrate import get_engine_status
-        engines = get_engine_status()
-    except Exception as e:
-        engines = {"status": "orchestrate module error", "error": str(e)}
-    
-    features = {
-        "artifact_publishing": True,
-        "enhanced_orchestrator": True,
-        "prometheus_metrics": False,
-        "s3_upload": False,  # set True if you later add S3 publishing
-    }
-    return {
-        "status": "ok", 
-        "version": APP_VERSION, 
-        "features": features,
-        "engines": engines,
-        "data_root": str(DATA_ROOT)
-    }
+async def health():
+    return {"status": "ok", "timestamp": datetime.utcnow().isoformat()}
 
 
-@app.get("/readiness")
-def readiness():
-    # Check if orchestrate module is importable and functional
-    try:
-        from orchestrate import orchestrate
-        status = "ready"
-        detail = "orchestrate module loaded successfully"
-    except ImportError as e:
-        status = "degraded"
-        detail = f"orchestrate import failed: {e}"
-    except Exception as e:
-        status = "degraded"
-        detail = f"orchestrate error: {e.__class__.__name__}: {e}"
-    
-    return {"status": status, "detail": detail, "data_root": str(DATA_ROOT)}
-
-
-# ------------------------
-# Create project (multipart OR JSON)
-# ------------------------
-@app.post("/api/projects", dependencies=[Depends(api_key_dep)])
-async def create_project(
-    request: Request,
-    project_id: Optional[str] = Form(None),
-    project_json: Optional[str] = Form(None),
-    file: Optional[UploadFile] = File(None),
-    json_body: Optional[Dict[str, Any]] = Body(None),
-):
+@app.post("/api/generate", response_model=dict, status_code=202)
+async def generate(request: GenerateRequest, background_tasks: BackgroundTasks):
     """
-    Supports:
-      - multipart/form-data: project_id (Form), project_json (Form JSON), file (UploadFile)
-      - application/json   : {"project_id": "...", "project_name": "...", "zip_code": "...", "project_data": {...}}
+    Queue a full FireAI Pro design job.
+
+    Body (JSON):
+      project_context   — full project definition dict (required)
+      selected_sheets   — list of sheet keys e.g. ["sheet_fp10", "sheet_fp30"]
+      selected_formats  — list of format keys e.g. ["dwg_pdf", "ifc", "hydraulics_json"]
+
+    Returns immediately with job_id. Poll /api/jobs/{job_id} for status.
     """
-    # Determine payload source
-    pid = project_id
-    meta: Dict[str, Any] = {}
+    job_id = str(uuid.uuid4())[:8].upper()
 
-    if json_body and isinstance(json_body, dict):
-        # JSON mode
-        if not pid:
-            pid = json_body.get("project_id") or str(uuid.uuid4())
-        # Merge metadata
-        meta.update(json_body)
-    else:
-        # Multipart mode
-        if not pid:
-            pid = str(uuid.uuid4())
-        if project_json:
-            try:
-                meta.update(json.loads(project_json))
-            except Exception:
-                pass
+    _set_job(job_id,
+        status   = "queued",
+        stage    = "queued",
+        message  = "Job queued — starting shortly",
+        project  = request.project_context.get("project_name", "Unnamed"),
+        sheets   = request.selected_sheets,
+        formats  = request.selected_formats,
+    )
 
-    pdir = proj_dir(pid)
+    background_tasks.add_task(_run_job, job_id, request)
 
-    # Write project.json (always)
-    base_meta = {"project_id": pid, "created": int(time.time())}
-    base_meta.update(meta or {})
-    (pdir / "project.json").write_text(json.dumps(base_meta, indent=2))
+    log.info(f"[{job_id}] Queued — project: {request.project_context.get('project_name')}")
+    return {"job_id": job_id, "status": "queued", "poll_url": f"/api/jobs/{job_id}"}
 
-    saved_file = None
-    if file:
-        alias = save_upload_preserving_ext(pdir, file)
-        saved_file = str(pdir / alias)
 
+@app.get("/api/jobs/{job_id}")
+async def get_job(job_id: str):
+    """Poll job status. Status values: queued → running → complete | partial | failed"""
+    return _get_job(job_id.upper())
+
+
+@app.get("/api/jobs/{job_id}/files")
+async def list_files(job_id: str):
+    """List all generated files for a completed job."""
+    job = _get_job(job_id.upper())
+    if job["status"] not in ("complete", "partial"):
+        raise HTTPException(status_code=400, detail="Job not yet complete")
     return {
-        "project_id": pid,
-        "message": "project created successfully",
-        "uploaded": bool(file),
-        "project_dir": str(pdir),
-        "saved_file": saved_file,
+        "job_id":    job_id,
+        "files":     job.get("published_files", []),
+        "output_dir": job.get("output_dir"),
     }
 
 
-# ------------------------
-# Run: create job_id and invoke orchestrator in background
-# ------------------------
-def _run_job(pid: str, jid: str):
-    pdir = proj_dir(pid)
-    jdir = job_dir(pid, jid)
-    JOBS[jid] = {"project_id": pid, "status": "running", "step": "starting", "pct": 10}
+@app.get("/api/jobs/{job_id}/download/{filename}")
+async def download_file(job_id: str, filename: str):
+    """Download a generated file by name."""
+    job      = _get_job(job_id.upper())
+    out_dir  = Path(job.get("output_dir", ""))
+    file_path = out_dir / filename
 
-    outputs: Dict[str, str] = {}
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail=f"{filename} not found for job {job_id}")
 
-    # Try to import and run the orchestrate function
-    try:
-        JOBS[jid].update({"step": "importing_orchestrator", "pct": 20})
-        from orchestrate import orchestrate
-        
-        JOBS[jid].update({"step": "running_engines", "pct": 30})
-        
-        # Ensure output dir exists
-        jdir.mkdir(parents=True, exist_ok=True)
-        
-        # Call the orchestrate function
-        maybe = orchestrate(project_dir=pdir, output_dir=jdir)
-        
-        JOBS[jid].update({"step": "collecting_outputs", "pct": 80})
-        
-        if isinstance(maybe, dict):
-            outputs = {k: str(Path(v)) for k, v in maybe.items() if v}
-            
-    except Exception as e:
-        print(f"🔥 Orchestration error: {e}")
-        import traceback
-        traceback.print_exc()
-        
-        # Fallback: write minimal placeholders so client can verify pipeline
-        JOBS[jid].update({"step": "fallback_generation", "pct": 70, "error": str(e)})
-        try:
-            (jdir / "design.dxf").write_text("0\nSECTION\n2\nENTITIES\n0\nENDSEC\n0\nEOF\n")
-            (jdir / "materials.csv").write_text("item,qty\nhead,12\npipe,200ft\n")
-            (jdir / "compliance.pdf").write_bytes(b"%PDF-1.4\n%EOF\n")
-            outputs = {
-                "design.dxf": str(jdir / "design.dxf"),
-                "materials.csv": str(jdir / "materials.csv"),
-                "compliance.pdf": str(jdir / "compliance.pdf"),
-            }
-        except Exception:
-            # If even placeholders fail, leave outputs empty
-            pass
-
-    # Write manifest (even if empty)
-    JOBS[jid].update({"step": "writing_manifest", "pct": 90})
-    write_manifest(pid, jid, outputs)
-
-    # Mark job success (best-effort)
-    JOBS[jid].update({
-        "status": "succeeded", 
-        "step": "done", 
-        "pct": 100, 
-        "output_dir": str(jdir),
-        "outputs": list(outputs.keys())
-    })
+    return FileResponse(
+        path         = str(file_path),
+        filename     = filename,
+        media_type   = "application/octet-stream",
+    )
 
 
-@app.post("/api/projects/{project_id}/run", dependencies=[Depends(api_key_dep)])
-def run_project(project_id: str):
-    pid = project_id
-    jid = str(uuid.uuid4())
-    job_dir(pid, jid)  # ensure exists early
-    JOBS[jid] = {"project_id": pid, "status": "queued", "step": "queued", "pct": 0}
-    executor.submit(_run_job, pid, jid)
-    return {"job_id": jid, "status": "queued"}
+@app.get("/api/jobs")
+async def list_jobs(limit: int = 20):
+    """List recent jobs."""
+    jobs = sorted(_jobs.values(), key=lambda j: j.get("created_at",""), reverse=True)
+    return {"jobs": jobs[:limit], "total": len(_jobs)}
 
 
-# ------------------------
-# Jobs & results
-# ------------------------
-@app.get("/api/jobs/{job_id}", dependencies=[Depends(api_key_dep)])
-def job_status(job_id: str):
-    if job_id in JOBS:
-        j = JOBS[job_id]
-        return {
-            "job_id": job_id,
-            "status": j.get("status", "unknown"),
-            "step": j.get("step", ""),
-            "pct": j.get("pct", 0),
-            "project_id": j.get("project_id"),
-            "output_dir": j.get("output_dir"),
-            "outputs": j.get("outputs", []),
-            "error": j.get("error"),
-        }
+# ── Serve format selector UI ──────────────────────────────────────────────────
 
-    # Fallback: infer from filesystem (manifest presence)
-    for p in DATA_ROOT.iterdir():
-        jdir = p / job_id
-        if jdir.is_dir():
-            status = "succeeded" if (jdir / "manifest.json").exists() else "running"
-            outputs = []
-            if (jdir / "manifest.json").exists():
-                try:
-                    manifest = json.loads((jdir / "manifest.json").read_text())
-                    outputs = list(manifest.get("deliverables", {}).keys())
-                except:
-                    pass
-            return {
-                "job_id": job_id, 
-                "status": status, 
-                "step": "done" if status == "succeeded" else "running",
-                "pct": 100 if status == "succeeded" else 50, 
-                "project_id": p.name, 
-                "output_dir": str(jdir),
-                "outputs": outputs
-            }
-    return JSONResponse({"detail": "Not Found"}, status_code=404)
-
-
-@app.get("/api/projects/{project_id}/results", dependencies=[Depends(api_key_dep)])
-def project_results(project_id: str):
-    pid = project_id
-    jdir = latest_job_dir(pid)
-    pdir = proj_dir(pid)
-    base = jdir if jdir else pdir
-    deliverables = list_artifacts(base, pid)
-    manifest_type = "job" if jdir else "fallback"
-    message = "Latest job files" if jdir else "No job found; listing project root files"
-    return {"output_dir": str(base), "deliverables": deliverables, "manifest_type": manifest_type, "message": message}
-
-
-@app.get("/api/projects/{project_id}/jobs/{job_id}/artifacts", dependencies=[Depends(api_key_dep)])
-def job_artifacts(project_id: str, job_id: str):
-    jdir = job_dir(project_id, job_id)
-    m = jdir / "manifest.json"
-    if m.exists():
-        try:
-            return json.loads(m.read_text())
-        except Exception:
-            pass
-    return {"project_id": project_id, "job_id": job_id, "deliverables": list_artifacts(jdir, project_id)}
-
-
-# ------------------------
-# Download (supports nested paths)
-# ------------------------
-def _safe_resolve_for_project(project_id: str, filename: str) -> Path:
-    pdir = proj_dir(project_id)
-    path = (pdir / filename).resolve()
-    if not str(path).startswith(str(pdir.resolve())):
-        raise HTTPException(status_code=403, detail="Invalid path")
-    if not path.exists() or not path.is_file():
-        raise HTTPException(status_code=404, detail="Not Found")
-    return path
-
-
-@app.get("/api/projects/{project_id}/download/{filename:path}", dependencies=[Depends(api_key_dep)])
-def download(project_id: str, filename: str):
-    path = _safe_resolve_for_project(project_id, filename)
-    return FR(str(path), filename=path.name)
-
-
-# Legacy convenience route some clients try (keep for compatibility)
-@app.get("/download/{project_id}/{filename:path}", dependencies=[Depends(api_key_dep)])
-def legacy_download(project_id: str, filename: str):
-    path = _safe_resolve_for_project(project_id, filename)
-    return FR(str(path), filename=path.name)
-
-
-# ------------------------
-# Run locally (optional)
-# ------------------------
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run("app:app", host="0.0.0.0", port=int(os.environ.get("PORT", "8000")), reload=False)
+@app.get("/design")
+async def serve_format_selector():
+    selector_path = REPO_ROOT / "format_selector.html"
+    if selector_path.exists():
+        return FileResponse(str(selector_path), media_type="text/html")
+    raise HTTPException(status_code=404, detail="format_selector.html not found in repo root")
