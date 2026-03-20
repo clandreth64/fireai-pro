@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FireAI Pro — New Project</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f0f2f5;min-height:100vh;color:#111}
+.top-bar{background:#fff;border-bottom:1px solid #e5e5e5;padding:0 32px;height:56px;display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:100}
+.logo{font-size:16px;font-weight:700;color:#111;letter-spacing:-.3px}
+.logo span{color:#e65100}
+.top-bar-right{margin-left:auto;display:flex;align-items:center;gap:10px}
+.status-dot{width:8px;height:8px;border-radius:50%;background:#2e7d32}
+.status-txt{font-size:12px;color:#555}
+
+.main{max-width:960px;margin:32px auto;padding:0 24px;display:grid;grid-template-columns:1fr 340px;gap:24px;align-items:start}
+
+.card{background:#fff;border-radius:12px;border:1px solid #e5e5e5;overflow:hidden}
+.card-header{padding:20px 24px 16px;border-bottom:1px solid #f0f0f0}
+.card-header h2{font-size:15px;font-weight:600;color:#111}
+.card-header p{font-size:13px;color:#666;margin-top:3px}
+.card-body{padding:20px 24px}
+
+.section-title{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:#999;margin-bottom:10px}
+
+.field{margin-bottom:14px}
+.field label{display:block;font-size:12px;font-weight:500;color:#333;margin-bottom:5px}
+.field input,.field select,.field textarea{width:100%;padding:8px 10px;border:1px solid #ddd;border-radius:7px;font-size:13px;font-family:inherit;color:#111;background:#fff;transition:border-color .15s}
+.field input:focus,.field select:focus,.field textarea:focus{outline:none;border-color:#1a73e8}
+.field textarea{resize:vertical;min-height:60px}
+.field-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.field-row-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
+
+.upload-zone{border:2px dashed #ddd;border-radius:10px;padding:32px 20px;text-align:center;cursor:pointer;transition:border-color .2s,background .2s;margin-bottom:14px;position:relative}
+.upload-zone:hover,.upload-zone.drag{border-color:#1a73e8;background:#f0f6ff}
+.upload-zone.has-file{border-color:#2e7d32;background:#f0f9f0;border-style:solid}
+.upload-icon{width:40px;height:40px;border-radius:10px;background:#f5f5f5;margin:0 auto 12px;display:flex;align-items:center;justify-content:center}
+.upload-icon svg{width:20px;height:20px;stroke:#666}
+.upload-title{font-size:13px;font-weight:500;color:#333;margin-bottom:4px}
+.upload-sub{font-size:12px;color:#888;line-height:1.5}
+.upload-formats{display:flex;gap:5px;justify-content:center;margin-top:10px;flex-wrap:wrap}
+.fmt-pill{font-size:10px;padding:2px 8px;border-radius:10px;background:#f0f0f0;color:#555;font-weight:500}
+.upload-zone input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer}
+.file-info{display:flex;align-items:center;gap:8px;background:#f0f9f0;border-radius:7px;padding:8px 12px;margin-bottom:10px;display:none}
+.file-info.show{display:flex}
+.file-icon{width:28px;height:28px;background:#2e7d32;border-radius:6px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.file-icon svg{width:14px;height:14px;stroke:#fff}
+.file-name{font-size:12px;font-weight:500;color:#1b5e20;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.file-size{font-size:11px;color:#555;flex-shrink:0}
+.file-remove{font-size:11px;color:#c62828;cursor:pointer;flex-shrink:0;border:none;background:none;font-family:inherit;padding:0}
+
+.select-sheets{display:grid;grid-template-columns:1fr 1fr;gap:5px;margin-bottom:14px}
+.sheet-chip{border-radius:7px;border:1.5px solid #e8e8e8;padding:6px 10px;cursor:pointer;transition:border-color .15s,background .15s;display:flex;align-items:center;gap:6px;user-select:none}
+.sheet-chip:hover{border-color:#c0c0c0}
+.sheet-chip.on{border-color:#e65100;background:#fff8f5}
+.chip-check{width:14px;height:14px;border-radius:3px;border:1.5px solid #ccc;flex-shrink:0;display:flex;align-items:center;justify-content:center;transition:background .15s,border-color .15s}
+.sheet-chip.on .chip-check{background:#e65100;border-color:#e65100}
+.chip-txt{font-size:11px;font-weight:500;color:#333}
+.chip-sub{font-size:10px;color:#888;margin-left:auto}
+
+.btn-primary{width:100%;padding:11px;border-radius:8px;border:none;background:#e65100;color:#fff;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;transition:background .15s;margin-top:4px}
+.btn-primary:hover:not(:disabled){background:#bf360c}
+.btn-primary:disabled{background:#ffab91;cursor:default}
+.btn-secondary{width:100%;padding:9px;border-radius:8px;border:1px solid #ddd;background:#fff;color:#555;font-size:13px;cursor:pointer;font-family:inherit;margin-top:8px;transition:background .15s}
+.btn-secondary:hover{background:#f5f5f5}
+
+.progress-card{display:none}
+.progress-card.show{display:block}
+.progress-bar-track{height:6px;background:#f0f0f0;border-radius:3px;overflow:hidden;margin:10px 0}
+.progress-bar-fill{height:100%;border-radius:3px;background:#e65100;transition:width .3s}
+.stage-row{display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #f5f5f5}
+.stage-row:last-child{border-bottom:none}
+.stage-dot{width:8px;height:8px;border-radius:50%;background:#ddd;flex-shrink:0}
+.stage-dot.active{background:#1a73e8}
+.stage-dot.done{background:#2e7d32}
+.stage-dot.error{background:#c62828}
+.stage-lbl{font-size:12px;color:#555;flex:1}
+.stage-lbl.active{color:#1a73e8;font-weight:500}
+.stage-lbl.done{color:#2e7d32}
+
+.result-files{display:flex;flex-direction:column;gap:5px;margin-top:10px}
+.result-file{display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:7px;background:#f5f5f5;text-decoration:none;color:#111;transition:background .15s}
+.result-file:hover{background:#e8f5e9}
+.rf-icon{width:24px;height:24px;border-radius:5px;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:9px;font-weight:700;letter-spacing:-.2px}
+.rf-dxf{background:#e3f2fd;color:#0d47a1}
+.rf-pdf{background:#ffebee;color:#b71c1c}
+.rf-json{background:#f3e5f5;color:#4a148c}
+.rf-xlsx{background:#e8f5e9;color:#1b5e20}
+.rf-name{font-size:12px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+.info-card{background:#e8f4fd;border:1px solid #90caf9;border-radius:10px;padding:14px;margin-bottom:14px}
+.info-card p{font-size:12px;color:#0d47a1;line-height:1.6}
+.info-card strong{font-weight:600}
+</style>
+</head>
+<body>
+
+<div class="top-bar">
+  <div class="logo">Fire<span>AI</span> Pro</div>
+  <div style="width:1px;height:20px;background:#e5e5e5"></div>
+  <div style="font-size:13px;color:#555">New project</div>
+  <div class="top-bar-right">
+    <div class="status-dot"></div>
+    <div class="status-txt">System online</div>
+  </div>
+</div>
+
+<div class="main">
+
+  <!-- Left column: Project form -->
+  <div style="display:flex;flex-direction:column;gap:16px">
+
+    <!-- Upload construction documents -->
+    <div class="card">
+      <div class="card-header">
+        <h2>Upload construction documents</h2>
+        <p>Floor plans, architectural drawings, or BIM models. FireAI Pro reads the geometry automatically.</p>
+      </div>
+      <div class="card-body">
+        <div class="upload-zone" id="drop-zone">
+          <input type="file" id="file-input" accept=".pdf,.dxf,.dwg,.ifc,.png,.jpg,.jpeg,.tif"
+                 onchange="handleFile(this.files[0])">
+          <div class="upload-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 16V4M8 8l4-4 4 4"/><path d="M20 16v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2"/>
+            </svg>
+          </div>
+          <div class="upload-title">Drop your floor plan here</div>
+          <div class="upload-sub">or click to browse files</div>
+          <div class="upload-formats">
+            <span class="fmt-pill">PDF</span>
+            <span class="fmt-pill">DXF</span>
+            <span class="fmt-pill">DWG</span>
+            <span class="fmt-pill">IFC</span>
+            <span class="fmt-pill">PNG / JPG</span>
+          </div>
+        </div>
+        <div class="file-info" id="file-info">
+          <div class="file-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5l5 5v11a2 2 0 01-2 2z"/>
+            </svg>
+          </div>
+          <span class="file-name" id="file-name-txt">—</span>
+          <span class="file-size" id="file-size-txt">—</span>
+          <button class="file-remove" onclick="removeFile()">Remove</button>
+        </div>
+        <div class="info-card">
+          <p><strong>No drawings yet?</strong> You can also enter building dimensions manually below and FireAI Pro will design the system from specifications.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Project information -->
+    <div class="card">
+      <div class="card-header">
+        <h2>Project information</h2>
+      </div>
+      <div class="card-body">
+
+        <div class="section-title">Identity</div>
+        <div class="field"><label>Project name *</label><input type="text" id="project_name" placeholder="Riverside Office Complex — Building A"></div>
+        <div class="field-row">
+          <div class="field"><label>Internal project no.</label><input type="text" id="project_number_internal" placeholder="FP-2024-0142"></div>
+          <div class="field"><label>Customer project no.</label><input type="text" id="project_number_customer" placeholder="ROC-A-FP-001"></div>
+        </div>
+        <div class="field"><label>Project address *</label><input type="text" id="location" placeholder="4200 Riverside Dr, Austin TX 78741"></div>
+        <div class="field-row">
+          <div class="field"><label>Occupancy / use *</label>
+            <select id="occupancy">
+              <option value="Business (Group B)">Business / Office (Group B)</option>
+              <option value="Mercantile (Group M)">Retail / Mercantile (Group M)</option>
+              <option value="Assembly (Group A)">Assembly (Group A)</option>
+              <option value="Educational (Group E)">Educational (Group E)</option>
+              <option value="Factory (Group F)">Factory / Industrial (Group F)</option>
+              <option value="Storage (Group S)">Storage / Warehouse (Group S)</option>
+              <option value="Residential (Group R)">Residential (Group R)</option>
+              <option value="Institutional (Group I)">Institutional (Group I)</option>
+              <option value="Hazardous (Group H)">Hazardous (Group H)</option>
+            </select>
+          </div>
+          <div class="field"><label>AHJ / jurisdiction *</label><input type="text" id="ahj_jurisdiction" placeholder="Austin Fire Department"></div>
+        </div>
+
+        <div class="section-title" style="margin-top:16px">Building</div>
+        <div class="field-row-3">
+          <div class="field"><label>Floors</label><input type="number" id="floors" value="1" min="1" max="50"></div>
+          <div class="field"><label>Ceiling height (ft)</label><input type="number" id="ceiling_height" value="10" min="7" max="60" step="0.5"></div>
+          <div class="field"><label>Total area (sq ft)</label><input type="number" id="total_area" value="" placeholder="24000"></div>
+        </div>
+        <div class="field-row">
+          <div class="field"><label>Construction type</label>
+            <select id="construction_type">
+              <option value="II-B">II-B (Non-combustible)</option>
+              <option value="II-A">II-A (Protected non-combustible)</option>
+              <option value="V-B">V-B (Wood frame, unprotected)</option>
+              <option value="V-A">V-A (Wood frame, protected)</option>
+              <option value="I-A">I-A (Fire resistive)</option>
+            </select>
+          </div>
+          <div class="field"><label>Seismic zone</label>
+            <select id="seismic_zone">
+              <option value="A">A (low)</option><option value="B">B</option>
+              <option value="C">C</option><option value="D1" selected>D1</option>
+              <option value="D2">D2</option><option value="E">E (high)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="section-title" style="margin-top:16px">System design</div>
+        <div class="field-row">
+          <div class="field"><label>System type</label>
+            <select id="system_type">
+              <option value="wet">Wet pipe</option>
+              <option value="dry">Dry pipe</option>
+              <option value="preaction">Pre-action</option>
+              <option value="deluge">Deluge</option>
+            </select>
+          </div>
+          <div class="field"><label>Pipe material</label>
+            <select id="pipe_material">
+              <option value="Schedule 40 Steel">Schedule 40 Steel</option>
+              <option value="Schedule 10 Steel">Schedule 10 Steel</option>
+              <option value="CPVC">CPVC</option>
+              <option value="Copper">Copper</option>
+              <option value="Stainless Steel">Stainless Steel</option>
+            </select>
+          </div>
+        </div>
+        <div class="field-row">
+          <div class="field"><label>Static pressure (psi)</label><input type="number" id="static_pressure" value="72" min="10" max="200" step="1"></div>
+          <div class="field"><label>Residual pressure (psi)</label><input type="number" id="residual_pressure" value="60" min="10" max="200" step="1"></div>
+        </div>
+        <div class="field"><label>Water supply flow at residual (gpm)</label><input type="number" id="water_supply_flow" value="1800" min="100" max="10000" step="50"></div>
+
+        <div class="section-title" style="margin-top:16px">Designer</div>
+        <div class="field-row">
+          <div class="field"><label>Designer name</label><input type="text" id="designer_name" placeholder="Jane Smith PE"></div>
+          <div class="field"><label>Certification</label><input type="text" id="designer_cert" placeholder="NICET Level IV — #123456"></div>
+        </div>
+        <div class="field-row">
+          <div class="field"><label>Company name</label><input type="text" id="company_name" placeholder="ABC Fire Protection Inc."></div>
+          <div class="field"><label>Company phone</label><input type="text" id="company_phone" placeholder="512-555-0100"></div>
+        </div>
+        <div class="field"><label>Company address</label><input type="text" id="company_address" placeholder="1234 Industrial Blvd, Austin TX 78702"></div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Right column: Output selection + run -->
+  <div style="display:flex;flex-direction:column;gap:16px">
+
+    <div class="card">
+      <div class="card-header"><h2>Output package</h2><p>Select what to generate.</p></div>
+      <div class="card-body">
+        <div class="section-title">Construction drawings (DXF)</div>
+        <div class="select-sheets" id="sheets-grid">
+          <div class="sheet-chip on" data-key="sheet_fp00" onclick="toggleChip(this)"><div class="chip-check"><svg width="8" height="8" viewBox="0 0 8 8" fill="none"><polyline points="1,4 3,6 7,2" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div><span class="chip-txt">FP0.0</span><span class="chip-sub">Cover</span></div>
+          <div class="sheet-chip on" data-key="sheet_fp10" onclick="toggleChip(this)"><div class="chip-check"><svg width="8" height="8" viewBox="0 0 8 8" fill="none"><polyline points="1,4 3,6 7,2" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div><span class="chip-txt">FP1.x</span><span class="chip-sub">Floor plan</span></div>
+          <div class="sheet-chip on" data-key="sheet_fp20" onclick="toggleChip(this)"><div class="chip-check"><svg width="8" height="8" viewBox="0 0 8 8" fill="none"><polyline points="1,4 3,6 7,2" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div><span class="chip-txt">FP2.0</span><span class="chip-sub">Riser</span></div>
+          <div class="sheet-chip on" data-key="sheet_fp30" onclick="toggleChip(this)"><div class="chip-check"><svg width="8" height="8" viewBox="0 0 8 8" fill="none"><polyline points="1,4 3,6 7,2" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div><span class="chip-txt">FP3.0</span><span class="chip-sub">Hydraulics</span></div>
+          <div class="sheet-chip on" data-key="sheet_fp40" onclick="toggleChip(this)"><div class="chip-check"><svg width="8" height="8" viewBox="0 0 8 8" fill="none"><polyline points="1,4 3,6 7,2" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div><span class="chip-txt">FP4.0</span><span class="chip-sub">Schedules</span></div>
+          <div class="sheet-chip on" data-key="sheet_fp50" onclick="toggleChip(this)"><div class="chip-check"><svg width="8" height="8" viewBox="0 0 8 8" fill="none"><polyline points="1,4 3,6 7,2" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div><span class="chip-txt">FP5.0</span><span class="chip-sub">Details</span></div>
+          <div class="sheet-chip" data-key="sheet_fp51" onclick="toggleChip(this)"><div class="chip-check"><svg width="8" height="8" viewBox="0 0 8 8" fill="none"><polyline points="1,4 3,6 7,2" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div><span class="chip-txt">FP5.1</span><span class="chip-sub">Sections</span></div>
+          <div class="sheet-chip on" data-key="sheet_fp60" onclick="toggleChip(this)"><div class="chip-check"><svg width="8" height="8" viewBox="0 0 8 8" fill="none"><polyline points="1,4 3,6 7,2" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div><span class="chip-txt">FP6.0</span><span class="chip-sub">BOM</span></div>
+        </div>
+
+        <div class="section-title" style="margin-top:12px">Additional formats</div>
+        <div class="select-sheets">
+          <div class="sheet-chip on" data-key="dwg_pdf" onclick="toggleChip(this)"><div class="chip-check"><svg width="8" height="8" viewBox="0 0 8 8" fill="none"><polyline points="1,4 3,6 7,2" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div><span class="chip-txt">PDF set</span></div>
+          <div class="sheet-chip on" data-key="ifc" onclick="toggleChip(this)"><div class="chip-check"><svg width="8" height="8" viewBox="0 0 8 8" fill="none"><polyline points="1,4 3,6 7,2" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div><span class="chip-txt">IFC (Revit)</span></div>
+          <div class="sheet-chip on" data-key="hydraulics_json" onclick="toggleChip(this)"><div class="chip-check"><svg width="8" height="8" viewBox="0 0 8 8" fill="none"><polyline points="1,4 3,6 7,2" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div><span class="chip-txt">Hyd. JSON</span></div>
+          <div class="sheet-chip on" data-key="bom_xlsx" onclick="toggleChip(this)"><div class="chip-check"><svg width="8" height="8" viewBox="0 0 8 8" fill="none"><polyline points="1,4 3,6 7,2" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div><span class="chip-txt">BOM Excel</span></div>
+          <div class="sheet-chip on" data-key="nfpa_cert" onclick="toggleChip(this)"><div class="chip-check"><svg width="8" height="8" viewBox="0 0 8 8" fill="none"><polyline points="1,4 3,6 7,2" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div><span class="chip-txt">NFPA cert</span></div>
+          <div class="sheet-chip on" data-key="ahj_package" onclick="toggleChip(this)"><div class="chip-check"><svg width="8" height="8" viewBox="0 0 8 8" fill="none"><polyline points="1,4 3,6 7,2" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div><span class="chip-txt">AHJ package</span></div>
+        </div>
+
+        <button class="btn-primary" id="run-btn" onclick="runDesign()">Design fire sprinkler system</button>
+        <button class="btn-secondary" onclick="window.location='/design'">Output format selector</button>
+      </div>
+    </div>
+
+    <!-- Progress card -->
+    <div class="card progress-card" id="progress-card">
+      <div class="card-header"><h2 id="progress-title">Designing system...</h2><p id="progress-sub">This takes 2–4 minutes</p></div>
+      <div class="card-body">
+        <div class="progress-bar-track"><div class="progress-bar-fill" id="progress-fill" style="width:0%"></div></div>
+        <div id="stages">
+          <div class="stage-row" id="stage-doc"><div class="stage-dot" id="dot-doc"></div><div class="stage-lbl" id="lbl-doc">Reading construction documents</div></div>
+          <div class="stage-row" id="stage-design"><div class="stage-dot" id="dot-design"></div><div class="stage-lbl" id="lbl-design">NFPA 13 design engine</div></div>
+          <div class="stage-row" id="stage-agents"><div class="stage-dot" id="dot-agents"></div><div class="stage-lbl" id="lbl-agents">AI compliance agents</div></div>
+          <div class="stage-row" id="stage-nfpa"><div class="stage-dot" id="dot-nfpa"></div><div class="stage-lbl" id="lbl-nfpa">NFPA 13 compliance validation</div></div>
+          <div class="stage-row" id="stage-drawings"><div class="stage-dot" id="dot-drawings"></div><div class="stage-lbl" id="lbl-drawings">Generating construction drawings</div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Results card -->
+    <div class="card" id="results-card" style="display:none">
+      <div class="card-header"><h2 id="results-title">Design complete</h2><p id="results-sub"></p></div>
+      <div class="card-body">
+        <div class="result-files" id="result-files"></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+const API = '';
+let uploadedFile = null;
+let currentJobId = null;
+let pollTimer    = null;
+
+// ── File upload ───────────────────────────────────────────────────────────────
+function handleFile(file) {
+  if (!file) return;
+  uploadedFile = file;
+  document.getElementById('file-name-txt').textContent = file.name;
+  document.getElementById('file-size-txt').textContent = formatBytes(file.size);
+  document.getElementById('file-info').classList.add('show');
+  document.getElementById('drop-zone').classList.add('has-file');
+}
+function removeFile() {
+  uploadedFile = null;
+  document.getElementById('file-info').classList.remove('show');
+  document.getElementById('drop-zone').classList.remove('has-file');
+  document.getElementById('file-input').value = '';
+}
+function formatBytes(b) {
+  if (b < 1024) return b+'B';
+  if (b < 1048576) return (b/1024).toFixed(1)+'KB';
+  return (b/1048576).toFixed(1)+'MB';
+}
+
+// Drag and drop
+const dz = document.getElementById('drop-zone');
+dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('drag'); });
+dz.addEventListener('dragleave', () => dz.classList.remove('drag'));
+dz.addEventListener('drop', e => { e.preventDefault(); dz.classList.remove('drag'); if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]); });
+
+// ── Sheet / format toggles ────────────────────────────────────────────────────
+function toggleChip(el) {
+  el.classList.toggle('on');
+}
+function getSelected(className) {
+  return [...document.querySelectorAll(`.${className}.on`)].map(el => el.dataset.key).filter(Boolean);
+}
+
+// ── Build project context from form ───────────────────────────────────────────
+function buildProjectContext() {
+  const g = id => document.getElementById(id)?.value || '';
+  return {
+    project_name:             g('project_name') || 'Untitled Project',
+    project_number_internal:  g('project_number_internal'),
+    project_number_customer:  g('project_number_customer'),
+    location:                 g('location'),
+    occupancy:                g('occupancy'),
+    ahj_jurisdiction:         g('ahj_jurisdiction'),
+    floors:                   parseInt(g('floors')) || 1,
+    ceiling_height:           parseFloat(g('ceiling_height')) || 10,
+    total_area:               parseFloat(g('total_area')) || 0,
+    construction_type:        g('construction_type'),
+    seismic_zone:             g('seismic_zone'),
+    system_type:              g('system_type'),
+    pipe_material:            g('pipe_material'),
+    static_pressure:          parseFloat(g('static_pressure')) || 72,
+    residual_pressure:        parseFloat(g('residual_pressure')) || 60,
+    water_supply_flow:        parseFloat(g('water_supply_flow')) || 1800,
+    designer: { name: g('designer_name'), cert: g('designer_cert') },
+    company_name:    g('company_name'),
+    company_phone:   g('company_phone'),
+    company_address: g('company_address'),
+  };
+}
+
+// ── Run design ────────────────────────────────────────────────────────────────
+async function runDesign() {
+  const projectContext = buildProjectContext();
+  if (!projectContext.project_name || projectContext.project_name === 'Untitled Project') {
+    alert('Please enter a project name.');
+    return;
+  }
+
+  const selectedSheets  = [...document.querySelectorAll('.select-sheets .sheet-chip.on')].map(el => el.dataset.key).filter(Boolean);
+  const selectedFormats = [...document.querySelectorAll('.sheet-chip.on')].map(el => el.dataset.key).filter(k => k && !k.startsWith('sheet_'));
+
+  document.getElementById('run-btn').disabled = true;
+  document.getElementById('run-btn').textContent = 'Starting...';
+  document.getElementById('progress-card').classList.add('show');
+  document.getElementById('results-card').style.display = 'none';
+
+  setStage('doc', 'active');
+
+  try {
+    let body, headers = {};
+
+    if (uploadedFile) {
+      // Multipart upload with file
+      const formData = new FormData();
+      formData.append('file', uploadedFile);
+      formData.append('project_context', JSON.stringify(projectContext));
+      formData.append('selected_sheets',  JSON.stringify(selectedSheets));
+      formData.append('selected_formats', JSON.stringify(selectedFormats));
+      body = formData;
+    } else {
+      // JSON-only (no file uploaded)
+      headers['Content-Type'] = 'application/json';
+      body = JSON.stringify({ project_context: projectContext, selected_sheets: selectedSheets, selected_formats: selectedFormats });
+    }
+
+    const resp = await fetch(API + '/api/generate', { method: 'POST', headers, body });
+    const data = await resp.json();
+    currentJobId = data.job_id;
+
+    setStage('doc', 'done');
+    setStage('design', 'active');
+    startPolling(currentJobId);
+
+  } catch (err) {
+    console.error(err);
+    alert('Error starting job. Check console.');
+    document.getElementById('run-btn').disabled = false;
+    document.getElementById('run-btn').textContent = 'Design fire sprinkler system';
+  }
+}
+
+// ── Stage tracking ────────────────────────────────────────────────────────────
+const STAGE_MAP = {
+  'queued':   {stage:'doc',     pct:5},
+  'agents':   {stage:'agents',  pct:40},
+  'drawings': {stage:'drawings',pct:80},
+  'done':     {stage:'drawings',pct:100},
+  'failed':   {stage:'agents',  pct:0},
+  'partial':  {stage:'drawings',pct:100},
+};
+function setStage(id, state) {
+  const dot = document.getElementById('dot-'+id);
+  const lbl = document.getElementById('lbl-'+id);
+  if (dot) dot.className = 'stage-dot ' + state;
+  if (lbl) lbl.className = 'stage-lbl ' + state;
+}
+function setProgress(pct) {
+  document.getElementById('progress-fill').style.width = pct + '%';
+}
+
+function startPolling(jobId) {
+  pollTimer = setInterval(async () => {
+    try {
+      const resp = await fetch(API + '/api/jobs/' + jobId);
+      const d    = await resp.json();
+      const sm   = STAGE_MAP[d.status] || STAGE_MAP['queued'];
+      setProgress(sm.pct);
+
+      if (d.stage === 'agents')   { setStage('design','done'); setStage('agents','active'); }
+      if (d.stage === 'drawings') { setStage('agents','done'); setStage('nfpa','done'); setStage('drawings','active'); }
+
+      if (d.status === 'complete' || d.status === 'partial' || d.status === 'failed') {
+        clearInterval(pollTimer);
+        setProgress(100);
+        ['doc','design','agents','nfpa','drawings'].forEach(s => setStage(s, d.status === 'failed' ? 'error' : 'done'));
+        showResults(d, jobId);
+      }
+    } catch(e) { console.error('Poll error:', e); }
+  }, 8000);
+}
+
+function showResults(job, jobId) {
+  const card = document.getElementById('results-card');
+  card.style.display = 'block';
+  const compliant = job.compliant;
+  document.getElementById('results-title').textContent = compliant ? '✓ Design complete — NFPA 13 compliant' : '⚠ Design complete — review required';
+  document.getElementById('results-sub').textContent = `${job.published_files?.length || 0} files generated · Job ${jobId}`;
+  const container = document.getElementById('result-files');
+  container.innerHTML = '';
+  (job.published_files || []).forEach(filename => {
+    const ext  = filename.split('.').pop().toLowerCase();
+    const cls  = {dxf:'rf-dxf',pdf:'rf-pdf',json:'rf-json',xlsx:'rf-xlsx'}[ext] || 'rf-dxf';
+    const a    = document.createElement('a');
+    a.className= 'result-file';
+    a.href     = `/api/jobs/${jobId}/download/${filename}`;
+    a.download = filename;
+    a.innerHTML= `<div class="rf-icon ${cls}">${ext.toUpperCase()}</div><span class="rf-name">${filename}</span>`;
+    container.appendChild(a);
+  });
+  document.getElementById('progress-title').textContent = compliant ? 'Design complete' : 'Partial — review required';
+  document.getElementById('progress-sub').textContent   = '';
+  document.getElementById('run-btn').disabled   = false;
+  document.getElementById('run-btn').textContent= 'Start new design';
+}
+</script>
+</body>
+</html>
