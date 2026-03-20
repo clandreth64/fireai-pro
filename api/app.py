@@ -1,15 +1,13 @@
 """
-FireAI Pro — API Server  (api/app.py)
-======================================
-Drop this into your api/ folder, replacing the existing app.py.
-Adds the /api/generate endpoint the format selector posts to,
-plus status polling and artifact download.
-
-Run locally:
-  cd api && uvicorn app:app --reload --port 8000
-
-Railway start command (Procfile):
-  web: uvicorn api.app:app --host 0.0.0.0 --port $PORT
+FireAI Pro — API Server v3  (api/app.py)
+==========================================
+Full enterprise version with:
+  - File upload endpoint (/api/upload + /api/generate multipart)
+  - Document processor integration
+  - NFPA 13 design engine integration
+  - Construction drawing generation
+  - Job status polling + file download
+  - Professional project intake UI at /
 """
 
 import asyncio
@@ -21,132 +19,183 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi import FastAPI, HTTPException, BackgroundTasks, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-# ── Import FireAI Pro modules ─────────────────────────────────────────────────
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from fireai_orchestrator_v2 import FireAIOrchestrator
-from fireai_drawing_engine   import FireAIDrawingEngine
-from fireai_schemas.job_models import GenerateRequest, JobStatus, JobResult
+from fireai_orchestrator_v2      import FireAIOrchestrator
+from fireai_drawing_engine       import FireAIDrawingEngine
+from fireai_document_processor   import handle_upload
+from fireai_nfpa13_design_engine import NFPA13DesignEngine
+from fireai_schemas.job_models   import GenerateRequest, JobStatus, JobResult
 
 log = logging.getLogger("fireai.api")
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s [%(name)s] %(message)s")
 
-# ── App setup ──────────────────────────────────────────────────────────────────
-
-app = FastAPI(
-    title="FireAI Pro API",
-    version="2.0.0",
-    description="AI-powered fire sprinkler design system",
-)
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],        # tighten in production
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# Serve the format selector and any other static files from repo root
-REPO_ROOT    = Path(__file__).parent.parent
-OUTPUTS_DIR  = REPO_ROOT / "outputs"
+REPO_ROOT   = Path(__file__).parent.parent
+OUTPUTS_DIR = REPO_ROOT / "outputs"
+UPLOADS_DIR = REPO_ROOT / "uploads"
 OUTPUTS_DIR.mkdir(exist_ok=True)
+UPLOADS_DIR.mkdir(exist_ok=True)
 
-# ── In-memory job store (swap for Redis/Postgres in prod) ─────────────────────
+app = FastAPI(title="FireAI Pro", version="3.0.0",
+              description="Enterprise fire sprinkler design system")
 
+app.add_middleware(CORSMiddleware, allow_origins=["*"],
+                   allow_methods=["*"], allow_headers=["*"])
+
+# In-memory job store
 _jobs: dict[str, dict] = {}
 
-def _set_job(job_id: str, **kwargs):
+def _set_job(job_id, **kw):
     if job_id not in _jobs:
         _jobs[job_id] = {"job_id": job_id, "created_at": datetime.utcnow().isoformat()}
-    _jobs[job_id].update(kwargs)
+    _jobs[job_id].update(kw)
 
-def _get_job(job_id: str) -> dict:
+def _get_job(job_id):
+    job_id = job_id.upper()
     if job_id not in _jobs:
-        raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
+        raise HTTPException(404, f"Job {job_id} not found")
     return _jobs[job_id]
 
 
-# ── Background worker ─────────────────────────────────────────────────────────
+# ─── Background job runner ────────────────────────────────────────────────────
 
-async def _run_job(job_id: str, request: "GenerateRequest"):
+async def _run_job(job_id: str, project_context: dict,
+                   selected_sheets: list, selected_formats: list,
+                   geometry: dict | None = None):
     """
     Full pipeline:
-      1. Orchestrator  — parallel agents + NFPA 13 compliance loop
-      2. Drawing engine — generates selected DXF sheets + PDF print set
+      1. NFPA 13 design engine  — if geometry provided, compute full design
+      2. Orchestrator           — AI agents validate and enhance the design
+      3. Drawing engine         — generate DXF construction sheets
     """
     job_output_dir = OUTPUTS_DIR / job_id
     job_output_dir.mkdir(parents=True, exist_ok=True)
 
     try:
-        # ── Step 1: orchestrator ───────────────────────────────────────────
-        _set_job(job_id, status="running", stage="agents",
-                 message="Running parallel design agents...")
+        # ── Step 1: NFPA 13 design engine (if geometry available) ─────────────
+        if geometry:
+            _set_job(job_id, status="running", stage="design",
+                     message="Running NFPA 13 design engine...")
+            log.info(f"[{job_id}] Running NFPA 13 design engine")
+
+            design_engine = NFPA13DesignEngine(geometry, project_context)
+            design_output = design_engine.design()
+
+            # Merge design output into project context for agents
+            project_context = {**project_context, **design_output}
+            log.info(f"[{job_id}] Design engine complete — "
+                     f"{len(design_output.get('sprinkler_placements',[]))} sprinklers placed")
+        else:
+            design_output = {}
+
+        # ── Step 2: AI orchestrator ───────────────────────────────────────────
+        _set_job(job_id, stage="agents", message="Running parallel AI design agents...")
         log.info(f"[{job_id}] Starting orchestrator")
 
         orchestrator = FireAIOrchestrator()
         orch_result  = await orchestrator.run(
-            project_context  = request.project_context,
-            selected_formats = set(request.selected_formats or []),
+            project_context  = project_context,
+            selected_formats = set(selected_formats),
         )
+
+        # Merge design engine outputs into orchestrator results
+        if design_output:
+            artifacts = orch_result.setdefault("artifacts", {})
+            cad_out   = artifacts.get("cad_layout") or {}
+            # Prefer design engine geometry (it's based on real uploaded drawings)
+            for key in ["sprinkler_placements","pipe_sections","valves","equipment",
+                        "walls","columns","rooms"]:
+                if design_output.get(key) and not cad_out.get(key):
+                    cad_out[key] = design_output[key]
+            if design_output.get("dxf_ready"):
+                cad_out["dxf_ready"] = True
+            artifacts["cad_layout"] = cad_out
+
+            hyd_out = artifacts.get("hydraulics_report") or {}
+            for key in ["static_pressure","residual_pressure","required_pressure",
+                        "pressure_delta","flow_demand","density_area","demand_curve",
+                        "remote_area_calcs","compliant"]:
+                if design_output.get(key) is not None and not hyd_out.get(key):
+                    hyd_out[key] = design_output[key]
+            artifacts["hydraulics_report"] = hyd_out
+
+            brc_out = artifacts.get("bracing_and_bom") or {}
+            for key in ["hanger_schedule","sway_braces","seismic_zone","bom","total_material_cost"]:
+                if design_output.get(key) and not brc_out.get(key):
+                    brc_out[key] = design_output[key]
+            artifacts["bracing_and_bom"] = brc_out
 
         _set_job(job_id, stage="drawings",
                  message="Generating construction drawings...",
                  orchestrator_result=orch_result)
 
-        # ── Step 2: drawing engine ─────────────────────────────────────────
+        # ── Step 3: Drawing engine ────────────────────────────────────────────
         log.info(f"[{job_id}] Starting drawing engine")
 
+        artifacts   = orch_result.get("artifacts", {})
+        cad_out     = artifacts.get("cad_layout")        or design_output or {}
+        hyd_out     = artifacts.get("hydraulics_report") or {}
+        brc_out     = artifacts.get("bracing_and_bom")   or {}
+        compliance  = type("CR", (), {
+            "compliant":  orch_result.get("metadata", {}).get("compliant", False),
+            "violations": [],
+            "summary":    orch_result.get("metadata", {}).get("nfpa_summary", ""),
+        })()
+
         drawing_engine = FireAIDrawingEngine(
-            project           = request.project_context,
-            cad_output        = orch_result.get("artifacts", {}).get("cad_layout")        or {},
-            hydraulics_output = orch_result.get("artifacts", {}).get("hydraulics_report") or {},
-            bracing_output    = orch_result.get("artifacts", {}).get("bracing_and_bom")   or {},
-            compliance_result = type("CR", (), {
-                "compliant":  orch_result.get("metadata", {}).get("compliant", False),
-                "violations": [],
-                "summary":    orch_result.get("metadata", {}).get("nfpa_summary", ""),
-            })(),
+            project           = project_context,
+            cad_output        = cad_out,
+            hydraulics_output = hyd_out,
+            bracing_output    = brc_out,
+            compliance_result = compliance,
         )
 
-        # Only generate the sheets the designer selected
-        selected_sheets = set(request.selected_sheets or [
-            "sheet_fp00","sheet_fp10","sheet_fp20",
-            "sheet_fp30","sheet_fp40","sheet_fp50","sheet_fp60",
-        ])
-
+        selected_sheet_set = set(selected_sheets) or {
+            "sheet_fp00","sheet_fp10","sheet_fp20","sheet_fp30",
+            "sheet_fp40","sheet_fp50","sheet_fp60",
+        }
         drawing_manifest = drawing_engine.generate_selected(
             output_dir      = str(job_output_dir),
-            selected_sheets = selected_sheets,
-            include_pdf     = "dwg_pdf" in (request.selected_formats or []),
-            include_3d      = "dwg_3d"  in (request.selected_formats or []),
+            selected_sheets = selected_sheet_set,
+            include_pdf     = "dwg_pdf"  in (selected_formats or []),
+            include_3d      = "dwg_3d"   in (selected_formats or []),
         )
 
-        # ── Collect all published files ────────────────────────────────────
+        # ── Collect results ───────────────────────────────────────────────────
         all_files = (orch_result.get("published_files", []) +
                      [m["filename"] for m in drawing_manifest if not m.get("error")])
 
+        compliant       = orch_result["metadata"]["compliant"]
+        iterations_used = orch_result["metadata"]["iterations_used"]
+        total_sprinklers= len(cad_out.get("sprinkler_placements", []))
+        total_pipe_ft   = sum(s.get("length", 0) for s in cad_out.get("pipe_sections", []))
+
         _set_job(
             job_id,
-            status          = "complete" if orch_result["metadata"]["compliant"] else "partial",
-            stage           = "done",
-            message         = "Complete" if orch_result["metadata"]["compliant"] else "Partial — human review required",
-            compliant       = orch_result["metadata"]["compliant"],
-            iterations_used = orch_result["metadata"]["iterations_used"],
-            published_files = all_files,
-            drawing_manifest= drawing_manifest,
-            output_dir      = str(job_output_dir),
-            completed_at    = datetime.utcnow().isoformat(),
+            status            = "complete" if compliant else "partial",
+            stage             = "done",
+            message           = f"Complete — {total_sprinklers} sprinklers, "
+                                f"{total_pipe_ft:.0f}ft pipe, "
+                                f"{iterations_used} compliance iteration(s)",
+            compliant         = compliant,
+            iterations_used   = iterations_used,
+            total_sprinklers  = total_sprinklers,
+            total_pipe_ft     = round(total_pipe_ft, 1),
+            published_files   = all_files,
+            drawing_manifest  = drawing_manifest,
+            output_dir        = str(job_output_dir),
+            completed_at      = datetime.utcnow().isoformat(),
             requires_human_review = orch_result.get("requires_human_review", False),
             frozen_violations     = orch_result["metadata"].get("frozen_violations", []),
         )
-
-        log.info(f"[{job_id}] Done — {len(all_files)} file(s), compliant={orch_result['metadata']['compliant']}")
+        log.info(f"[{job_id}] Done — {len(all_files)} file(s), compliant={compliant}, "
+                 f"{total_sprinklers} sprinklers")
 
     except Exception as e:
         log.exception(f"[{job_id}] Job failed: {e}")
@@ -154,94 +203,119 @@ async def _run_job(job_id: str, request: "GenerateRequest"):
                  completed_at=datetime.utcnow().isoformat())
 
 
-# ── Routes ────────────────────────────────────────────────────────────────────
+# ─── Routes ───────────────────────────────────────────────────────────────────
 
 @app.get("/")
-async def root():
-    return {"service": "FireAI Pro API", "version": "2.0.0", "status": "online"}
+async def serve_ui():
+    """Serve the enterprise project intake UI."""
+    ui_path = REPO_ROOT / "fireai_upload_ui.html"
+    if ui_path.exists():
+        return FileResponse(str(ui_path), media_type="text/html")
+    return {"service": "FireAI Pro API", "version": "3.0.0", "ui": "/"}
+
+@app.get("/design")
+async def serve_format_selector():
+    p = REPO_ROOT / "format_selector.html"
+    if p.exists():
+        return FileResponse(str(p), media_type="text/html")
+    raise HTTPException(404, "format_selector.html not found")
 
 @app.get("/health")
 async def health():
     return {"status": "ok", "timestamp": datetime.utcnow().isoformat()}
 
+@app.get("/")
+async def root():
+    return {"service": "FireAI Pro API", "version": "3.0.0", "status": "online"}
 
-@app.post("/api/generate", response_model=dict, status_code=202)
-async def generate(request: GenerateRequest, background_tasks: BackgroundTasks):
+
+@app.post("/api/generate", status_code=202)
+async def generate(
+    background_tasks: BackgroundTasks,
+    # JSON body path
+    request: GenerateRequest | None = None,
+    # Multipart path (file upload)
+    file:             UploadFile | None = File(None),
+    project_context:  str | None = Form(None),
+    selected_sheets:  str | None = Form(None),
+    selected_formats: str | None = Form(None),
+):
     """
     Queue a full FireAI Pro design job.
 
-    Body (JSON):
-      project_context   — full project definition dict (required)
-      selected_sheets   — list of sheet keys e.g. ["sheet_fp10", "sheet_fp30"]
-      selected_formats  — list of format keys e.g. ["dwg_pdf", "ifc", "hydraulics_json"]
-
-    Returns immediately with job_id. Poll /api/jobs/{job_id} for status.
+    Accepts either:
+      A) JSON body  — { project_context, selected_sheets, selected_formats }
+      B) Multipart  — file upload + form fields (from the project intake UI)
     """
     job_id = str(uuid.uuid4())[:8].upper()
 
-    _set_job(job_id,
-        status   = "queued",
-        stage    = "queued",
-        message  = "Job queued — starting shortly",
-        project  = request.project_context.get("project_name", "Unnamed"),
-        sheets   = request.selected_sheets,
-        formats  = request.selected_formats,
-    )
+    # Parse inputs
+    if file and project_context:
+        # Multipart upload path
+        ctx      = json.loads(project_context)
+        sheets   = json.loads(selected_sheets  or "[]")
+        formats  = json.loads(selected_formats or "[]")
 
-    background_tasks.add_task(_run_job, job_id, request)
+        _set_job(job_id, status="queued", stage="queued",
+                 message="Processing uploaded document...",
+                 project=ctx.get("project_name", "Unnamed"))
 
-    log.info(f"[{job_id}] Queued — project: {request.project_context.get('project_name')}")
+        # Process uploaded file asynchronously
+        file_bytes = await file.read()
+        filename   = file.filename or "upload.pdf"
+
+        async def run_with_upload():
+            try:
+                _set_job(job_id, message="Extracting geometry from construction documents...")
+                geometry = await handle_upload(file_bytes, filename, ctx)
+                log.info(f"[{job_id}] Document processed — "
+                         f"{len(geometry.get('rooms',[]))} rooms, "
+                         f"{len(geometry.get('walls',[]))} walls extracted")
+                await _run_job(job_id, ctx, sheets, formats, geometry)
+            except Exception as e:
+                log.exception(f"[{job_id}] Upload processing failed: {e}")
+                await _run_job(job_id, ctx, sheets, formats, None)
+
+        background_tasks.add_task(run_with_upload)
+
+    elif request:
+        # JSON body path (no file upload)
+        ctx     = request.project_context
+        sheets  = list(request.validated_sheets())
+        formats = list(request.validated_formats())
+        _set_job(job_id, status="queued", stage="queued",
+                 message="Job queued — starting shortly",
+                 project=ctx.get("project_name", "Unnamed"))
+        background_tasks.add_task(_run_job, job_id, ctx, sheets, formats, None)
+
+    else:
+        raise HTTPException(400, "Provide either a JSON body or a multipart form with a file")
+
+    log.info(f"[{job_id}] Queued")
     return {"job_id": job_id, "status": "queued", "poll_url": f"/api/jobs/{job_id}"}
 
 
 @app.get("/api/jobs/{job_id}")
 async def get_job(job_id: str):
-    """Poll job status. Status values: queued → running → complete | partial | failed"""
-    return _get_job(job_id.upper())
-
+    return _get_job(job_id)
 
 @app.get("/api/jobs/{job_id}/files")
 async def list_files(job_id: str):
-    """List all generated files for a completed job."""
-    job = _get_job(job_id.upper())
+    job = _get_job(job_id)
     if job["status"] not in ("complete", "partial"):
-        raise HTTPException(status_code=400, detail="Job not yet complete")
-    return {
-        "job_id":    job_id,
-        "files":     job.get("published_files", []),
-        "output_dir": job.get("output_dir"),
-    }
-
+        raise HTTPException(400, "Job not yet complete")
+    return {"job_id": job_id, "files": job.get("published_files", []),
+            "output_dir": job.get("output_dir")}
 
 @app.get("/api/jobs/{job_id}/download/{filename}")
 async def download_file(job_id: str, filename: str):
-    """Download a generated file by name."""
-    job      = _get_job(job_id.upper())
-    out_dir  = Path(job.get("output_dir", ""))
-    file_path = out_dir / filename
-
-    if not file_path.exists():
-        raise HTTPException(status_code=404, detail=f"{filename} not found for job {job_id}")
-
-    return FileResponse(
-        path         = str(file_path),
-        filename     = filename,
-        media_type   = "application/octet-stream",
-    )
-
+    job   = _get_job(job_id)
+    fpath = Path(job.get("output_dir", "")) / filename
+    if not fpath.exists():
+        raise HTTPException(404, f"{filename} not found")
+    return FileResponse(str(fpath), filename=filename, media_type="application/octet-stream")
 
 @app.get("/api/jobs")
 async def list_jobs(limit: int = 20):
-    """List recent jobs."""
     jobs = sorted(_jobs.values(), key=lambda j: j.get("created_at",""), reverse=True)
     return {"jobs": jobs[:limit], "total": len(_jobs)}
-
-
-# ── Serve format selector UI ──────────────────────────────────────────────────
-
-@app.get("/design")
-async def serve_format_selector():
-    selector_path = REPO_ROOT / "format_selector.html"
-    if selector_path.exists():
-        return FileResponse(str(selector_path), media_type="text/html")
-    raise HTTPException(status_code=404, detail="format_selector.html not found in repo root")
