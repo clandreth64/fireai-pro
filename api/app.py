@@ -78,21 +78,18 @@ async def _run_job(job_id: str, project_context: dict,
     job_output_dir.mkdir(parents=True, exist_ok=True)
 
     try:
-        # ── Step 1: NFPA 13 design engine (if geometry available) ─────────────
-        if geometry:
-            _set_job(job_id, status="running", stage="design",
-                     message="Running NFPA 13 design engine...")
-            log.info(f"[{job_id}] Running NFPA 13 design engine")
+        # ── Step 1: NFPA 13 design engine ────────────────────────────────────
+        # Runs always — uses extracted geometry if available, synthetic if not
+        _set_job(job_id, status="running", stage="design",
+                 message="Running NFPA 13 design engine...")
+        log.info(f"[{job_id}] Running NFPA 13 design engine")
 
-            design_engine = NFPA13DesignEngine(geometry, project_context)
-            design_output = design_engine.design()
-
-            # Merge design output into project context for agents
-            project_context = {**project_context, **design_output}
-            log.info(f"[{job_id}] Design engine complete — "
-                     f"{len(design_output.get('sprinkler_placements',[]))} sprinklers placed")
-        else:
-            design_output = {}
+        design_engine = NFPA13DesignEngine(geometry or {}, project_context)
+        design_output = design_engine.design()
+        log.info(f"[{job_id}] Design engine complete — "
+                 f"{len(design_output.get('sprinkler_placements',[]))} sprinklers | "
+                 f"{design_output.get('flow_demand',0):.0f} gpm @ "
+                 f"{design_output.get('required_pressure',0):.1f} psi")
 
         # ── Step 2: AI orchestrator ───────────────────────────────────────────
         _set_job(job_id, stage="agents", message="Running parallel AI design agents...")
@@ -104,32 +101,57 @@ async def _run_job(job_id: str, project_context: dict,
             selected_formats = set(selected_formats),
         )
 
-        # Merge design engine outputs into orchestrator results
+        # Merge design engine outputs into orchestrator results.
+        # Design engine output ALWAYS wins — it is based on real engineering math
+        # (ESFR criteria, Hazen-Williams, actual geometry). AI agent outputs are
+        # used only where the design engine produced nothing.
         if design_output:
             artifacts = orch_result.setdefault("artifacts", {})
-            cad_out   = artifacts.get("cad_layout") or {}
-            # Prefer design engine geometry (it's based on real uploaded drawings)
+
+            # ── CAD / geometry — design engine always wins ────────────────────
+            cad_out = artifacts.get("cad_layout") or {}
             for key in ["sprinkler_placements","pipe_sections","valves","equipment",
-                        "walls","columns","rooms"]:
-                if design_output.get(key) and not cad_out.get(key):
+                        "walls","columns","rooms","hangers"]:
+                if design_output.get(key):          # design engine has it → use it
                     cad_out[key] = design_output[key]
-            if design_output.get("dxf_ready"):
-                cad_out["dxf_ready"] = True
+            cad_out["dxf_ready"] = design_output.get("dxf_ready", cad_out.get("dxf_ready", False))
+            cad_out["ifc_ready"] = design_output.get("ifc_ready", cad_out.get("ifc_ready", False))
             artifacts["cad_layout"] = cad_out
 
-            hyd_out = artifacts.get("hydraulics_report") or {}
+            # ── Hydraulics — design engine always wins ────────────────────────
+            # The AI hydraulics agent does not know the system is ESFR and will
+            # produce wrong values. The design engine calculated correct ESFR demand.
+            hyd_out = {}
             for key in ["static_pressure","residual_pressure","required_pressure",
                         "pressure_delta","flow_demand","density_area","demand_curve",
                         "remote_area_calcs","compliant"]:
-                if design_output.get(key) is not None and not hyd_out.get(key):
-                    hyd_out[key] = design_output[key]
+                if design_output.get(key) is not None:
+                    hyd_out[key] = design_output[key]   # design engine value
+                elif artifacts.get("hydraulics_report", {}).get(key) is not None:
+                    hyd_out[key] = artifacts["hydraulics_report"][key]  # AI fallback
             artifacts["hydraulics_report"] = hyd_out
 
-            brc_out = artifacts.get("bracing_and_bom") or {}
+            # ── Bracing / BOM — design engine always wins ─────────────────────
+            brc_out = {}
             for key in ["hanger_schedule","sway_braces","seismic_zone","bom","total_material_cost"]:
-                if design_output.get(key) and not brc_out.get(key):
+                if design_output.get(key):
                     brc_out[key] = design_output[key]
+                elif artifacts.get("bracing_and_bom", {}).get(key):
+                    brc_out[key] = artifacts["bracing_and_bom"][key]
             artifacts["bracing_and_bom"] = brc_out
+
+            # ── Propagate design metadata to orchestrator metadata ─────────────
+            dm = design_output.get("design_metadata", {})
+            orch_result.setdefault("metadata", {}).update({
+                "total_sprinklers":     len(design_output.get("sprinkler_placements", [])),
+                "total_pipe_ft":        dm.get("total_pipe_ft", 0),
+                "floor_area_sf":        dm.get("floor_area_sf", 0),
+                "hazard_class":         dm.get("hazard_class", ""),
+                "zones":                dm.get("zones", []),
+                "geometry_synthetic":   dm.get("geometry_synthetic", False),
+                "nfpa_references":      dm.get("nfpa_references", []),
+                "compliance_flags":     dm.get("compliance_flags", []),
+            })
 
         _set_job(job_id, stage="drawings",
                  message="Generating construction drawings...",
@@ -286,7 +308,8 @@ async def generate(
         _set_job(job_id, status="queued", stage="queued",
                  message="Job queued — starting shortly",
                  project=ctx.get("project_name", "Unnamed"))
-        background_tasks.add_task(_run_job, job_id, ctx, sheets, formats, None)
+        # Pass empty dict so design engine builds synthetic geometry from project specs
+        background_tasks.add_task(_run_job, job_id, ctx, sheets, formats, {})
 
     else:
         raise HTTPException(400, "Provide either a JSON body or a multipart form with a file")
