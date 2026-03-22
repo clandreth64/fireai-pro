@@ -252,69 +252,53 @@ async def root():
 
 
 @app.post("/api/generate", status_code=202)
-async def generate(
+async def generate(request: GenerateRequest, background_tasks: BackgroundTasks):
+    """Queue a design job — JSON body."""
+    job_id  = str(uuid.uuid4())[:8].upper()
+    ctx     = request.project_context
+    sheets  = list(request.validated_sheets())
+    formats = list(request.validated_formats())
+    _set_job(job_id, status="queued", stage="queued",
+             message="Job queued — starting shortly",
+             project=ctx.get("project_name","Unnamed"))
+    background_tasks.add_task(_run_job, job_id, ctx, sheets, formats, {})
+    log.info(f"[{job_id}] Queued — {ctx.get('project_name')}")
+    return {"job_id": job_id, "status": "queued", "poll_url": f"/api/jobs/{job_id}"}
+
+
+@app.post("/api/generate/upload", status_code=202)
+async def generate_upload(
     background_tasks: BackgroundTasks,
-    # JSON body path
-    request: GenerateRequest | None = None,
-    # Multipart path (file upload)
-    file:             UploadFile | None = File(None),
-    project_context:  str | None = Form(None),
-    selected_sheets:  str | None = Form(None),
-    selected_formats: str | None = Form(None),
+    file:             UploadFile = File(...),
+    project_context:  str = Form(...),
+    selected_sheets:  str = Form("[]"),
+    selected_formats: str = Form("[]"),
 ):
-    """
-    Queue a full FireAI Pro design job.
+    """Queue a design job — multipart file upload (used by the UI)."""
+    job_id  = str(uuid.uuid4())[:8].upper()
+    ctx     = json.loads(project_context)
+    sheets  = json.loads(selected_sheets)
+    formats = json.loads(selected_formats)
+    _set_job(job_id, status="queued", stage="queued",
+             message="Processing uploaded document...",
+             project=ctx.get("project_name","Unnamed"))
 
-    Accepts either:
-      A) JSON body  — { project_context, selected_sheets, selected_formats }
-      B) Multipart  — file upload + form fields (from the project intake UI)
-    """
-    job_id = str(uuid.uuid4())[:8].upper()
+    file_bytes = await file.read()
+    filename   = file.filename or "upload.pdf"
 
-    # Parse inputs
-    if file and project_context:
-        # Multipart upload path
-        ctx      = json.loads(project_context)
-        sheets   = json.loads(selected_sheets  or "[]")
-        formats  = json.loads(selected_formats or "[]")
+    async def run_with_upload():
+        try:
+            _set_job(job_id, message="Extracting geometry from construction documents...")
+            geometry = await handle_upload(file_bytes, filename, ctx)
+            log.info(f"[{job_id}] Extracted {len(geometry.get('rooms',[]))} rooms, "
+                     f"{len(geometry.get('walls',[]))} walls")
+            await _run_job(job_id, ctx, sheets, formats, geometry)
+        except Exception as e:
+            log.exception(f"[{job_id}] Upload failed: {e}")
+            await _run_job(job_id, ctx, sheets, formats, {})
 
-        _set_job(job_id, status="queued", stage="queued",
-                 message="Processing uploaded document...",
-                 project=ctx.get("project_name", "Unnamed"))
-
-        # Process uploaded file asynchronously
-        file_bytes = await file.read()
-        filename   = file.filename or "upload.pdf"
-
-        async def run_with_upload():
-            try:
-                _set_job(job_id, message="Extracting geometry from construction documents...")
-                geometry = await handle_upload(file_bytes, filename, ctx)
-                log.info(f"[{job_id}] Document processed — "
-                         f"{len(geometry.get('rooms',[]))} rooms, "
-                         f"{len(geometry.get('walls',[]))} walls extracted")
-                await _run_job(job_id, ctx, sheets, formats, geometry)
-            except Exception as e:
-                log.exception(f"[{job_id}] Upload processing failed: {e}")
-                await _run_job(job_id, ctx, sheets, formats, None)
-
-        background_tasks.add_task(run_with_upload)
-
-    elif request:
-        # JSON body path (no file upload)
-        ctx     = request.project_context
-        sheets  = list(request.validated_sheets())
-        formats = list(request.validated_formats())
-        _set_job(job_id, status="queued", stage="queued",
-                 message="Job queued — starting shortly",
-                 project=ctx.get("project_name", "Unnamed"))
-        # Pass empty dict so design engine builds synthetic geometry from project specs
-        background_tasks.add_task(_run_job, job_id, ctx, sheets, formats, {})
-
-    else:
-        raise HTTPException(400, "Provide either a JSON body or a multipart form with a file")
-
-    log.info(f"[{job_id}] Queued")
+    background_tasks.add_task(run_with_upload)
+    log.info(f"[{job_id}] Queued (upload) — {ctx.get('project_name')} — {filename}")
     return {"job_id": job_id, "status": "queued", "poll_url": f"/api/jobs/{job_id}"}
 
 
