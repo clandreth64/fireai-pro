@@ -81,21 +81,94 @@ def normalize_geometry(geo: dict, ctx: dict) -> dict:
 
 
 def _synthetic(ctx: dict) -> dict:
-    area=float(ctx.get("total_area",135411)); floors=int(ctx.get("floors",1)); af=area/floors
-    w=math.sqrt(af/0.65); d=af/w
-    tw=min(80,w*0.12); fw=min(60,w*0.08); sd=min(40,d*0.10); mw=w-tw-fw
-    rooms=[
-        {"name":"Main Warehouse","hazard_override":"esfr_k14","boundary":[{"x":0,"y":0},{"x":mw,"y":0},{"x":mw,"y":d-sd},{"x":0,"y":d-sd}],"area_sf":mw*(d-sd),"area":f"{mw*(d-sd):.0f} SF"},
-        {"name":"Tire Center","hazard_override":"tire_storage","boundary":[{"x":mw,"y":0},{"x":mw+tw,"y":0},{"x":mw+tw,"y":d-sd},{"x":mw,"y":d-sd}],"area_sf":tw*(d-sd),"area":f"{tw*(d-sd):.0f} SF"},
-        {"name":"Food Court","hazard_override":"ordinary_2","boundary":[{"x":mw+tw,"y":0},{"x":w,"y":0},{"x":w,"y":d-sd},{"x":mw+tw,"y":d-sd}],"area_sf":fw*(d-sd),"area":f"{fw*(d-sd):.0f} SF"},
-        {"name":"Receiving & Support","hazard_override":"ordinary_2","boundary":[{"x":0,"y":d-sd},{"x":w*0.6,"y":d-sd},{"x":w*0.6,"y":d},{"x":0,"y":d}],"area_sf":w*0.6*sd,"area":f"{w*0.6*sd:.0f} SF"},
-        {"name":"Entrance & Membership","hazard_override":"light","boundary":[{"x":w*0.6,"y":d-sd},{"x":w,"y":d-sd},{"x":w,"y":d},{"x":w*0.6,"y":d}],"area_sf":w*0.4*sd,"area":f"{w*0.4*sd:.0f} SF"},
-    ]
+    """
+    Generic fallback layout built entirely from project specs.
+    Works for any building type — determined by occupancy and parameters entered.
+    No hardcoded building types or layouts.
+    """
+    area=float(ctx.get("total_area",10000)); floors=int(ctx.get("floors",1)); af=area/floors
+    occ=ctx.get("occupancy","").lower(); ch=float(ctx.get("ceiling_height",10))
+
+    # Aspect ratio by occupancy category
+    if any(k in occ for k in ["warehouse","storage","wholesale","big box","distribution","industrial"]):
+        ratio=0.65
+    elif any(k in occ for k in ["hospital","medical","school","educational"]):
+        ratio=1.10
+    elif any(k in occ for k in ["office","business"]):
+        ratio=0.85
+    else:
+        ratio=0.75
+    w=math.sqrt(af/ratio); d=af/w
+
     walls=[{"points":[{"x":0,"y":0},{"x":w,"y":0},{"x":w,"y":d},{"x":0,"y":d}],"closed":True,"exterior":True}]
-    log.info(f"[Geo] Synthetic: {w:.0f}ft×{d:.0f}ft {len(rooms)} zones")
-    return {"walls":walls,"rooms":rooms,"columns":[],"obstructions":[],
+    rooms=[]
+
+    # Build layout based on occupancy
+    if any(k in occ for k in ["warehouse","storage","wholesale","big box","distribution"]):
+        tire_w=min(80,w*0.12) if any(k in occ for k in ["wholesale","big box"]) else 0
+        food_w=min(60,w*0.08) if any(k in occ for k in ["wholesale","big box","retail"]) else 0
+        sd=min(40,d*0.10); mw=w-tire_w-food_w; hz="esfr_k14" if ch>20 else "extra_2"
+        rooms.append({"name":"Main Warehouse","hazard_override":hz,"boundary":[{"x":0,"y":0},{"x":mw,"y":0},{"x":mw,"y":d-sd},{"x":0,"y":d-sd}],"area_sf":mw*(d-sd),"area":f"{mw*(d-sd):.0f} SF"})
+        if tire_w>0: rooms.append({"name":"Tire Center","hazard_override":"tire_storage","boundary":[{"x":mw,"y":0},{"x":mw+tire_w,"y":0},{"x":mw+tire_w,"y":d-sd},{"x":mw,"y":d-sd}],"area_sf":tire_w*(d-sd),"area":f"{tire_w*(d-sd):.0f} SF"})
+        if food_w>0: rooms.append({"name":"Food Court / Deli","hazard_override":"ordinary_2","boundary":[{"x":mw+tire_w,"y":0},{"x":w,"y":0},{"x":w,"y":d-sd},{"x":mw+tire_w,"y":d-sd}],"area_sf":food_w*(d-sd),"area":f"{food_w*(d-sd):.0f} SF"})
+        rooms.append({"name":"Receiving & Support","hazard_override":"ordinary_2","boundary":[{"x":0,"y":d-sd},{"x":w*0.6,"y":d-sd},{"x":w*0.6,"y":d},{"x":0,"y":d}],"area_sf":w*0.6*sd,"area":f"{w*0.6*sd:.0f} SF"})
+        rooms.append({"name":"Entrance & Lobby","hazard_override":"light","boundary":[{"x":w*0.6,"y":d-sd},{"x":w,"y":d-sd},{"x":w,"y":d},{"x":w*0.6,"y":d}],"area_sf":w*0.4*sd,"area":f"{w*0.4*sd:.0f} SF"})
+    elif any(k in occ for k in ["office","business","corporate"]):
+        ld=min(30,d*0.15); cd=8
+        rooms.append({"name":"Open Office","boundary":[{"x":0,"y":0},{"x":w,"y":0},{"x":w,"y":d-ld-cd},{"x":0,"y":d-ld-cd}],"area_sf":w*(d-ld-cd),"area":f"{w*(d-ld-cd):.0f} SF"})
+        rooms.append({"name":"Corridor","hazard_override":"light","boundary":[{"x":0,"y":d-ld-cd},{"x":w,"y":d-ld-cd},{"x":w,"y":d-ld},{"x":0,"y":d-ld}],"area_sf":w*cd,"area":f"{w*cd:.0f} SF"})
+        rooms.append({"name":"Lobby","hazard_override":"light","boundary":[{"x":0,"y":d-ld},{"x":w,"y":d-ld},{"x":w,"y":d},{"x":0,"y":d}],"area_sf":w*ld,"area":f"{w*ld:.0f} SF"})
+    elif any(k in occ for k in ["retail","mercantile","store","shop"]):
+        sd=min(40,d*0.20); ow=min(30,w*0.10)
+        rooms.append({"name":"Sales Floor","hazard_override":"ordinary_1","boundary":[{"x":0,"y":0},{"x":w-ow,"y":0},{"x":w-ow,"y":d-sd},{"x":0,"y":d-sd}],"area_sf":(w-ow)*(d-sd),"area":f"{(w-ow)*(d-sd):.0f} SF"})
+        rooms.append({"name":"Stockroom","hazard_override":"ordinary_2","boundary":[{"x":0,"y":d-sd},{"x":w,"y":d-sd},{"x":w,"y":d},{"x":0,"y":d}],"area_sf":w*sd,"area":f"{w*sd:.0f} SF"})
+        rooms.append({"name":"Office","hazard_override":"light","boundary":[{"x":w-ow,"y":0},{"x":w,"y":0},{"x":w,"y":d-sd},{"x":w-ow,"y":d-sd}],"area_sf":ow*(d-sd),"area":f"{ow*(d-sd):.0f} SF"})
+    elif any(k in occ for k in ["hospital","medical","healthcare","clinic"]):
+        wd=d*0.40; cd=10; sd=d*0.20
+        rooms.append({"name":"Patient Wing A","hazard_override":"light","boundary":[{"x":0,"y":0},{"x":w/2,"y":0},{"x":w/2,"y":wd},{"x":0,"y":wd}],"area_sf":w/2*wd,"area":f"{w/2*wd:.0f} SF"})
+        rooms.append({"name":"Patient Wing B","hazard_override":"light","boundary":[{"x":w/2,"y":0},{"x":w,"y":0},{"x":w,"y":wd},{"x":w/2,"y":wd}],"area_sf":w/2*wd,"area":f"{w/2*wd:.0f} SF"})
+        rooms.append({"name":"Corridor","hazard_override":"light","boundary":[{"x":0,"y":wd},{"x":w,"y":wd},{"x":w,"y":wd+cd},{"x":0,"y":wd+cd}],"area_sf":w*cd,"area":f"{w*cd:.0f} SF"})
+        rooms.append({"name":"Support & Mechanical","hazard_override":"ordinary_1","boundary":[{"x":0,"y":d-sd},{"x":w,"y":d-sd},{"x":w,"y":d},{"x":0,"y":d}],"area_sf":w*sd,"area":f"{w*sd:.0f} SF"})
+    elif any(k in occ for k in ["school","educational","university","college"]):
+        cld=d*0.50; cd=12
+        rooms.append({"name":"Classrooms","hazard_override":"light","boundary":[{"x":0,"y":0},{"x":w,"y":0},{"x":w,"y":cld},{"x":0,"y":cld}],"area_sf":w*cld,"area":f"{w*cld:.0f} SF"})
+        rooms.append({"name":"Corridor","hazard_override":"light","boundary":[{"x":0,"y":cld},{"x":w,"y":cld},{"x":w,"y":cld+cd},{"x":0,"y":cld+cd}],"area_sf":w*cd,"area":f"{w*cd:.0f} SF"})
+        rooms.append({"name":"Gymnasium","hazard_override":"light","boundary":[{"x":0,"y":cld+cd},{"x":w*0.6,"y":cld+cd},{"x":w*0.6,"y":d},{"x":0,"y":d}],"area_sf":w*0.6*(d-cld-cd),"area":"SF"})
+        rooms.append({"name":"Support","hazard_override":"light","boundary":[{"x":w*0.6,"y":cld+cd},{"x":w,"y":cld+cd},{"x":w,"y":d},{"x":w*0.6,"y":d}],"area_sf":w*0.4*(d-cld-cd),"area":"SF"})
+    elif any(k in occ for k in ["assembly","church","theater","auditorium"]):
+        hp=0.65; ld=min(40,d*0.15)
+        rooms.append({"name":"Main Assembly Hall","hazard_override":"light","boundary":[{"x":0,"y":0},{"x":w,"y":0},{"x":w,"y":d*hp},{"x":0,"y":d*hp}],"area_sf":w*d*hp,"area":f"{w*d*hp:.0f} SF"})
+        rooms.append({"name":"Lobby","hazard_override":"light","boundary":[{"x":0,"y":d-ld},{"x":w,"y":d-ld},{"x":w,"y":d},{"x":0,"y":d}],"area_sf":w*ld,"area":f"{w*ld:.0f} SF"})
+        rooms.append({"name":"Support","hazard_override":"ordinary_1","boundary":[{"x":0,"y":d*hp},{"x":w,"y":d*hp},{"x":w,"y":d-ld},{"x":0,"y":d-ld}],"area_sf":w*(d-d*hp-ld),"area":"SF"})
+    elif any(k in occ for k in ["manufacturing","industrial","factory","production"]):
+        pp=0.70; od=min(40,d*0.15); hz="extra_2" if ch>20 else "ordinary_2"
+        rooms.append({"name":"Production Floor","hazard_override":hz,"boundary":[{"x":0,"y":0},{"x":w,"y":0},{"x":w,"y":d*pp},{"x":0,"y":d*pp}],"area_sf":w*d*pp,"area":f"{w*d*pp:.0f} SF"})
+        rooms.append({"name":"Storage","hazard_override":"extra_1","boundary":[{"x":0,"y":d*pp},{"x":w*0.5,"y":d*pp},{"x":w*0.5,"y":d-od},{"x":0,"y":d-od}],"area_sf":w*0.5*(d-d*pp-od),"area":"SF"})
+        rooms.append({"name":"Shipping & Receiving","hazard_override":"ordinary_2","boundary":[{"x":w*0.5,"y":d*pp},{"x":w,"y":d*pp},{"x":w,"y":d-od},{"x":w*0.5,"y":d-od}],"area_sf":w*0.5*(d-d*pp-od),"area":"SF"})
+        rooms.append({"name":"Office","hazard_override":"light","boundary":[{"x":0,"y":d-od},{"x":w,"y":d-od},{"x":w,"y":d},{"x":0,"y":d}],"area_sf":w*od,"area":f"{w*od:.0f} SF"})
+    elif any(k in occ for k in ["hotel","residential","apartment","dormitory"]):
+        ld=min(40,d*0.15); cd=8
+        rooms.append({"name":"Guest Rooms / Units","hazard_override":"light","boundary":[{"x":0,"y":0},{"x":w,"y":0},{"x":w,"y":d-ld-cd},{"x":0,"y":d-ld-cd}],"area_sf":w*(d-ld-cd),"area":"SF"})
+        rooms.append({"name":"Corridor","hazard_override":"light","boundary":[{"x":0,"y":d-ld-cd},{"x":w,"y":d-ld-cd},{"x":w,"y":d-ld},{"x":0,"y":d-ld}],"area_sf":w*cd,"area":f"{w*cd:.0f} SF"})
+        rooms.append({"name":"Lobby","hazard_override":"light","boundary":[{"x":0,"y":d-ld},{"x":w,"y":d-ld},{"x":w,"y":d},{"x":0,"y":d}],"area_sf":w*ld,"area":f"{w*ld:.0f} SF"})
+    else:
+        # Fully generic — single main area + support
+        sd=min(30,d*0.15)
+        rooms.append({"name":"Main Area","boundary":[{"x":0,"y":0},{"x":w,"y":0},{"x":w,"y":d-sd},{"x":0,"y":d-sd}],"area_sf":w*(d-sd),"area":f"{w*(d-sd):.0f} SF"})
+        rooms.append({"name":"Support","hazard_override":"light","boundary":[{"x":0,"y":d-sd},{"x":w,"y":d-sd},{"x":w,"y":d},{"x":0,"y":d}],"area_sf":w*sd,"area":f"{w*sd:.0f} SF"})
+
+    # Add interior partition walls
+    seen_y=set(); seen_x=set()
+    for room in rooms:
+        for p in room.get("boundary",[]):
+            ry=round(p["y"],1); rx=round(p["x"],1)
+            if 0<ry<d and ry not in seen_y: walls.append({"points":[{"x":0,"y":ry},{"x":w,"y":ry}],"exterior":False}); seen_y.add(ry)
+            if 0<rx<w and rx not in seen_x: walls.append({"points":[{"x":rx,"y":0},{"x":rx,"y":d}],"exterior":False}); seen_x.add(rx)
+
+    log.info(f"[Geo] Synthetic {ctx.get('occupancy','Building')}: {w:.0f}ft×{d:.0f}ft {len(rooms)} zones")
+    return {"walls":walls,"rooms":rooms,"columns":[],"obstructions":[],"structural_beams":[],
             "building_dimensions":{"width_ft":round(w,1),"depth_ft":round(d,1)},
-            "floor_area_sf":af,"ceiling_height_ft":float(ctx.get("ceiling_height",50)),"_synthetic":True}
+            "floor_area_sf":af,"ceiling_height_ft":ch,"_synthetic":True}
 
 
 class NFPA13DesignEngine:
@@ -103,15 +176,15 @@ class NFPA13DesignEngine:
         self.geo=normalize_geometry(geo,ctx); self.ctx=ctx
         self.rooms=self.geo.get("rooms",[]); self.walls=self.geo.get("walls",[])
         self.columns=self.geo.get("columns",[]); self.obs=self.geo.get("obstructions",[])
-        self.ch=float(ctx.get("ceiling_height",50))
+        self.ch=float(ctx.get("ceiling_height",10))
         self.sp_psi=float(ctx.get("static_pressure",65))
         self.rp_psi=float(ctx.get("residual_pressure",ctx.get("static_pressure",65)*0.85))
-        self.fl_gpm=float(ctx.get("water_supply_flow",3000))
+        self.fl_gpm=float(ctx.get("water_supply_flow",1500))
         self.mat=ctx.get("pipe_material","Schedule 40 Steel").lower()
         self.hwc=HW_C.get(self.mat,120); self.seismic=ctx.get("seismic_zone","D1")
-        occ=ctx.get("occupancy","Warehouse").lower()
-        self.def_hz=next((v for k,v in ZONE_MAP.items() if k in occ),"esfr_k14")
-        self.bw,self.bd=self._fp(); self.fa=self.bw*self.bd or float(ctx.get("total_area",135411))
+        occ=ctx.get("occupancy","").lower()
+        self.def_hz=next((v for k,v in ZONE_MAP.items() if k in occ),"light")
+        self.bw,self.bd=self._fp(); self.fa=self.bw*self.bd or float(ctx.get("total_area",10000))
         log.info(f"[DE] {self.bw:.0f}ft×{self.bd:.0f}ft {self.fa:.0f}SF ch={self.ch}ft hz={self.def_hz}")
 
     def design(self) -> dict:
@@ -153,7 +226,7 @@ class NFPA13DesignEngine:
                 pts=r["boundary"]; xs=[p["x"] for p in pts]; ys=[p["y"] for p in pts]
                 zones.append({"name":n,"hazard":hz,"criteria":c,"bounds":(min(xs),min(ys),max(xs),max(ys)),"area_sf":r.get("area_sf",0),"room":r})
             return zones
-        return [{"name":"Building","hazard":self.def_hz,"criteria":HAZARD_CRITERIA.get(self.def_hz,HAZARD_CRITERIA["esfr_k14"]),"bounds":(0,0,self.bw,self.bd),"area_sf":self.fa,"room":None}]
+        return [{"name":"Building","hazard":self.def_hz,"criteria":HAZARD_CRITERIA.get(self.def_hz,HAZARD_CRITERIA["light"]),"bounds":(0,0,self.bw,self.bd),"area_sf":self.fa,"room":None}]
 
     def _sprinklers(self, zones: list) -> list:
         sp=[]; sid=1
@@ -225,7 +298,7 @@ class NFPA13DesignEngine:
     def _tf(self, sp: list) -> float:
         zf: dict=defaultdict(float)
         for s in sp:
-            c=HAZARD_CRITERIA.get(s.get("zone_hazard",self.def_hz),HAZARD_CRITERIA["esfr_k14"])
+            c=HAZARD_CRITERIA.get(s.get("zone_hazard",self.def_hz),HAZARD_CRITERIA["light"])
             zf[s.get("zone_hazard","")]+=c["k"]*math.sqrt(c["min_psi"])
         return max(zf.values(),default=500)*1.25+500
 
