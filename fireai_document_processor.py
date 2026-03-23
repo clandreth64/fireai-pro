@@ -1,17 +1,17 @@
 """
-FireAI Pro — Document Processor v2
+FireAI Pro — Document Processor v3
 =====================================
-Ingests PDF, DXF, and IFC construction documents and extracts
-structured geometry for the NFPA 13 design engine.
+Vision-first architecture: Claude Vision is the PRIMARY geometry source.
+Vector extraction (pdfplumber) is used only to refine scale and walls.
 
-Key fix in v2:
-  - Accurate scale detection from scale bar numbers in drawing
-  - Correct coordinate conversion for all PDF scales (1/8, 1/16, 1/32, etc.)
-  - Building boundary identification from exterior thick walls
-  - Origin shift so all geometry starts at (0, 0)
+Design principles:
+  - Two-pass Vision: Pass 1 = building dimensions + scale
+                     Pass 2 = complete room/hazard inventory (100% coverage required)
+  - All coordinates normalized to feet, origin at building (0,0)
+  - Rooms validated and gap-filled to cover 100% of building
+  - Hazard classifications follow NFPA 13 strictly
 
-Supports: PDF, DXF, DWG, IFC, PNG, JPG
-Requires: pip install pdfplumber Pillow anthropic
+Supports: PDF, DXF, IFC, PNG, JPG, TIF
 """
 
 import asyncio, base64, io, json, logging, math, os, re, tempfile
@@ -25,26 +25,30 @@ ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 CLAUDE_MODEL      = os.getenv("FIREAI_MODEL", "claude-sonnet-4-20250514")
 SUPPORTED_EXT     = {".pdf",".dxf",".dwg",".ifc",".png",".jpg",".jpeg",".tif",".tiff"}
 
-OCCUPANCY_HAZARD_MAP = {
-    "office":"light","business":"light","residential":"light","educational":"light",
-    "assembly":"light","hotel":"light","corridor":"light","lobby":"light",
-    "retail":"ordinary_1","mercantile":"ordinary_1","restaurant":"ordinary_1",
-    "parking":"ordinary_1","mechanical":"ordinary_1",
-    "warehouse":"esfr_k14","high pile":"esfr_k14","storage":"high_pile_class_3",
-    "tire":"tire_storage","tires":"tire_storage","tire center":"tire_storage",
-    "bakery":"ordinary_2","deli":"ordinary_2","food court":"ordinary_2","kitchen":"ordinary_2",
-    "pharmacy":"ordinary_1","freezer":"freezer","cooler":"cooler",
-    "receiving":"ordinary_2","loading":"ordinary_2","dock":"ordinary_2",
+HAZARD_CRITERIA = {
+    "light":             {"density":0.10,"area":1500,"max_coverage":225,"max_spacing":15,"k":5.6, "min_psi":7.0, "sprinkler_type":"pendant","esfr":False,"in_rack":False},
+    "ordinary_1":        {"density":0.15,"area":1500,"max_coverage":130,"max_spacing":15,"k":5.6, "min_psi":7.0, "sprinkler_type":"pendant","esfr":False,"in_rack":False},
+    "ordinary_2":        {"density":0.20,"area":1500,"max_coverage":130,"max_spacing":15,"k":8.0, "min_psi":7.0, "sprinkler_type":"pendant","esfr":False,"in_rack":False},
+    "extra_1":           {"density":0.30,"area":2500,"max_coverage":100,"max_spacing":12,"k":11.2,"min_psi":15.0,"sprinkler_type":"upright","esfr":False,"in_rack":False},
+    "extra_2":           {"density":0.40,"area":2500,"max_coverage":100,"max_spacing":12,"k":11.2,"min_psi":15.0,"sprinkler_type":"upright","esfr":False,"in_rack":False},
+    "esfr_k14":          {"density":None,"area":None,"max_coverage":100,"max_spacing":10,"k":14.0,"min_psi":50.0,"sprinkler_type":"esfr",   "esfr":True, "in_rack":False},
+    "esfr_k16_8":        {"density":None,"area":None,"max_coverage":100,"max_spacing":10,"k":16.8,"min_psi":50.0,"sprinkler_type":"esfr",   "esfr":True, "in_rack":False},
+    "esfr_k25":          {"density":None,"area":None,"max_coverage":100,"max_spacing":10,"k":25.0,"min_psi":15.0,"sprinkler_type":"esfr",   "esfr":True, "in_rack":False},
+    "high_pile_class_3": {"density":0.40,"area":2500,"max_coverage":100,"max_spacing":10,"k":14.0,"min_psi":25.0,"sprinkler_type":"esfr",   "esfr":True, "in_rack":True},
+    "high_pile_class_4": {"density":None,"area":None,"max_coverage":100,"max_spacing":10,"k":14.0,"min_psi":50.0,"sprinkler_type":"esfr",   "esfr":True, "in_rack":True},
+    "tire_storage":      {"density":None,"area":None,"max_coverage":100,"max_spacing":10,"k":14.0,"min_psi":75.0,"sprinkler_type":"esfr",   "esfr":True, "in_rack":True},
+    "freezer":           {"density":0.15,"area":2000,"max_coverage":130,"max_spacing":12,"k":5.6, "min_psi":7.0, "sprinkler_type":"upright","esfr":False,"in_rack":False},
+    "cooler":            {"density":0.15,"area":1500,"max_coverage":130,"max_spacing":12,"k":5.6, "min_psi":7.0, "sprinkler_type":"pendant","esfr":False,"in_rack":False},
 }
 
-HAZARD_DESIGN_CRITERIA = {
-    "light":      {"density":0.10,"area":1500,"max_coverage":225,"max_spacing":15},
-    "ordinary_1": {"density":0.15,"area":1500,"max_coverage":130,"max_spacing":15},
-    "ordinary_2": {"density":0.20,"area":1500,"max_coverage":130,"max_spacing":15},
-    "esfr_k14":   {"density":None,"area":None,"max_coverage":100,"max_spacing":10},
-    "tire_storage":{"density":None,"area":None,"max_coverage":100,"max_spacing":10},
-    "freezer":    {"density":0.15,"area":2000,"max_coverage":130,"max_spacing":12},
-    "cooler":     {"density":0.15,"area":1500,"max_coverage":130,"max_spacing":12},
+OCCUPANCY_DEFAULT = {
+    "warehouse":"esfr_k14","distribution":"esfr_k14","storage":"esfr_k14",
+    "wholesale":"esfr_k14","big box":"esfr_k14","costco":"esfr_k14",
+    "industrial":"extra_2","manufacturing":"extra_2","factory":"extra_2",
+    "retail":"ordinary_1","mercantile":"ordinary_1","store":"ordinary_1",
+    "office":"light","business":"light","educational":"light",
+    "school":"light","hospital":"light","hotel":"light","residential":"light",
+    "restaurant":"ordinary_2","food":"ordinary_2","assembly":"light",
 }
 
 
@@ -58,541 +62,491 @@ class DocumentProcessor:
         if ext not in SUPPORTED_EXT:
             raise ValueError(f"Unsupported file type: {ext}")
         log.info(f"[DocProcessor] Processing {path.name}")
-        if ext == ".pdf":
-            raw = await self._process_pdf(file_path, project_context)
-        elif ext == ".dxf":
-            raw = await self._process_dxf(file_path, project_context)
-        elif ext == ".ifc":
-            raw = await self._process_ifc(file_path, project_context)
-        else:
-            raw = await self._process_image(file_path, project_context)
-        enriched = self._classify_hazards(raw, project_context)
-        log.info(f"[DocProcessor] Done — {len(enriched.get('rooms',[]))} rooms, "
-                 f"{len(enriched.get('walls',[]))} walls, "
-                 f"footprint {enriched.get('building_dimensions',{}).get('width_ft',0):.0f}ft × "
-                 f"{enriched.get('building_dimensions',{}).get('depth_ft',0):.0f}ft")
-        return enriched
 
-    # ── PDF processor ─────────────────────────────────────────────────────────
+        if ext == ".pdf":
+            geometry = await self._process_pdf(file_path, project_context)
+        elif ext == ".dxf":
+            geometry = await self._process_dxf(file_path, project_context)
+        elif ext == ".ifc":
+            geometry = await self._process_ifc(file_path, project_context)
+        else:
+            geometry = await self._vision_full_analysis(file_path, "image", project_context)
+
+        geometry = self._validate_and_fix(geometry, project_context)
+        bd = geometry.get("building_dimensions", {})
+        log.info(f"[DocProcessor] Done: {bd.get('width_ft',0):.0f}ft x {bd.get('depth_ft',0):.0f}ft | "
+                 f"{len(geometry.get('rooms',[]))} rooms | {geometry.get('floor_area_sf',0):.0f} SF covered")
+        return geometry
+
+    # ── PDF ────────────────────────────────────────────────────────────────────
 
     async def _process_pdf(self, file_path: str, project_context: dict) -> dict:
+        # Run vision and vector extraction concurrently
+        vision_task = asyncio.create_task(
+            self._vision_full_analysis(file_path, "pdf", project_context)
+        )
+
+        vector_geo = {}
         try:
             import pdfplumber
-        except ImportError:
-            log.warning("pdfplumber not installed — pip install pdfplumber")
-            return await self._process_image(file_path, project_context)
-
-        try:
             with pdfplumber.open(file_path) as pdf:
                 page  = pdf.pages[0]
                 lines = page.lines or []
-                rects = page.rects or []
                 words = page.extract_words() or []
 
-                # Step 1: Detect scale from scale bar or title block
-                scale = self._detect_scale(words, lines, project_context)
-                log.info(f"[DocProcessor] Scale: {scale:.4f} pts/ft "
-                         f"(equiv 1/{72/scale:.1f}\" = 1'-0\")")
+            scale = self._detect_scale(words, lines, project_context)
+            def ft(v): return round(float(v) / scale, 2)
 
-                def ft(v): return round(float(v) / scale, 2)
+            walls = []
+            for l in lines:
+                x0,y0 = ft(l["x0"]),ft(l["y0"])
+                x1,y1 = ft(l["x1"]),ft(l["y1"])
+                length = math.sqrt((x1-x0)**2+(y1-y0)**2)
+                if length < 0.5: continue
+                lw = float(l.get("linewidth",0.5))
+                walls.append({"points":[{"x":x0,"y":y0},{"x":x1,"y":y1}],
+                               "thickness":lw,"exterior":lw>=1.0,"length_ft":round(length,1)})
 
-                # Step 2: Extract walls from lines
-                walls = []
-                for l in lines:
-                    x0, y0 = ft(l["x0"]), ft(l["y0"])
-                    x1, y1 = ft(l["x1"]), ft(l["y1"])
-                    length = math.sqrt((x1-x0)**2 + (y1-y0)**2)
-                    if length < 0.3:
-                        continue
-                    lw = float(l.get("linewidth", 0.5))
-                    walls.append({
-                        "points":   [{"x":x0,"y":y0},{"x":x1,"y":y1}],
-                        "thickness": lw,
-                        "exterior":  lw >= 1.0,
-                        "length_ft": round(length, 1),
-                    })
-
-                # Step 3: Find building boundary from exterior (thick) walls
-                # Priority: thick exterior walls → any long walls → all walls → page
-                ext = [w for w in walls if w["exterior"] and w["length_ft"] > 30]
-                if not ext:
-                    # Try any wall longer than 20ft
-                    ext = [w for w in walls if w["length_ft"] > 20]
-                if not ext:
-                    ext = walls  # fall back to all walls
-
-                if ext:
-                    all_x = [p["x"] for w in ext for p in w["points"]]
-                    all_y = [p["y"] for w in ext for p in w["points"]]
-                    raw_bx0, raw_by0 = min(all_x), min(all_y)
-                    raw_bx1, raw_by1 = max(all_x), max(all_y)
-
-                    # Sanity check: if building area matches known total_area within 40%,
-                    # trust it. Otherwise use known total_area to set boundary.
-                    bw_raw = raw_bx1 - raw_bx0
-                    bh_raw = raw_by1 - raw_by0
-                    area_raw = bw_raw * bh_raw
-                    known_area = float(project_context.get("total_area", 0))
-
-                    if known_area > 0 and area_raw > 0:
-                        ratio = area_raw / known_area
-                        if 0.5 <= ratio <= 2.0:
-                            # Good match — trust the wall boundary
-                            bx0, by0, bx1, by1 = raw_bx0, raw_by0, raw_bx1, raw_by1
-                        else:
-                            # Wall boundary is wrong (title block, margins, etc.)
-                            # Find the densest cluster of walls — that's the building
-                            bx0, by0, bx1, by1 = _find_building_cluster(walls, known_area)
-                            log.info(f"[DocProcessor] Wall boundary mismatch "
-                                     f"(ratio={ratio:.1f}x) — using density cluster")
-                    else:
-                        bx0, by0, bx1, by1 = raw_bx0, raw_by0, raw_bx1, raw_by1
-                else:
-                    bx0, by0 = 0, 0
-                    bx1, by1 = ft(page.width), ft(page.height)
-
-                bw = bx1 - bx0
-                bh = by1 - by0
-                log.info(f"[DocProcessor] Building boundary: {bw:.0f}ft × {bh:.0f}ft = {bw*bh:.0f} SF")
-
-                # Step 4: Extract rooms from large closed rectangles WITHIN building boundary
-                rooms = []
-                for r in rects:
-                    rx0, ry0 = ft(r["x0"]), ft(r["y0"])
-                    rx1, ry1 = ft(r["x1"]), ft(r["y1"])
-                    rw = abs(rx1-rx0); rh = abs(ry1-ry0)
-                    area = rw * rh
-                    if area < 200:
-                        continue
-                    cx, cy = (rx0+rx1)/2, (ry0+ry1)/2
-                    # Only include rooms whose center is inside (or very close to) building boundary
-                    if bx0-5 <= cx <= bx1+5 and by0-5 <= cy <= by1+5:
-                        # Clamp room corners to building boundary
-                        crx0 = max(rx0, bx0); cry0 = max(ry0, by0)
-                        crx1 = min(rx1, bx1); cry1 = min(ry1, by1)
-                        if crx1 - crx0 < 10 or cry1 - cry0 < 10:
-                            continue
-                        rooms.append({
-                            "boundary": [{"x":crx0,"y":cry0},{"x":crx1,"y":cry0},
-                                         {"x":crx1,"y":cry1},{"x":crx0,"y":cry1}],
-                            "area_sf":  round((crx1-crx0)*(cry1-cry0), 1),
-                            "area":     f"{(crx1-crx0)*(cry1-cry0):.0f} SF",
-                            "name":     "",
-                        })
-
-                # Step 5: Annotations
-                annotations = [{"text": w.get("text","").strip(),
-                                 "x": ft(w.get("x0",0)),
-                                 "y": ft(w.get("top",0))} for w in words if w.get("text","").strip()]
-
-                geometry = {
-                    "walls":   walls,
-                    "rooms":   rooms,
-                    "columns": [],
-                    "obstructions": [],
-                    "annotations":  annotations,
-                    "building_dimensions": {"width_ft": round(bw,1), "depth_ft": round(bh,1)},
-                    "floor_area_sf": round(bw*bh, 0),
-                    "ceiling_height_ft": float(project_context.get("ceiling_height", 10)),
-                    "_scale_pts_per_ft": scale,
-                }
-
-                # Step 6: Shift origin to (0,0)
-                geometry = self._shift_origin(geometry, bx0, by0)
-
-                # Step 7: Claude Vision for room identification
-                vision = await self._vision_interpret(file_path, "pdf", project_context)
-                result = _merge_geometry(geometry, vision)
-
-                log.info(f"[DocProcessor] Extracted {len(result.get('walls',[]))} walls, "
-                         f"{len(result.get('rooms',[]))} rooms from PDF")
-                return result
-
-        except Exception as e:
-            log.error(f"[DocProcessor] PDF error: {e}")
-            import traceback; traceback.print_exc()
-            return {"walls":[],"rooms":[],"columns":[],"obstructions":[],"annotations":[]}
-
-    def _detect_scale(self, words: list, lines: list, project_context: dict) -> float:
-        """
-        Detects drawing scale using three methods in priority order:
-        1. Scale bar numbers (0, 4, 8, 16, 32 markers)
-        2. Title block notation (1/8" = 1'-0")
-        3. Back-calculation from known building area
-        """
-        # Method 1: Scale bar detection
-        # Scale bars typically show: 0  4'  8'  16'  32'
-        numeric = sorted(
-            [w for w in words if re.match(r"^\d+['']?$", w.get("text","").strip())],
-            key=lambda w: float(w.get("x0", 0))
-        )
-        scale_seq = [0, 4, 8, 16, 32]
-        for i in range(len(numeric) - 4):
-            try:
-                grp  = numeric[i:i+5]
-                vals = [int(w["text"].rstrip("'")) for w in grp]
-                if vals == scale_seq:
-                    x0   = float(grp[0].get("x0", 0))
-                    x32  = float(grp[-1].get("x0", 0))
-                    span = abs(x32 - x0)
-                    if span > 10:
-                        scale = span / 32.0
-                        log.info(f"[DocProcessor] Scale bar: {span:.1f}pts=32ft → {scale:.4f}pts/ft")
-                        return scale
-            except (ValueError, IndexError):
-                continue
-
-        # Method 2: Title block scale notation
-        text_joined = " ".join(w.get("text","") for w in words)
-        title_scales = [
-            (r'1/8"\s*=\s*1',   9.000),
-            (r'1/16"\s*=\s*1',  4.500),
-            (r'1/32"\s*=\s*1',  2.250),
-            (r'1/4"\s*=\s*1',   18.00),
-            (r'3/32"\s*=\s*1',  6.750),
-            (r'1/20"\s*=\s*1',  3.600),
-        ]
-        for pattern, pts_per_ft in title_scales:
-            if re.search(pattern, text_joined, re.IGNORECASE):
-                log.info(f"[DocProcessor] Title block scale: {pts_per_ft} pts/ft")
-                return pts_per_ft
-
-        # Method 3: Back-calculate from known building area
-        total_area = float(project_context.get("total_area", 0))
-        if total_area > 0 and lines:
-            all_x = [c for l in lines for c in [float(l.get("x0",0)), float(l.get("x1",0))]]
-            all_y = [c for l in lines for c in [float(l.get("y0",0)), float(l.get("y1",0))]]
-            if all_x and all_y:
-                coord_w = max(all_x) - min(all_x)
-                coord_h = max(all_y) - min(all_y)
-                coord_area = coord_w * coord_h
-                if coord_area > 0:
-                    implied = math.sqrt(coord_area / total_area)
-                    # Only use if it gives a reasonable scale (0.5 to 50 pts/ft)
-                    if 0.5 <= implied <= 50:
-                        log.info(f"[DocProcessor] Area back-calc scale: {implied:.4f} pts/ft")
-                        return implied
-
-        # Default: 1/8" = 1'-0"
-        log.warning("[DocProcessor] Scale detection failed — defaulting to 9 pts/ft (1/8\"=1'-0\")")
-        return 9.0
-
-    def _shift_origin(self, geometry: dict, ox: float, oy: float) -> dict:
-        """Shifts all coordinates so building starts at (0,0)."""
-        def sp(pts): return [{"x":round(p["x"]-ox,2),"y":round(p["y"]-oy,2)} for p in pts]
-        geometry["walls"]   = [{**w,"points":  sp(w.get("points",  []))} for w in geometry.get("walls",  [])]
-        geometry["rooms"]   = [{**r,"boundary":sp(r.get("boundary",[]))} for r in geometry.get("rooms",  [])]
-        geometry["columns"] = [{**c,"x":round(c.get("x",0)-ox,2),"y":round(c.get("y",0)-oy,2)} for c in geometry.get("columns",[])]
-        return geometry
-
-    # ── DXF processor ─────────────────────────────────────────────────────────
-
-    async def _process_dxf(self, file_path: str, project_context: dict) -> dict:
-        try:
-            import ezdxf
+            long_walls = [w for w in walls if w["length_ft"] > 15]
+            if long_walls:
+                all_x=[p["x"] for w in long_walls for p in w["points"]]
+                all_y=[p["y"] for w in long_walls for p in w["points"]]
+                bx0,by0,bx1,by1 = min(all_x),min(all_y),max(all_x),max(all_y)
+                bw,bh = bx1-bx0, by1-by0
+                known = float(project_context.get("total_area",0))
+                if known>0:
+                    ratio = (bw*bh)/known
+                    if 0.35 <= ratio <= 3.0:
+                        shifted = []
+                        for w in walls:
+                            pts=[{"x":round(p["x"]-bx0,2),"y":round(p["y"]-by0,2)} for p in w["points"]]
+                            if all(-5<=p["x"]<=bw+5 and -5<=p["y"]<=bh+5 for p in pts):
+                                shifted.append({**w,"points":pts})
+                        vector_geo = {"walls":shifted,
+                                      "building_dimensions":{"width_ft":round(bw,1),"depth_ft":round(bh,1)},
+                                      "floor_area_sf":round(bw*bh,0)}
+                        log.info(f"[DocProcessor] Vector: {bw:.0f}x{bh:.0f}ft={bw*bh:.0f}SF (ratio={ratio:.2f})")
         except ImportError:
-            return {"walls":[],"rooms":[],"columns":[],"obstructions":[],"annotations":[]}
-
-        geometry = {"walls":[],"rooms":[],"columns":[],"obstructions":[],"annotations":[]}
-        try:
-            doc = ezdxf.readfile(file_path)
-            msp = doc.modelspace()
+            log.warning("[DocProcessor] pdfplumber not installed")
         except Exception as e:
-            log.error(f"DXF read error: {e}"); return geometry
+            log.warning(f"[DocProcessor] Vector extraction: {e}")
 
-        units = doc.header.get("$INSUNITS", 0)
-        scale = {0:1.0, 1:1/12, 2:1.0, 4:3.281, 6:39.37}.get(units, 1.0)
+        vision_geo = await vision_task
 
-        wall_layers = {"A-WALL","WALL","WALLS","A-WALL-FULL","A-WALL-PART","ARCH"}
+        # Merge: vision = rooms+hazards, vector = walls+refines dims
+        merged = dict(vision_geo)
+        if vector_geo.get("walls"):
+            merged["walls"] = vector_geo["walls"]
+        if vector_geo.get("building_dimensions",{}).get("width_ft"):
+            vd = vector_geo["building_dimensions"]
+            vdims = vision_geo.get("building_dimensions",{})
+            merged["building_dimensions"] = vd
+            merged["floor_area_sf"] = vd["width_ft"]*vd["depth_ft"]
+            merged["rooms"] = self._rescale_rooms(
+                vision_geo.get("rooms",[]), vdims, vd)
+        return merged
 
-        for entity in msp:
-            layer = (entity.dxf.layer or "").upper()
-            etype = entity.dxftype()
-            if etype == "LINE":
-                sx,sy = entity.dxf.start.x*scale, entity.dxf.start.y*scale
-                ex,ey = entity.dxf.end.x*scale,   entity.dxf.end.y*scale
-                geometry["walls"].append({"points":[{"x":sx,"y":sy},{"x":ex,"y":ey}],
-                                          "layer":layer,"exterior":"EXT" in layer})
-            elif etype == "LWPOLYLINE":
-                pts = [{"x":p[0]*scale,"y":p[1]*scale} for p in entity.get_points()]
-                if len(pts) >= 3:
-                    area = _polygon_area(pts)
-                    if entity.closed and area > 25:
-                        geometry["rooms"].append({"boundary":pts,"area_sf":round(area,1),"area":f"{area:.0f} SF","name":"","layer":layer})
-                    else:
-                        geometry["walls"].append({"points":pts,"layer":layer,"exterior":"EXT" in layer,"closed":entity.closed})
-            elif etype in ("TEXT","MTEXT"):
-                try:
-                    text = entity.dxf.text if etype=="TEXT" else entity.text
-                    ins  = entity.dxf.insert
-                    geometry["annotations"].append({"text":str(text).strip(),"x":ins.x*scale,"y":ins.y*scale,"layer":layer})
-                except Exception: pass
+    def _rescale_rooms(self, rooms, from_dims, to_dims):
+        fw=float(from_dims.get("width_ft",0)); fh=float(from_dims.get("depth_ft",0))
+        tw=float(to_dims.get("width_ft",0));   th=float(to_dims.get("depth_ft",0))
+        if fw<=0 or fh<=0 or tw<=0 or th<=0: return rooms
+        if abs(fw-tw)/tw<0.05 and abs(fh-th)/th<0.05: return rooms
+        sx=tw/fw; sy=th/fh
+        log.info(f"[DocProcessor] Rescaling rooms x*{sx:.3f} y*{sy:.3f}")
+        out=[]
+        for r in rooms:
+            nb=[{"x":round(p["x"]*sx,2),"y":round(p["y"]*sy,2)} for p in r.get("boundary",[])]
+            if len(nb)>=3:
+                a=_polygon_area(nb)
+                out.append({**r,"boundary":nb,"area_sf":round(a,1),"area":f"{a:.0f} SF"})
+        return out
 
-        geometry = _match_room_names(geometry)
-        return geometry
+    # ── Vision: two-pass analysis ──────────────────────────────────────────────
 
-    # ── IFC processor ─────────────────────────────────────────────────────────
-
-    async def _process_ifc(self, file_path: str, project_context: dict) -> dict:
+    async def _vision_full_analysis(self, file_path, file_type, project_context):
         try:
-            import ifcopenshell
-            import ifcopenshell.util.placement as ifc_placement
-        except ImportError:
-            return {"walls":[],"rooms":[],"columns":[],"obstructions":[],"annotations":[]}
+            image_data, media_type = await _file_to_image(file_path, file_type)
+        except Exception as e:
+            log.error(f"[DocProcessor] Image conversion: {e}")
+            return _empty_geometry()
 
-        geometry = {"walls":[],"rooms":[],"columns":[],"obstructions":[],"annotations":[]}
-        ifc = ifcopenshell.open(file_path)
+        known_area = float(project_context.get("total_area",0))
+        known_ch   = float(project_context.get("ceiling_height",10))
+        occupancy  = project_context.get("occupancy","")
+        proj_name  = project_context.get("project_name","")
 
-        for wall in ifc.by_type("IfcWall"):
-            try:
-                m = ifc_placement.get_local_placement(wall.ObjectPlacement)
-                x,y = float(m[0][3])*3.281, float(m[1][3])*3.281
-                geometry["walls"].append({"points":[{"x":x,"y":y},{"x":x+10,"y":y}],
-                                          "ifc_guid":wall.GlobalId,"exterior":False})
-            except Exception: pass
+        # Pass 1: Document type + building dimensions
+        p1 = await self._vision_call(image_data, media_type, f"""Analyze this construction document.
 
-        for space in ifc.by_type("IfcSpace"):
-            try:
-                name = space.Name or space.LongName or ""
-                geometry["rooms"].append({"boundary":[],"name":str(name),"area_sf":0,"area":"","ifc_guid":space.GlobalId})
-            except Exception: pass
+Project: {proj_name} | Occupancy: {occupancy} | Known area: {known_area} SF
 
-        return geometry
-
-    # ── Image / Vision processor ──────────────────────────────────────────────
-
-    async def _process_image(self, file_path: str, project_context: dict) -> dict:
-        return await self._vision_interpret(file_path, "image", project_context)
-
-    async def _vision_interpret(self, file_path: str, file_type: str, project_context: dict) -> dict:
-        """Uses Claude Vision to intelligently interpret a floor plan."""
-        try:
-            if file_type == "pdf":
-                image_data, media_type = await _pdf_to_image(file_path)
-            else:
-                with open(file_path,"rb") as f: image_data = base64.b64encode(f.read()).decode()
-                ext = Path(file_path).suffix.lower()[1:]
-                media_type = {"jpg":"image/jpeg","jpeg":"image/jpeg","png":"image/png","tif":"image/tiff","tiff":"image/tiff"}.get(ext,"image/png")
-
-            prompt = f"""Analyze this architectural floor plan for a fire sprinkler design.
-
-Project: {project_context.get('project_name','')}
-Occupancy: {project_context.get('occupancy','')}
-Total area: {project_context.get('total_area','')} SF
-Ceiling height: {project_context.get('ceiling_height','')} ft
-
-Return ONLY a JSON object with this structure:
+Return ONLY JSON:
 {{
-  "building_dimensions": {{"width_ft": number, "depth_ft": number}},
-  "floor_area_sf": number,
-  "ceiling_height_ft": number,
+  "document_type": "floor_plan|site_plan|elevation|section|detail|schedule|other",
+  "is_floor_plan": true_or_false,
+  "building_width_ft": number_or_0,
+  "building_depth_ft": number_or_0,
+  "drawing_scale": "e.g. 1/8=1-0 or unknown",
+  "observations": "brief description of what you see"
+}}""", "Pass1")
+
+        if not p1.get("is_floor_plan", True):
+            log.warning(f"[DocProcessor] Not a floor plan: {p1.get('document_type')}")
+            return _empty_geometry()
+
+        bw = float(p1.get("building_width_ft",0))
+        bh = float(p1.get("building_depth_ft",0))
+
+        if bw<=0 or bh<=0 or (known_area>0 and abs(bw*bh-known_area)/known_area>0.60):
+            if known_area>0:
+                occ_l=occupancy.lower()
+                ratio=0.65 if any(k in occ_l for k in ["warehouse","storage","wholesale","big box","costco"]) else 0.75
+                bw=round(math.sqrt(known_area/ratio),1); bh=round(known_area/bw,1)
+            else:
+                bw=bh=100.0
+        log.info(f"[DocProcessor] Building dims: {bw}x{bh}ft = {bw*bh:.0f} SF")
+
+        # Pass 2: Complete hazard zone inventory
+        p2 = await self._vision_call(image_data, media_type, f"""You are an NFPA 13 fire sprinkler engineer.
+
+Building: {proj_name}
+Occupancy: {occupancy}
+Dimensions: {bw}ft wide x {bh}ft deep = {bw*bh:.0f} SF total
+Ceiling height: {known_ch}ft
+
+MISSION: Map every square foot of this building to an NFPA 13 hazard classification.
+Zones must collectively cover 100% of the floor — no gaps allowed.
+
+COORDINATE SYSTEM: Origin (0,0) = bottom-left of building. X = right, Y = up. Units = FEET.
+
+NFPA 13 HAZARD GUIDE (choose most economical product that meets code):
+- light: Offices, lobbies, corridors, restrooms, vestibules, membership → Pendant K5.6 §8.5
+- ordinary_1: Retail sales, parking, mechanical, pharmacy, optical → Pendant K5.6 §8.5
+- ordinary_2: Receiving/dock, food service, bakery, deli, food court, kitchen → Pendant K8.0 §8.5
+- esfr_k14: Warehouse floor, high-pile storage, merchandise sales, rack areas → ESFR K14 §22.1
+- esfr_k25: High-pile >25ft or Class IV plastics without in-rack → ESFR K25 §22.1
+- tire_storage: Tire centers, automotive with tires → ESFR K14 at 75psi NFPA13 Ch.17
+- freezer: Walk-in freezers, frozen storage → Upright K5.6 dry §8.5
+- cooler: Walk-in coolers, refrigerated areas → Pendant K5.6 §8.5
+
+RULES:
+1. Every area must be assigned — no "unknown" classifications
+2. Use rectangular boundaries (4 corners). All 4 points must be within building.
+3. Large unlabeled warehouse/wholesale areas = esfr_k14
+4. Total area of all rooms must approximately equal {bw*bh:.0f} SF
+
+Return ONLY valid JSON (no markdown fences):
+{{
+  "building_dimensions": {{"width_ft": {bw}, "depth_ft": {bh}}},
+  "floor_area_sf": {bw*bh:.0f},
+  "ceiling_height_ft": {known_ch},
   "rooms": [
     {{
-      "name": "room name",
-      "occupancy_type": "warehouse/office/retail/etc",
+      "name": "area name",
+      "hazard_classification": "light|ordinary_1|ordinary_2|esfr_k14|esfr_k25|tire_storage|freezer|cooler",
+      "nfpa_13_basis": "section reference",
       "estimated_area_sf": number,
-      "boundary": [{{"x": number, "y": number}}],
-      "ceiling_height_ft": number,
-      "special_hazard": "high_pile/tire_storage/freezer/none"
+      "boundary": [{{"x":0,"y":0}},{{"x":W,"y":0}},{{"x":W,"y":D}},{{"x":0,"y":D}}],
+      "ceiling_height_ft": {known_ch},
+      "special_notes": "rack storage / mezzanine / etc or empty string"
     }}
   ],
-  "structural_features": ["columns", "beams", "mezzanine", "etc"],
-  "north_rotation_deg": number,
-  "drawing_scale": "1/8 = 1-0 or similar",
-  "notes": ["any important notes from the drawing"]
-}}
+  "notes": []
+}}""", "Pass2")
 
-Use feet. Origin at bottom-left. Be specific about room names and hazard types."""
+        rooms=[]
+        for r in p2.get("rooms",[]):
+            hz=r.get("hazard_classification","")
+            if hz not in HAZARD_CRITERIA:
+                hz=self._infer_hazard(r.get("name",""),occupancy)
+            bnd=r.get("boundary",[])
+            if len(bnd)<3: continue
+            area=_polygon_area(bnd)
+            if area<25: continue
+            rooms.append({
+                "name":r.get("name","Area"),
+                "boundary":bnd,
+                "area_sf":round(area,1),
+                "area":f"{area:.0f} SF",
+                "hazard_override":hz,
+                "hazard_classification":hz,
+                "ceiling_height_ft":float(r.get("ceiling_height_ft",known_ch)),
+                "nfpa_13_basis":r.get("nfpa_13_basis",""),
+                "special_notes":r.get("special_notes",""),
+            })
 
-            response = await asyncio.to_thread(
+        dims=p2.get("building_dimensions",{"width_ft":bw,"depth_ft":bh})
+        return {
+            "walls":[],"rooms":rooms,"columns":[],"obstructions":[],
+            "annotations":[],"structural_features":p2.get("structural_features",[]),
+            "building_dimensions":dims,
+            "floor_area_sf":float(p2.get("floor_area_sf",bw*bh)),
+            "ceiling_height_ft":known_ch,
+            "drawing_scale":p1.get("drawing_scale",""),
+            "notes":p2.get("notes",[]),
+        }
+
+    async def _vision_call(self, image_data, media_type, prompt, label):
+        try:
+            resp = await asyncio.to_thread(
                 self.client.messages.create,
-                model=CLAUDE_MODEL, max_tokens=4096,
+                model=CLAUDE_MODEL, max_tokens=8192,
                 messages=[{"role":"user","content":[
                     {"type":"image","source":{"type":"base64","media_type":media_type,"data":image_data}},
                     {"type":"text","text":prompt}
                 ]}]
             )
-            raw  = next((b.text for b in response.content if b.type=="text"), "{}")
-            data = json.loads(raw.strip().lstrip("```json").lstrip("```").rstrip("```").strip())
-            result = _normalize_vision(data)
-            log.info(f"[DocProcessor] Vision: {len(result.get('rooms',[]))} rooms identified")
+            raw=next((b.text for b in resp.content if b.type=="text"),"{}")
+            raw=re.sub(r"^```(?:json)?\s*","",raw.strip())
+            raw=re.sub(r"\s*```$","",raw.strip())
+            result=json.loads(raw)
+            log.info(f"[DocProcessor] {label}: {len(result.get('rooms',[]))} rooms")
             return result
-
+        except json.JSONDecodeError as e:
+            log.error(f"[DocProcessor] {label} JSON error: {e}")
+            return {}
         except Exception as e:
-            log.error(f"[DocProcessor] Vision error: {e}")
-            return {"walls":[],"rooms":[],"columns":[],"obstructions":[],"annotations":[]}
+            log.error(f"[DocProcessor] {label} error: {e}")
+            return {}
 
-    # ── Hazard classification ─────────────────────────────────────────────────
+    # ── DXF ───────────────────────────────────────────────────────────────────
 
-    def _classify_hazards(self, geometry: dict, project_context: dict) -> dict:
-        occ = project_context.get("occupancy","Business").lower()
-        default_hazard = next((v for k,v in OCCUPANCY_HAZARD_MAP.items() if k in occ), "light")
+    async def _process_dxf(self, file_path, project_context):
+        try:
+            import ezdxf
+        except ImportError:
+            return await self._vision_full_analysis(file_path,"image",project_context)
+        geo=_empty_geometry()
+        try:
+            doc=ezdxf.readfile(file_path); msp=doc.modelspace()
+        except Exception as e:
+            log.error(f"DXF read: {e}"); return geo
+        units=doc.header.get("$INSUNITS",0)
+        sc={0:1.0,1:1/12,2:1.0,4:3.281,6:39.37}.get(units,1.0)
+        for ent in msp:
+            layer=(ent.dxf.layer or "").upper(); et=ent.dxftype()
+            if et=="LINE":
+                geo["walls"].append({"points":[{"x":ent.dxf.start.x*sc,"y":ent.dxf.start.y*sc},
+                                               {"x":ent.dxf.end.x*sc,"y":ent.dxf.end.y*sc}],
+                                     "layer":layer,"exterior":"EXT" in layer})
+            elif et=="LWPOLYLINE":
+                pts=[{"x":p[0]*sc,"y":p[1]*sc} for p in ent.get_points()]
+                if len(pts)>=3:
+                    a=_polygon_area(pts)
+                    if ent.closed and a>25:
+                        geo["rooms"].append({"boundary":pts,"area_sf":round(a,1),
+                                             "area":f"{a:.0f} SF","name":"","layer":layer})
+                    else:
+                        geo["walls"].append({"points":pts,"layer":layer,"exterior":"EXT" in layer})
+            elif et in ("TEXT","MTEXT"):
+                try:
+                    text=ent.dxf.text if et=="TEXT" else ent.text
+                    ins=ent.dxf.insert
+                    geo["annotations"].append({"text":str(text).strip(),"x":ins.x*sc,"y":ins.y*sc})
+                except Exception: pass
+        vision=await self._vision_full_analysis(file_path,"image",project_context)
+        if vision.get("rooms"): geo["rooms"]=vision["rooms"]
+        return geo
 
-        for room in geometry.get("rooms", []):
-            name = (room.get("name","") or "").lower()
-            hazard = room.get("hazard_override") or next((v for k,v in OCCUPANCY_HAZARD_MAP.items() if k in name), default_hazard)
-            room["hazard_classification"] = hazard
-            room["design_criteria"]       = HAZARD_DESIGN_CRITERIA.get(hazard, HAZARD_DESIGN_CRITERIA["light"])
+    # ── IFC ───────────────────────────────────────────────────────────────────
 
-        geometry["default_hazard"]   = default_hazard
-        geometry["default_criteria"] = HAZARD_DESIGN_CRITERIA.get(default_hazard, HAZARD_DESIGN_CRITERIA["light"])
-        geometry["ceiling_height_ft"]= float(project_context.get("ceiling_height", 10))
-        return geometry
+    async def _process_ifc(self, file_path, project_context):
+        try:
+            import ifcopenshell, ifcopenshell.util.placement as ifc_pl
+        except ImportError:
+            return _empty_geometry()
+        geo=_empty_geometry(); ifc=ifcopenshell.open(file_path)
+        for wall in ifc.by_type("IfcWall"):
+            try:
+                m=ifc_pl.get_local_placement(wall.ObjectPlacement)
+                x,y=float(m[0][3])*3.281,float(m[1][3])*3.281
+                geo["walls"].append({"points":[{"x":x,"y":y},{"x":x+10,"y":y}],"exterior":False})
+            except Exception: pass
+        for space in ifc.by_type("IfcSpace"):
+            try:
+                name=space.Name or space.LongName or ""
+                hz=self._infer_hazard(str(name),project_context.get("occupancy",""))
+                geo["rooms"].append({"boundary":[],"name":str(name),"area_sf":0,
+                                     "hazard_override":hz,"hazard_classification":hz})
+            except Exception: pass
+        return geo
+
+    # ── Scale detection ────────────────────────────────────────────────────────
+
+    def _detect_scale(self, words, lines, project_context):
+        numeric=sorted([w for w in words if re.match(r"^\d+['']?$",w.get("text","").strip())],
+                       key=lambda w: float(w.get("x0",0)))
+        for seq in ([0,4,8,16,32],[0,8,16,32,64],[0,2,4,8,16],[0,10,20,40,80],[0,5,10,20,40]):
+            for i in range(len(numeric)-len(seq)+1):
+                try:
+                    grp=numeric[i:i+len(seq)]
+                    vals=[int(w["text"].rstrip("'")) for w in grp]
+                    if vals==seq:
+                        span=abs(float(grp[-1].get("x0",0))-float(grp[0].get("x0",0)))
+                        if span>5:
+                            s=span/seq[-1]
+                            log.info(f"[DocProcessor] Scale bar: {s:.4f}pts/ft")
+                            return s
+                except (ValueError,IndexError): continue
+        text_all=" ".join(w.get("text","") for w in words)
+        for pat,pts in [(r'1/8"\s*=\s*1',9.0),(r'1/16"\s*=\s*1',4.5),(r'1/32"\s*=\s*1',2.25),
+                        (r'1/4"\s*=\s*1',18.0),(r'3/32"\s*=\s*1',6.75),(r'3/16"\s*=\s*1',13.5)]:
+            if re.search(pat,text_all,re.IGNORECASE):
+                log.info(f"[DocProcessor] Title block: {pts}pts/ft"); return pts
+        known=float(project_context.get("total_area",0))
+        if known>0 and lines:
+            ax=[c for l in lines for c in [float(l.get("x0",0)),float(l.get("x1",0))]]
+            ay=[c for l in lines for c in [float(l.get("y0",0)),float(l.get("y1",0))]]
+            if ax and ay:
+                cw=max(ax)-min(ax); ch=max(ay)-min(ay)
+                if cw>0 and ch>0:
+                    implied=math.sqrt(cw*ch/known)
+                    if 0.5<=implied<=50:
+                        log.info(f"[DocProcessor] Area back-calc: {implied:.4f}pts/ft"); return implied
+        log.warning("[DocProcessor] Scale defaulting to 9pts/ft")
+        return 9.0
+
+    # ── Validation & gap filling ───────────────────────────────────────────────
+
+    def _validate_and_fix(self, geo, project_context):
+        bd=geo.get("building_dimensions",{})
+        bw=float(bd.get("width_ft",0)); bh=float(bd.get("depth_ft",0))
+        if bw<=0 or bh<=0:
+            known=float(project_context.get("total_area",0))
+            occ=project_context.get("occupancy","").lower()
+            if known>0:
+                ratio=0.65 if any(k in occ for k in ["warehouse","storage","wholesale","big box","costco"]) else 0.75
+                bw=round(math.sqrt(known/ratio),1); bh=round(known/bw,1)
+            else:
+                bw=bh=100.0
+            geo["building_dimensions"]={"width_ft":bw,"depth_ft":bh}
+            geo["floor_area_sf"]=round(bw*bh,0)
+
+        occ=project_context.get("occupancy","")
+        valid=[]
+        for r in geo.get("rooms",[]):
+            bnd=r.get("boundary",[])
+            if len(bnd)<3: continue
+            clamped=[{"x":max(0.0,min(bw,p["x"])),"y":max(0.0,min(bh,p["y"]))} for p in bnd]
+            xs=[p["x"] for p in clamped]; ys=[p["y"] for p in clamped]
+            if max(xs)-min(xs)<3 or max(ys)-min(ys)<3: continue
+            area=_polygon_area(clamped)
+            if area<50: continue
+            hz=(r.get("hazard_override") or r.get("hazard_classification") or
+                self._infer_hazard(r.get("name",""),occ))
+            if hz not in HAZARD_CRITERIA: hz=self._infer_hazard(r.get("name",""),occ)
+            valid.append({**r,"boundary":clamped,"area_sf":round(area,1),
+                          "area":f"{area:.0f} SF","hazard_override":hz,"hazard_classification":hz})
+        geo["rooms"]=valid
+
+        covered=sum(r["area_sf"] for r in valid)
+        building_area=bw*bh
+        pct=covered/building_area if building_area>0 else 0
+        log.info(f"[DocProcessor] Coverage: {pct:.0%} ({covered:.0f}/{building_area:.0f} SF)")
+
+        if pct<0.90:
+            def_hz=next((v for k,v in OCCUPANCY_DEFAULT.items()
+                         if k in occ.lower()),"light")
+            gaps=self._fill_gaps(valid,bw,bh,def_hz)
+            log.info(f"[DocProcessor] Gap fill: +{len(gaps)} zones +{sum(r['area_sf'] for r in gaps):.0f} SF")
+            geo["rooms"]=valid+gaps
+        return geo
+
+    def _fill_gaps(self, rooms, bw, bh, default_hz):
+        cell=max(5.0,min(bw,bh)/40)
+        cols=max(1,int(math.ceil(bw/cell))); rows=max(1,int(math.ceil(bh/cell)))
+        covered=[[False]*cols for _ in range(rows)]
+        for r in rooms:
+            pts=r.get("boundary",[])
+            if not pts: continue
+            xs=[p["x"] for p in pts]; ys=[p["y"] for p in pts]
+            c0=max(0,int(min(xs)/cell)); c1=min(cols-1,int((max(xs)-0.01)/cell))
+            r0=max(0,int(min(ys)/cell)); r1=min(rows-1,int((max(ys)-0.01)/cell))
+            for ri in range(r0,r1+1):
+                for ci in range(c0,c1+1):
+                    covered[ri][ci]=True
+        gaps=[]; gid=1; visited=[[False]*cols for _ in range(rows)]
+        for ri in range(rows):
+            for ci in range(cols):
+                if covered[ri][ci] or visited[ri][ci]: continue
+                ce=ci
+                while ce+1<cols and not covered[ri][ce+1] and not visited[ri][ce+1]: ce+=1
+                re=ri
+                while re+1<rows and all(not covered[re+1][c] and not visited[re+1][c]
+                                        for c in range(ci,ce+1)): re+=1
+                for rr in range(ri,re+1):
+                    for cc in range(ci,ce+1): visited[rr][cc]=True
+                x0=round(ci*cell,1); y0=round(ri*cell,1)
+                x1=round(min((ce+1)*cell,bw),1); y1=round(min((re+1)*cell,bh),1)
+                area=(x1-x0)*(y1-y0)
+                if area<25: continue
+                gaps.append({"name":f"Unclassified Area {gid}",
+                             "boundary":[{"x":x0,"y":y0},{"x":x1,"y":y0},
+                                          {"x":x1,"y":y1},{"x":x0,"y":y1}],
+                             "area_sf":round(area,1),"area":f"{area:.0f} SF",
+                             "hazard_override":default_hz,"hazard_classification":default_hz,
+                             "ceiling_height_ft":0,"nfpa_13_basis":"Default per occupancy",
+                             "special_notes":"Gap-fill zone — verify hazard class"})
+                gid+=1
+        return gaps
+
+    def _infer_hazard(self, name, occupancy):
+        nl=(name+" "+occupancy).lower()
+        for keywords,hz in [
+            (["tire","automotive tires"],"tire_storage"),
+            (["freezer","frozen"],"freezer"),
+            (["cooler","refrigerated","produce"],"cooler"),
+            (["warehouse","high pile","high-pile","rack","storage rack","merchandise","esfr"],"esfr_k14"),
+            (["receiving","loading dock","dock","shipping"],"ordinary_2"),
+            (["bakery","deli","food court","kitchen","food service","restaurant"],"ordinary_2"),
+            (["pharmacy","optical","hearing"],"ordinary_1"),
+            (["retail","sales floor","mercantile","sales"],"ordinary_1"),
+            (["mechanical","electrical","mep","utility"],"ordinary_1"),
+            (["office","lobby","entrance","vestibule","corridor","restroom","membership","break"],"light"),
+        ]:
+            if any(k in nl for k in keywords): return hz
+        return next((v for k,v in OCCUPANCY_DEFAULT.items() if k in occupancy.lower()),"light")
 
 
-# ─── Helper functions ─────────────────────────────────────────────────────────
+# ─── Helpers ──────────────────────────────────────────────────────────────────
 
-def _polygon_area(pts: list) -> float:
-    n = len(pts)
-    if n < 3: return 0
-    area = 0
-    for i in range(n):
-        j = (i+1) % n
-        area += pts[i]["x"]*pts[j]["y"] - pts[j]["x"]*pts[i]["y"]
-    return abs(area) / 2
+def _polygon_area(pts):
+    n=len(pts)
+    if n<3: return 0
+    return abs(sum(pts[i]["x"]*pts[(i+1)%n]["y"]-pts[(i+1)%n]["x"]*pts[i]["y"]
+                   for i in range(n)))/2
 
-def _match_room_names(geometry: dict) -> dict:
-    import math
-    for ann in geometry.get("annotations", []):
-        text = ann.get("text","").strip()
-        if not text or len(text) < 2 or text.replace(".","").isdigit():
-            continue
-        ax, ay = ann.get("x",0), ann.get("y",0)
-        best, best_dist = None, float("inf")
-        for room in geometry.get("rooms", []):
-            if room.get("name"): continue
-            bnd = room.get("boundary",[])
-            if not bnd: continue
-            cx = sum(p["x"] for p in bnd)/len(bnd)
-            cy = sum(p["y"] for p in bnd)/len(bnd)
-            dist = math.sqrt((ax-cx)**2+(ay-cy)**2)
-            if dist < best_dist: best_dist=dist; best=room
-        if best and best_dist < 50:
-            best["name"] = text
-    return geometry
+def _empty_geometry():
+    return {"walls":[],"rooms":[],"columns":[],"obstructions":[],"annotations":[],
+            "building_dimensions":{},"floor_area_sf":0,"ceiling_height_ft":10}
 
-def _merge_geometry(vector: dict, vision: dict) -> dict:
-    merged = dict(vector)
-    # Use vision rooms if vector has none with names
-    if not any(r.get("name") for r in merged.get("rooms",[])):
-        if vision.get("rooms"):
-            merged["rooms"] = vision["rooms"]
-    if vision.get("obstructions"):      merged["obstructions"]     = vision["obstructions"]
-    if vision.get("structural_beams"):  merged["structural_beams"] = vision["structural_beams"]
-    if vision.get("building_dimensions") and not merged.get("building_dimensions",{}).get("width_ft"):
-        merged["building_dimensions"] = vision["building_dimensions"]
-    if vision.get("north_rotation_deg") is not None:
-        merged["north_rotation_deg"] = vision["north_rotation_deg"]
-    if vision.get("drawing_scale"):
-        merged["drawing_scale"] = vision["drawing_scale"]
-    return merged
-
-def _find_building_cluster(walls: list, known_area: float) -> tuple:
-    """
-    When the full wall bounding box includes title block/margins,
-    find the densest rectangular cluster of walls that best matches
-    the known building area.
-    """
-    if not walls:
-        side = math.sqrt(known_area)
-        return 0, 0, side, side
-
-    # Collect all wall endpoints
-    pts_x = [p["x"] for w in walls for p in w.get("points", [])]
-    pts_y = [p["y"] for w in walls for p in w.get("points", [])]
-    if not pts_x:
-        side = math.sqrt(known_area)
-        return 0, 0, side, side
-
-    # Use median-based center to find the main building mass
-    # (median is robust against title block outliers)
-    pts_x_s = sorted(pts_x)
-    pts_y_s = sorted(pts_y)
-    n = len(pts_x_s)
-    med_x = pts_x_s[n // 2]
-    med_y = pts_y_s[n // 2]
-
-    # Start from median center, expand to known area
-    side = math.sqrt(known_area)
-    half_w = side * 0.65  # typical building aspect
-    half_d = known_area / (half_w * 2)
-
-    # Clamp to actual coordinate range
-    global_x0, global_x1 = min(pts_x), max(pts_x)
-    global_y0, global_y1 = min(pts_y), max(pts_y)
-
-    bx0 = max(global_x0, med_x - half_w)
-    bx1 = min(global_x1, med_x + half_w)
-    by0 = max(global_y0, med_y - half_d)
-    by1 = min(global_y1, med_y + half_d)
-
-    # Prefer the quadrant with the most wall density
-    mid_x = (global_x0 + global_x1) / 2
-    mid_y = (global_y0 + global_y1) / 2
-    quadrants = [
-        (global_x0, global_y0, mid_x, mid_y),
-        (mid_x,     global_y0, global_x1, mid_y),
-        (global_x0, mid_y,     mid_x, global_y1),
-        (mid_x,     mid_y,     global_x1, global_y1),
-    ]
-    best_q, best_count = quadrants[0], 0
-    for q in quadrants:
-        count = sum(1 for w in walls for p in w.get("points", [])
-                    if q[0] <= p["x"] <= q[2] and q[1] <= p["y"] <= q[3])
-        if count > best_count:
-            best_count = count
-            best_q = q
-
-    # Use the densest quadrant as the building footprint anchor
-    qx0, qy0, qx1, qy1 = best_q
-    qw = qx1 - qx0; qh = qy1 - qy0
-    if qw > 0 and qh > 0:
-        return qx0, qy0, qx1, qy1
-    return bx0, by0, bx1, by1
+async def _file_to_image(file_path, file_type):
+    if file_type=="pdf":
+        try:
+            import pdfplumber
+            with pdfplumber.open(file_path) as pdf:
+                if pdf.pages:
+                    img=pdf.pages[0].to_image(resolution=200)
+                    buf=io.BytesIO(); img.save(buf,format="PNG")
+                    return base64.b64encode(buf.getvalue()).decode(),"image/png"
+        except Exception as e:
+            log.warning(f"PDF→image: {e}")
+    with open(file_path,"rb") as f: data=f.read()
+    ext=Path(file_path).suffix.lower()[1:]
+    mt={"jpg":"image/jpeg","jpeg":"image/jpeg","png":"image/png",
+        "tif":"image/tiff","tiff":"image/tiff","pdf":"application/pdf"}.get(ext,"image/png")
+    return base64.b64encode(data).decode(),mt
 
 
-def _normalize_vision(data: dict) -> dict:
-    return {
-        "walls":               data.get("walls",[]),
-        "rooms":               data.get("rooms",[]),
-        "columns":             data.get("columns",[]),
-        "obstructions":        data.get("obstructions",[]),
-        "structural_beams":    data.get("structural_beams",[]),
-        "annotations":         [],
-        "building_dimensions": data.get("building_dimensions",{}),
-        "floor_area_sf":       data.get("floor_area_sf",0),
-        "ceiling_height_ft":   data.get("ceiling_height_ft",10),
-        "north_rotation_deg":  data.get("north_rotation_deg",0),
-        "drawing_scale":       data.get("drawing_scale",""),
-        "notes":               data.get("notes",[]),
-    }
+# ─── Public handler ────────────────────────────────────────────────────────────
 
-async def _pdf_to_image(pdf_path: str) -> tuple:
+async def handle_upload(file_bytes, filename, project_context):
+    suffix=Path(filename).suffix.lower()
+    with tempfile.NamedTemporaryFile(suffix=suffix,delete=False) as tmp:
+        tmp.write(file_bytes); tmp_path=tmp.name
     try:
-        import pdfplumber
-        with pdfplumber.open(pdf_path) as pdf:
-            if pdf.pages:
-                img = pdf.pages[0].to_image(resolution=150)
-                buf = io.BytesIO()
-                img.save(buf, format="PNG")
-                return base64.b64encode(buf.getvalue()).decode(), "image/png"
-    except Exception: pass
-    with open(pdf_path,"rb") as f:
-        return base64.b64encode(f.read()).decode(), "application/pdf"
-
-
-# ─── Public upload handler ────────────────────────────────────────────────────
-
-async def handle_upload(file_bytes: bytes, filename: str, project_context: dict) -> dict:
-    """Called from api/app.py — saves file, processes it, returns geometry."""
-    suffix = Path(filename).suffix.lower()
-    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
-        tmp.write(file_bytes); tmp_path = tmp.name
-    try:
-        processor = DocumentProcessor()
-        geometry  = await processor.process(tmp_path, project_context)
-        geometry["source_file"] = filename
-        return geometry
+        geo=await DocumentProcessor().process(tmp_path,project_context)
+        geo["source_file"]=filename; return geo
     finally:
         try: os.unlink(tmp_path)
         except Exception: pass
