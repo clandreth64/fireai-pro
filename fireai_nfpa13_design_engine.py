@@ -72,11 +72,44 @@ def normalize_geometry(geo: dict, ctx: dict) -> dict:
     n["rooms"]=[{**r,"boundary":sp(r.get("boundary",[]))} for r in rooms]
     n["columns"]=[{**c,"x":round((c.get("x",0)-ox)*sc,2),"y":round((c.get("y",0)-oy)*sc,2)} for c in cols]
     n["_scale"]=sc
+
+    # Building footprint after scaling
+    bw_sc = (max(ax)-ox)*sc; bh_sc = (max(ay)-oy)*sc
+
+    # Recalculate room areas and clamp rooms to building boundary
+    valid_rooms = []
     for r in n["rooms"]:
         pts=r.get("boundary",[])
         if len(pts)>=3:
-            a=abs(sum(pts[i]["x"]*pts[(i+1)%len(pts)]["y"]-pts[(i+1)%len(pts)]["x"]*pts[i]["y"] for i in range(len(pts))))/2
-            r["area_sf"]=round(a,1); r["area"]=f"{a:.0f} SF"
+            # Clamp every point to building boundary
+            cpts = [{"x": max(0.0, min(bw_sc, p["x"])), "y": max(0.0, min(bh_sc, p["y"]))} for p in pts]
+            xs = [p["x"] for p in cpts]; ys = [p["y"] for p in cpts]
+            rw = max(xs)-min(xs); rh = max(ys)-min(ys)
+            if rw < 5 or rh < 5: continue  # room too small after clamping
+            a=abs(sum(cpts[i]["x"]*cpts[(i+1)%len(cpts)]["y"]-cpts[(i+1)%len(cpts)]["x"]*cpts[i]["y"] for i in range(len(cpts))))/2
+            r["boundary"]=cpts; r["area_sf"]=round(a,1); r["area"]=f"{a:.0f} SF"
+            valid_rooms.append(r)
+    n["rooms"] = valid_rooms
+
+    # If rooms came from vision and their total area is wildly off from building area,
+    # scale them to fit the building footprint
+    if n["rooms"] and bw_sc > 0 and bh_sc > 0:
+        room_xs = [p["x"] for r in n["rooms"] for p in r.get("boundary",[])]
+        room_ys = [p["y"] for r in n["rooms"] for p in r.get("boundary",[])]
+        if room_xs:
+            rm_w = max(room_xs)-min(room_xs); rm_h = max(room_ys)-min(room_ys)
+            if rm_w > 0 and rm_h > 0:
+                # If rooms span more than 2x the building or less than 0.1x, rescale
+                if rm_w > bw_sc*2 or rm_w < bw_sc*0.1 or rm_h > bh_sc*2 or rm_h < bh_sc*0.1:
+                    sx = bw_sc/rm_w; sy = bh_sc/rm_h
+                    log.info(f"[Geo] Rescaling vision rooms: x*{sx:.3f} y*{sy:.3f}")
+                    for r in n["rooms"]:
+                        r["boundary"] = [{"x":round(p["x"]*sx,2),"y":round(p["y"]*sy,2)} for p in r.get("boundary",[])]
+                        pts=r["boundary"]
+                        if len(pts)>=3:
+                            a=abs(sum(pts[i]["x"]*pts[(i+1)%len(pts)]["y"]-pts[(i+1)%len(pts)]["x"]*pts[i]["y"] for i in range(len(pts))))/2
+                            r["area_sf"]=round(a,1); r["area"]=f"{a:.0f} SF"
+
     return n
 
 
@@ -224,12 +257,19 @@ class NFPA13DesignEngine:
                 hz=r.get("hazard_override") or r.get("hazard_classification") or next((v for k,v in ZONE_MAP.items() if k in nl),self.def_hz)
                 c=HAZARD_CRITERIA.get(hz,HAZARD_CRITERIA["esfr_k14"])
                 pts=r["boundary"]; xs=[p["x"] for p in pts]; ys=[p["y"] for p in pts]
-                zones.append({"name":n,"hazard":hz,"criteria":c,"bounds":(min(xs),min(ys),max(xs),max(ys)),"area_sf":r.get("area_sf",0),"room":r})
-            return zones
+                # Clamp zone bounds to actual building footprint
+                zx0=max(0.0, min(xs)); zy0=max(0.0, min(ys))
+                zx1=min(self.bw, max(xs)); zy1=min(self.bd, max(ys))
+                if zx1-zx0 < 5 or zy1-zy0 < 5: continue  # skip degenerate zones
+                zones.append({"name":n,"hazard":hz,"criteria":c,"bounds":(zx0,zy0,zx1,zy1),"area_sf":r.get("area_sf",0),"room":r})
+            if zones:
+                return zones
+        # No valid rooms — use full building footprint as single zone
         return [{"name":"Building","hazard":self.def_hz,"criteria":HAZARD_CRITERIA.get(self.def_hz,HAZARD_CRITERIA["light"]),"bounds":(0,0,self.bw,self.bd),"area_sf":self.fa,"room":None}]
 
     def _sprinklers(self, zones: list) -> list:
         sp=[]; sid=1
+        bw,bd=self.bw,self.bd  # building footprint — hard clamp boundary
         for z in zones:
             c=z["criteria"]; ms=c["max_spacing"]; mc=c["max_coverage"]; k=c["k"]
             st=c["type"]; mp=c["min_psi"]; is_e=c["esfr"]; in_r=c["in_rack"]
@@ -237,9 +277,15 @@ class NFPA13DesignEngine:
             temp=286 if self.ch>30 else (175 if self.ch>20 else 155)
             if is_e: mp=max(mp,50.0)
             x0,y0,x1,y1=z["bounds"]
+            # Clamp zone bounds to building footprint — CRITICAL: prevents heads outside building
+            x0=max(0.0,x0); y0=max(0.0,y0)
+            x1=min(bw,x1);  y1=min(bd,y1)
             if x1-x0<1 or y1-y0<1: continue
             for y in self._gp(y0,y1,wo,grid):
                 for x in self._gp(x0,x1,wo,grid):
+                    # Hard clamp: sprinkler must be strictly inside building boundary
+                    if not (0.0 <= x <= bw and 0.0 <= y <= bd):
+                        continue
                     sp.append({"id":f"S{sid:04d}","x":round(x,2),"y":round(y,2),"elevation":self.ch,
                                "type":st,"zone":z["name"][:8],"zone_hazard":z["hazard"],
                                "coverage_radius":round(grid/2,2),"k_factor":k,"temp_rating":temp,
@@ -250,6 +296,8 @@ class NFPA13DesignEngine:
                     if lv>=self.ch-3: break
                     for y in self._gp(y0,y1,4.0,8.0):
                         for x in self._gp(x0,x1,4.0,8.0):
+                            if not (0.0 <= x <= bw and 0.0 <= y <= bd):
+                                continue
                             sp.append({"id":f"R{sid:04d}","x":round(x,2),"y":round(y,2),"elevation":lv,
                                        "type":"upright","zone":z["name"][:8],"zone_hazard":z["hazard"],
                                        "coverage_radius":4.0,"k_factor":5.6,"temp_rating":165,
