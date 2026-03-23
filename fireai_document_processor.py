@@ -113,12 +113,40 @@ class DocumentProcessor:
                     })
 
                 # Step 3: Find building boundary from exterior (thick) walls
+                # Priority: thick exterior walls → any long walls → all walls → page
                 ext = [w for w in walls if w["exterior"] and w["length_ft"] > 30]
+                if not ext:
+                    # Try any wall longer than 20ft
+                    ext = [w for w in walls if w["length_ft"] > 20]
+                if not ext:
+                    ext = walls  # fall back to all walls
+
                 if ext:
                     all_x = [p["x"] for w in ext for p in w["points"]]
                     all_y = [p["y"] for w in ext for p in w["points"]]
-                    bx0, by0 = min(all_x), min(all_y)
-                    bx1, by1 = max(all_x), max(all_y)
+                    raw_bx0, raw_by0 = min(all_x), min(all_y)
+                    raw_bx1, raw_by1 = max(all_x), max(all_y)
+
+                    # Sanity check: if building area matches known total_area within 40%,
+                    # trust it. Otherwise use known total_area to set boundary.
+                    bw_raw = raw_bx1 - raw_bx0
+                    bh_raw = raw_by1 - raw_by0
+                    area_raw = bw_raw * bh_raw
+                    known_area = float(project_context.get("total_area", 0))
+
+                    if known_area > 0 and area_raw > 0:
+                        ratio = area_raw / known_area
+                        if 0.5 <= ratio <= 2.0:
+                            # Good match — trust the wall boundary
+                            bx0, by0, bx1, by1 = raw_bx0, raw_by0, raw_bx1, raw_by1
+                        else:
+                            # Wall boundary is wrong (title block, margins, etc.)
+                            # Find the densest cluster of walls — that's the building
+                            bx0, by0, bx1, by1 = _find_building_cluster(walls, known_area)
+                            log.info(f"[DocProcessor] Wall boundary mismatch "
+                                     f"(ratio={ratio:.1f}x) — using density cluster")
+                    else:
+                        bx0, by0, bx1, by1 = raw_bx0, raw_by0, raw_bx1, raw_by1
                 else:
                     bx0, by0 = 0, 0
                     bx1, by1 = ft(page.width), ft(page.height)
@@ -127,7 +155,7 @@ class DocumentProcessor:
                 bh = by1 - by0
                 log.info(f"[DocProcessor] Building boundary: {bw:.0f}ft × {bh:.0f}ft = {bw*bh:.0f} SF")
 
-                # Step 4: Extract rooms from large closed rectangles
+                # Step 4: Extract rooms from large closed rectangles WITHIN building boundary
                 rooms = []
                 for r in rects:
                     rx0, ry0 = ft(r["x0"]), ft(r["y0"])
@@ -137,12 +165,18 @@ class DocumentProcessor:
                     if area < 200:
                         continue
                     cx, cy = (rx0+rx1)/2, (ry0+ry1)/2
-                    if bx0-20 <= cx <= bx1+20 and by0-20 <= cy <= by1+20:
+                    # Only include rooms whose center is inside (or very close to) building boundary
+                    if bx0-5 <= cx <= bx1+5 and by0-5 <= cy <= by1+5:
+                        # Clamp room corners to building boundary
+                        crx0 = max(rx0, bx0); cry0 = max(ry0, by0)
+                        crx1 = min(rx1, bx1); cry1 = min(ry1, by1)
+                        if crx1 - crx0 < 10 or cry1 - cry0 < 10:
+                            continue
                         rooms.append({
-                            "boundary": [{"x":rx0,"y":ry0},{"x":rx1,"y":ry0},
-                                         {"x":rx1,"y":ry1},{"x":rx0,"y":ry1}],
-                            "area_sf":  round(area, 1),
-                            "area":     f"{area:.0f} SF",
+                            "boundary": [{"x":crx0,"y":cry0},{"x":crx1,"y":cry0},
+                                         {"x":crx1,"y":cry1},{"x":crx0,"y":cry1}],
+                            "area_sf":  round((crx1-crx0)*(cry1-cry0), 1),
+                            "area":     f"{(crx1-crx0)*(cry1-cry0):.0f} SF",
                             "name":     "",
                         })
 
@@ -452,6 +486,70 @@ def _merge_geometry(vector: dict, vision: dict) -> dict:
     if vision.get("drawing_scale"):
         merged["drawing_scale"] = vision["drawing_scale"]
     return merged
+
+def _find_building_cluster(walls: list, known_area: float) -> tuple:
+    """
+    When the full wall bounding box includes title block/margins,
+    find the densest rectangular cluster of walls that best matches
+    the known building area.
+    """
+    if not walls:
+        side = math.sqrt(known_area)
+        return 0, 0, side, side
+
+    # Collect all wall endpoints
+    pts_x = [p["x"] for w in walls for p in w.get("points", [])]
+    pts_y = [p["y"] for w in walls for p in w.get("points", [])]
+    if not pts_x:
+        side = math.sqrt(known_area)
+        return 0, 0, side, side
+
+    # Use median-based center to find the main building mass
+    # (median is robust against title block outliers)
+    pts_x_s = sorted(pts_x)
+    pts_y_s = sorted(pts_y)
+    n = len(pts_x_s)
+    med_x = pts_x_s[n // 2]
+    med_y = pts_y_s[n // 2]
+
+    # Start from median center, expand to known area
+    side = math.sqrt(known_area)
+    half_w = side * 0.65  # typical building aspect
+    half_d = known_area / (half_w * 2)
+
+    # Clamp to actual coordinate range
+    global_x0, global_x1 = min(pts_x), max(pts_x)
+    global_y0, global_y1 = min(pts_y), max(pts_y)
+
+    bx0 = max(global_x0, med_x - half_w)
+    bx1 = min(global_x1, med_x + half_w)
+    by0 = max(global_y0, med_y - half_d)
+    by1 = min(global_y1, med_y + half_d)
+
+    # Prefer the quadrant with the most wall density
+    mid_x = (global_x0 + global_x1) / 2
+    mid_y = (global_y0 + global_y1) / 2
+    quadrants = [
+        (global_x0, global_y0, mid_x, mid_y),
+        (mid_x,     global_y0, global_x1, mid_y),
+        (global_x0, mid_y,     mid_x, global_y1),
+        (mid_x,     mid_y,     global_x1, global_y1),
+    ]
+    best_q, best_count = quadrants[0], 0
+    for q in quadrants:
+        count = sum(1 for w in walls for p in w.get("points", [])
+                    if q[0] <= p["x"] <= q[2] and q[1] <= p["y"] <= q[3])
+        if count > best_count:
+            best_count = count
+            best_q = q
+
+    # Use the densest quadrant as the building footprint anchor
+    qx0, qy0, qx1, qy1 = best_q
+    qw = qx1 - qx0; qh = qy1 - qy0
+    if qw > 0 and qh > 0:
+        return qx0, qy0, qx1, qy1
+    return bx0, by0, bx1, by1
+
 
 def _normalize_vision(data: dict) -> dict:
     return {
