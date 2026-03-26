@@ -23,6 +23,7 @@ from fastapi import FastAPI, HTTPException, BackgroundTasks, UploadFile, File, F
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from typing import List, Optional
 
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -30,6 +31,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from fireai_orchestrator_v2      import FireAIOrchestrator
 from fireai_drawing_engine       import FireAIDrawingEngine
 from fireai_document_processor   import handle_upload
+from fireai_document_intelligence import handle_document_set
 from fireai_nfpa13_design_engine import NFPA13DesignEngine
 from fireai_schemas.job_models   import GenerateRequest, JobStatus, JobResult
 
@@ -269,37 +271,81 @@ async def generate(request: GenerateRequest, background_tasks: BackgroundTasks):
 @app.post("/api/generate/upload", status_code=202)
 async def generate_upload(
     background_tasks: BackgroundTasks,
-    file:             UploadFile = File(...),
+    files:            List[UploadFile] = File(...),
     project_context:  str = Form(...),
     selected_sheets:  str = Form("[]"),
     selected_formats: str = Form("[]"),
 ):
-    """Queue a design job — multipart file upload (used by the UI)."""
+    """
+    Queue a design job from a full construction document set.
+    Accepts one or more files (floor plans, structural, mechanical, specs, etc.)
+    FireAI Pro will classify each document and extract all relevant data.
+    """
     job_id  = str(uuid.uuid4())[:8].upper()
     ctx     = json.loads(project_context)
     sheets  = json.loads(selected_sheets)
     formats = json.loads(selected_formats)
+
+    file_names = [f.filename for f in files]
+    log.info(f"[{job_id}] Received {len(files)} document(s): {', '.join(file_names)}")
+
     _set_job(job_id, status="queued", stage="queued",
-             message="Processing uploaded document...",
-             project=ctx.get("project_name","Unnamed"))
+             message=f"Received {len(files)} document(s) — analyzing...",
+             project=ctx.get("project_name", "Unnamed"),
+             document_count=len(files))
 
-    file_bytes = await file.read()
-    filename   = file.filename or "upload.pdf"
+    # Read all file bytes before the background task runs
+    file_list = []
+    for f in files:
+        file_bytes = await f.read()
+        file_list.append({"bytes": file_bytes, "filename": f.filename or "upload.pdf"})
 
-    async def run_with_upload():
+    async def run_with_documents():
         try:
-            _set_job(job_id, message="Extracting geometry from construction documents...")
-            geometry = await handle_upload(file_bytes, filename, ctx)
-            log.info(f"[{job_id}] Extracted {len(geometry.get('rooms',[]))} rooms, "
-                     f"{len(geometry.get('walls',[]))} walls")
-            await _run_job(job_id, ctx, sheets, formats, geometry)
-        except Exception as e:
-            log.exception(f"[{job_id}] Upload failed: {e}")
-            await _run_job(job_id, ctx, sheets, formats, {})
+            if len(file_list) == 1:
+                # Single file: use existing document processor (faster)
+                _set_job(job_id, stage="doc_analysis",
+                         message="Analyzing construction document...")
+                geometry = await handle_upload(
+                    file_list[0]["bytes"], file_list[0]["filename"], ctx)
+                log.info(f"[{job_id}] Single doc: "
+                         f"{len(geometry.get('rooms',[]))} rooms, "
+                         f"{len(geometry.get('walls',[]))} walls")
+            else:
+                # Multiple files: full document intelligence pipeline
+                _set_job(job_id, stage="doc_analysis",
+                         message=f"Classifying {len(file_list)} documents...")
+                geometry = await handle_document_set(file_list, ctx)
+                log.info(f"[{job_id}] Doc set ({len(file_list)} files): "
+                         f"{len(geometry.get('rooms',[]))} rooms, "
+                         f"{len(geometry.get('obstructions',[]))} obstructions, "
+                         f"water supply {geometry.get('water_supply',{}).get('static_pressure_psi',0):.0f} psi")
 
-    background_tasks.add_task(run_with_upload)
-    log.info(f"[{job_id}] Queued (upload) — {ctx.get('project_name')} — {filename}")
-    return {"job_id": job_id, "status": "queued", "poll_url": f"/api/jobs/{job_id}"}
+                # Push synthesized water supply back to context
+                ws = geometry.get("water_supply", {})
+                if ws.get("static_pressure_psi"):
+                    ctx["static_pressure"]  = ws["static_pressure_psi"]
+                if ws.get("residual_pressure_psi"):
+                    ctx["residual_pressure"] = ws["residual_pressure_psi"]
+                if ws.get("flow_gpm"):
+                    ctx["water_supply_flow"] = ws["flow_gpm"]
+                if geometry.get("spec", {}).get("pipe_material"):
+                    ctx["pipe_material"] = geometry["spec"]["pipe_material"]
+                if geometry.get("spec", {}).get("seismic_zone"):
+                    ctx["seismic_zone"] = geometry["spec"]["seismic_zone"]
+
+            await _run_job(job_id, ctx, sheets, formats, geometry)
+
+        except Exception as e:
+            log.exception(f"[{job_id}] Document processing failed: {e}")
+            _set_job(job_id, status="failed", stage="error", message=str(e),
+                     completed_at=datetime.utcnow().isoformat())
+
+    background_tasks.add_task(run_with_documents)
+    log.info(f"[{job_id}] Queued — {ctx.get('project_name')} — {len(files)} file(s)")
+    return {"job_id": job_id, "status": "queued",
+            "poll_url": f"/api/jobs/{job_id}",
+            "document_count": len(files)}
 
 
 @app.get("/api/jobs/{job_id}")
