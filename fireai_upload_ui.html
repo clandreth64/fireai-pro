@@ -436,7 +436,8 @@ async function runDesign() {
 
     }
 
-    const resp = await fetch(API + '/api/generate', { method: 'POST', headers, body });
+    const endpoint = uploadedFiles.length > 0 ? '/api/generate/upload' : '/api/generate';
+    const resp = await fetch(API + endpoint, { method: 'POST', headers, body });
     const data = await resp.json();
     currentJobId = data.job_id;
 
