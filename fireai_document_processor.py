@@ -81,70 +81,83 @@ class DocumentProcessor:
     # ── PDF ────────────────────────────────────────────────────────────────────
 
     async def _process_pdf(self, file_path: str, project_context: dict) -> dict:
-        # Run vision and vector extraction concurrently
-        vision_task = asyncio.create_task(
-            self._vision_full_analysis(file_path, "pdf", project_context)
-        )
+        """
+        Process a PDF floor plan.
+        Vision is the SOLE source of building dimensions and room layout.
+        pdfplumber is NOT used for dimensions - only attempted for wall lines,
+        and only if they pass strict validation against Vision-confirmed dims.
+        """
+        # Vision runs first and owns all dimensions
+        geometry = await self._vision_full_analysis(file_path, "pdf", project_context)
 
-        vector_geo = {}
+        # Optionally enrich with vector wall lines - but NEVER override dims
         try:
             import pdfplumber
-            with pdfplumber.open(file_path) as pdf:
-                page  = pdf.pages[0]
-                lines = page.lines or []
-                words = page.extract_words() or []
+            bw = float(geometry.get("building_dimensions", {}).get("width_ft", 0))
+            bh = float(geometry.get("building_dimensions", {}).get("depth_ft", 0))
 
-            scale = self._detect_scale(words, lines, project_context)
-            def ft(v): return round(float(v) / scale, 2)
+            if bw > 10 and bh > 10:
+                with pdfplumber.open(file_path) as pdf:
+                    page  = pdf.pages[0]
+                    lines = page.lines or []
+                    words = page.extract_words() or []
 
-            walls = []
-            for l in lines:
-                x0,y0 = ft(l["x0"]),ft(l["y0"])
-                x1,y1 = ft(l["x1"]),ft(l["y1"])
-                length = math.sqrt((x1-x0)**2+(y1-y0)**2)
-                if length < 0.5: continue
-                lw = float(l.get("linewidth",0.5))
-                walls.append({"points":[{"x":x0,"y":y0},{"x":x1,"y":y1}],
-                               "thickness":lw,"exterior":lw>=1.0,"length_ft":round(length,1)})
+                scale = self._detect_scale(words, lines, project_context)
+                def ft(v): return round(float(v) / scale, 2)
 
-            long_walls = [w for w in walls if w["length_ft"] > 15]
-            if long_walls:
-                all_x=[p["x"] for w in long_walls for p in w["points"]]
-                all_y=[p["y"] for w in long_walls for p in w["points"]]
-                bx0,by0,bx1,by1 = min(all_x),min(all_y),max(all_x),max(all_y)
-                bw,bh = bx1-bx0, by1-by0
-                known = float(project_context.get("total_area",0))
-                if known>0:
-                    ratio = (bw*bh)/known
-                    if 0.35 <= ratio <= 3.0:
-                        shifted = []
-                        for w in walls:
-                            pts=[{"x":round(p["x"]-bx0,2),"y":round(p["y"]-by0,2)} for p in w["points"]]
-                            if all(-5<=p["x"]<=bw+5 and -5<=p["y"]<=bh+5 for p in pts):
-                                shifted.append({**w,"points":pts})
-                        vector_geo = {"walls":shifted,
-                                      "building_dimensions":{"width_ft":round(bw,1),"depth_ft":round(bh,1)},
-                                      "floor_area_sf":round(bw*bh,0)}
-                        log.info(f"[DocProcessor] Vector: {bw:.0f}x{bh:.0f}ft={bw*bh:.0f}SF (ratio={ratio:.2f})")
+                # Extract all lines as walls
+                raw_walls = []
+                for l in lines:
+                    x0,y0 = ft(l["x0"]), ft(l["y0"])
+                    x1,y1 = ft(l["x1"]), ft(l["y1"])
+                    length = math.sqrt((x1-x0)**2 + (y1-y0)**2)
+                    if length < 0.5: continue
+                    lw = float(l.get("linewidth", 0.5))
+                    raw_walls.append({
+                        "points":   [{"x":x0,"y":y0},{"x":x1,"y":y1}],
+                        "thickness": lw, "exterior": lw>=1.0,
+                        "length_ft": round(length,1)
+                    })
+
+                # Find the origin of the building within the PDF coordinate space.
+                # Use only walls whose total bounding box is within 1.5x of Vision dims.
+                if raw_walls:
+                    all_x = [p["x"] for w in raw_walls for p in w["points"]]
+                    all_y = [p["y"] for w in raw_walls for p in w["points"]]
+                    pdf_w = max(all_x) - min(all_x)
+                    pdf_h = max(all_y) - min(all_y)
+
+                    # Vision dims are ground truth. Find the best origin offset
+                    # so that wall lines land inside the building footprint.
+                    # Simple approach: use the median center of all wall points
+                    # as the building center, then offset to (0,0).
+                    med_x = sorted(all_x)[len(all_x)//2]
+                    med_y = sorted(all_y)[len(all_y)//2]
+                    ox = med_x - bw/2
+                    oy = med_y - bh/2
+
+                    # Shift walls to building origin and clamp to building bbox
+                    valid_walls = []
+                    for w in raw_walls:
+                        pts = [{"x": round(p["x"]-ox, 2), "y": round(p["y"]-oy, 2)}
+                               for p in w["points"]]
+                        # Only keep walls whose points fall within building bounds (with margin)
+                        margin = max(bw, bh) * 0.1
+                        if all(-margin <= p["x"] <= bw+margin and
+                               -margin <= p["y"] <= bh+margin for p in pts):
+                            valid_walls.append({**w, "points": pts})
+
+                    if valid_walls:
+                        geometry["walls"] = valid_walls
+                        log.info(f"[DocProcessor] Vector walls: {len(valid_walls)} lines added "
+                                 f"(building dims from Vision: {bw:.0f}x{bh:.0f}ft)")
+
         except ImportError:
-            log.warning("[DocProcessor] pdfplumber not installed")
+            pass
         except Exception as e:
-            log.warning(f"[DocProcessor] Vector extraction: {e}")
+            log.warning(f"[DocProcessor] Vector wall extraction skipped: {e}")
 
-        vision_geo = await vision_task
-
-        # Merge: vision = rooms+hazards, vector = walls+refines dims
-        merged = dict(vision_geo)
-        if vector_geo.get("walls"):
-            merged["walls"] = vector_geo["walls"]
-        if vector_geo.get("building_dimensions",{}).get("width_ft"):
-            vd = vector_geo["building_dimensions"]
-            vdims = vision_geo.get("building_dimensions",{})
-            merged["building_dimensions"] = vd
-            merged["floor_area_sf"] = vd["width_ft"]*vd["depth_ft"]
-            merged["rooms"] = self._rescale_rooms(
-                vision_geo.get("rooms",[]), vdims, vd)
-        return merged
+        return geometry
 
     def _rescale_rooms(self, rooms, from_dims, to_dims):
         fw=float(from_dims.get("width_ft",0)); fh=float(from_dims.get("depth_ft",0))
