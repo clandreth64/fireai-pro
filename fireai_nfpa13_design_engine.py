@@ -460,95 +460,79 @@ class NFPA13DesignEngine:
 
     def _place_sprinklers(self, zones: list) -> list:
         """
-        Place sprinklers on a code-compliant grid within each zone.
-        §8.5: Max spacing = sqrt(max_coverage), max distance between heads
-        §8.6: Obstruction rules
-        §8.3: Min 18" clearance below deflector
-        Hard clamp: every head must be within (0,bw) x (0,bd)
+        Place sprinklers room-by-room per NFPA 13.
+        §3.3.206 Small Room Rule: rooms ≤800 SF light hazard = 1 head centered
+        §8.5: Max coverage area and spacing per hazard
+        Hard clamp: every head within building boundary
         """
         sp = []; sid = 1
         for z in zones:
-            c   = z["criteria"]
-            ms  = c["max_spacing"]     # max spacing between heads (ft)
-            mc  = c["max_coverage"]    # max area per head (sqft)
-            k   = c["k"]
-            st  = c["type"]
-            mp  = c["min_psi"]
-            is_e= c["esfr"]
-            in_r= c["in_rack"]
-
-            # Most economical grid: use max allowable spacing
-            grid = min(ms, math.sqrt(mc))
-            grid = round(grid * 2) / 2   # round to nearest 0.5ft
-            wo   = max(min(grid/2, ms/2), 0.5)  # wall offset (§8.5.4)
-
-            # Temperature rating per ceiling height (§6.2.4 Table 6.2.4.1)
-            temp = 286 if self.ch > 30 else (175 if self.ch > 20 else 155)
-            if is_e: mp = max(mp, 50.0)
+            c    = z["criteria"]
+            ms   = c["max_spacing"]; mc = c["max_coverage"]
+            k    = c["k"]; st = c["type"]; mp = c["min_psi"]
+            is_e = c["esfr"]; in_r = c["in_rack"]
 
             x0,y0,x1,y1 = z["bounds"]
-            # Hard clamp to building
-            x0=max(0.0,x0); y0=max(0.0,y0); x1=min(self.bw,x1); y1=min(self.bd,y1)
-            if x1-x0 < 1 or y1-y0 < 1: continue
+            x0=max(0.0,x0); y0=max(0.0,y0)
+            x1=min(self.bw,x1); y1=min(self.bd,y1)
+            if x1-x0 < 0.5 or y1-y0 < 0.5: continue
 
-            # Ceiling sprinklers
+            room_ch = float((z.get("room") or {}).get("ceiling_height_ft") or self.ch)
+            if room_ch <= 0: room_ch = self.ch
+            temp = 286 if room_ch > 30 else (175 if room_ch > 20 else 155)
+            if is_e: mp = max(mp, 50.0)
+            zone_area = (x1-x0)*(y1-y0)
+
+            is_small = (zone_area <= 800 and z["hazard"] == "light" and
+                        (z.get("room") or {}).get("small_room_rule", False))
+            is_tiny  = zone_area <= 150
+
+            if is_small or is_tiny:
+                cx = round((x0+x1)/2, 2); cy = round((y0+y1)/2, 2)
+                if 0.0 <= cx <= self.bw and 0.0 <= cy <= self.bd:
+                    sp.append({"id":f"S{sid:05d}","x":cx,"y":cy,"elevation":room_ch,
+                               "type":st,"zone":z["name"][:15],"zone_hazard":z["hazard"],
+                               "coverage_radius":round(math.sqrt(zone_area)/2,2),
+                               "coverage_area":round(zone_area,1),"k_factor":k,
+                               "temp_rating":temp,"min_pressure":mp,
+                               "hazard":z["hazard"].replace("_"," ").title(),
+                               "room":z["name"],"nfpa_ref":"§3.3.206 Small Room",
+                               "is_esfr":is_e,"small_room_rule":True})
+                    sid += 1
+                continue
+
+            grid = min(ms, math.sqrt(mc)); grid = round(grid*2)/2
+            wo   = max(min(grid/2, ms/2), 0.5)
             for y in self._grid_points(y0, y1, wo, grid):
                 for x in self._grid_points(x0, x1, wo, grid):
-                    if not (0.0 <= x <= self.bw and 0.0 <= y <= self.bd): continue
-                    sp.append({
-                        "id":              f"S{sid:05d}",
-                        "x":               round(x,2),
-                        "y":               round(y,2),
-                        "elevation":       self.ch,
-                        "type":            st,
-                        "zone":            z["name"][:15],
-                        "zone_hazard":     z["hazard"],
-                        "coverage_radius": round(grid/2, 2),
-                        "coverage_area":   round(grid*grid, 1),
-                        "k_factor":        k,
-                        "temp_rating":     temp,
-                        "min_pressure":    mp,
-                        "hazard":          z["hazard"].replace("_"," ").title(),
-                        "room":            z["name"],
-                        "nfpa_ref":        "§22.1" if is_e else "§8.5",
-                        "is_esfr":         is_e,
-                    })
+                    if not (0.0<=x<=self.bw and 0.0<=y<=self.bd): continue
+                    sp.append({"id":f"S{sid:05d}","x":round(x,2),"y":round(y,2),
+                               "elevation":room_ch,"type":st,"zone":z["name"][:15],
+                               "zone_hazard":z["hazard"],"coverage_radius":round(grid/2,2),
+                               "coverage_area":round(grid*grid,1),"k_factor":k,
+                               "temp_rating":temp,"min_pressure":mp,
+                               "hazard":z["hazard"].replace("_"," ").title(),
+                               "room":z["name"],"nfpa_ref":"§22.1" if is_e else "§8.5",
+                               "is_esfr":is_e})
                     sid += 1
 
-            # In-rack sprinklers for rack storage zones (§12)
-            if in_r and z["area_sf"] > 500:
-                rack_levels = []
+            if in_r and zone_area > 500:
                 for lv in [6.0, 12.0, 18.0]:
-                    if lv < self.ch - 3:
-                        rack_levels.append(lv)
-                for lv in rack_levels:
-                    for y in self._grid_points(y0, y1, 4.0, 8.0):
-                        for x in self._grid_points(x0, x1, 4.0, 8.0):
-                            if not (0.0 <= x <= self.bw and 0.0 <= y <= self.bd): continue
-                            sp.append({
-                                "id":           f"R{sid:05d}",
-                                "x":            round(x,2),
-                                "y":            round(y,2),
-                                "elevation":    lv,
-                                "type":         "upright",
-                                "zone":         z["name"][:15],
-                                "zone_hazard":  z["hazard"],
-                                "coverage_radius":4.0,
-                                "coverage_area":64.0,
-                                "k_factor":     5.6,
-                                "temp_rating":  165,
-                                "min_pressure": 7.0,
-                                "hazard":       "In-Rack",
-                                "room":         z["name"],
-                                "nfpa_ref":     "§12",
-                                "in_rack":      True,
-                                "rack_level_ft":lv,
-                            })
+                    if lv >= room_ch-3: break
+                    for y in self._grid_points(y0,y1,4.0,8.0):
+                        for x in self._grid_points(x0,x1,4.0,8.0):
+                            if not (0.0<=x<=self.bw and 0.0<=y<=self.bd): continue
+                            sp.append({"id":f"R{sid:05d}","x":round(x,2),"y":round(y,2),
+                                       "elevation":lv,"type":"upright","zone":z["name"][:15],
+                                       "zone_hazard":z["hazard"],"coverage_radius":4.0,
+                                       "coverage_area":64.0,"k_factor":5.6,"temp_rating":165,
+                                       "min_pressure":7.0,"hazard":"In-Rack","room":z["name"],
+                                       "nfpa_ref":"§12","in_rack":True,"rack_level_ft":lv})
                             sid += 1
 
-        ceiling = len([s for s in sp if not s.get("in_rack")])
-        rack    = len([s for s in sp if s.get("in_rack")])
-        log.info(f"[DE] Placed {len(sp)} sprinklers ({ceiling} ceiling + {rack} in-rack)")
+        ceiling=len([s for s in sp if not s.get("in_rack")])
+        rack=len([s for s in sp if s.get("in_rack")])
+        log.info(f"[DE] Placed {len(sp)} sprinklers ({ceiling} ceiling + {rack} in-rack) across {len(zones)} zones")
         return sp
 
     def _grid_points(self, start, end, offset, spacing) -> list:
