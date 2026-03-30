@@ -195,16 +195,19 @@ Project: {proj_name} | Occupancy: {occupancy} | Known area: {known_area} SF
 
 Return ONLY JSON:
 {{
-  "document_type": "floor_plan|site_plan|elevation|section|detail|schedule|other",
-  "is_floor_plan": true_or_false,
+  "document_type": "floor_plan|fire_protection|rcp|structural|mechanical|site_plan|detail|schedule|other",
+  "is_usable_for_sprinkler_design": true_or_false,
   "building_width_ft": number_or_0,
   "building_depth_ft": number_or_0,
-  "drawing_scale": "e.g. 1/8=1-0 or unknown",
+  "drawing_scale": "e.g. 1/4=1-0 or 1/8=1-0 or unknown",
   "observations": "brief description of what you see"
-}}""", "Pass1")
+}}
 
-        if not p1.get("is_floor_plan", True):
-            log.warning(f"[DocProcessor] Not a floor plan: {p1.get('document_type')}")
+NOTE: Both architectural floor plans AND fire protection drawings contain building geometry.
+Set is_usable_for_sprinkler_design=true for: floor_plan, fire_protection, rcp, structural.""", "Pass1")
+
+        if not p1.get("is_usable_for_sprinkler_design", True):
+            log.warning(f"[DocProcessor] Not usable: {p1.get('document_type')}")
             return _empty_geometry()
 
         bw = float(p1.get("building_width_ft",0))
@@ -219,53 +222,63 @@ Return ONLY JSON:
                 bw=bh=100.0
         log.info(f"[DocProcessor] Building dims: {bw}x{bh}ft = {bw*bh:.0f} SF")
 
-        # Pass 2: Complete hazard zone inventory
-        p2 = await self._vision_call(image_data, media_type, f"""You are an NFPA 13 fire sprinkler engineer.
+        # Pass 2: Complete room-by-room hazard zone inventory
+        doc_type = p1.get("document_type", "floor_plan")
+        p2 = await self._vision_call(image_data, media_type, f"""You are an NFPA 13 fire sprinkler engineer analyzing a {doc_type} drawing.
 
-Building: {proj_name}
+Project: {proj_name}
 Occupancy: {occupancy}
-Dimensions: {bw}ft wide x {bh}ft deep = {bw*bh:.0f} SF total
-Ceiling height: {known_ch}ft
+Building: {bw}ft wide x {bh}ft deep = {bw*bh:.0f} SF
+Default ceiling height: {known_ch}ft
+Drawing scale: {p1.get('drawing_scale','unknown')}
 
-MISSION: Map every square foot of this building to an NFPA 13 hazard classification.
-Zones must collectively cover 100% of the floor — no gaps allowed.
+MISSION: Extract every room/area and assign the correct NFPA 13 hazard classification.
+Room boundaries must collectively cover 100% of the floor area.
 
-COORDINATE SYSTEM: Origin (0,0) = bottom-left of building. X = right, Y = up. Units = FEET.
+COORDINATE SYSTEM: Origin (0,0) = bottom-left corner of the building footprint.
+X increases right, Y increases up. All values in FEET.
 
-NFPA 13 HAZARD GUIDE (choose most economical product that meets code):
-- light: Offices, lobbies, corridors, restrooms, vestibules, membership → Pendant K5.6 §8.5
-- ordinary_1: Retail sales, parking, mechanical, pharmacy, optical → Pendant K5.6 §8.5
-- ordinary_2: Receiving/dock, food service, bakery, deli, food court, kitchen → Pendant K8.0 §8.5
-- esfr_k14: Warehouse floor, high-pile storage, merchandise sales, rack areas → ESFR K14 §22.1
-- esfr_k25: High-pile >25ft or Class IV plastics without in-rack → ESFR K25 §22.1
-- tire_storage: Tire centers, automotive with tires → ESFR K14 at 75psi NFPA13 Ch.17
-- freezer: Walk-in freezers, frozen storage → Upright K5.6 dry §8.5
-- cooler: Walk-in coolers, refrigerated areas → Pendant K5.6 §8.5
+NFPA 13 HAZARD CLASSIFICATIONS:
+- light: Patient rooms, offices, corridors, restrooms, lobbies, exam rooms, classrooms,
+         staff areas, lounges, storage <500 SF, consultation rooms, nursing stations
+         → Pendant K5.6, 225 SF max coverage, 15ft max spacing (§8.5)
+- ordinary_1: Retail, parking, mechanical rooms, pharmacy, electrical rooms
+         → Pendant K5.6, 130 SF max coverage, 15ft max spacing (§8.5)
+- ordinary_2: Commercial kitchen, food service, laundry, receiving/dock, storage >500 SF
+         → Pendant K8.0, 130 SF max coverage, 15ft max spacing (§8.5)
+- esfr_k14: Warehouse, high-pile storage ≤25ft, merchandise sales floor
+         → ESFR K14, 100 SF max coverage, 10ft max spacing (§22.1)
+- tire_storage: Tire storage, automotive with tires → ESFR K14 at 75psi (Ch.17)
+- freezer: Walk-in freezers → Upright K5.6 dry (§8.5)
+- cooler: Walk-in coolers, refrigerated areas → Pendant K5.6 (§8.5)
 
-RULES:
-1. Every area must be assigned — no "unknown" classifications
-2. Use rectangular boundaries (4 corners). All 4 points must be within building.
-3. Large unlabeled warehouse/wholesale areas = esfr_k14
-4. Total area of all rooms must approximately equal {bw*bh:.0f} SF
+SMALL ROOM RULE (NFPA 13 §3.3.206): Rooms ≤800 SF of light hazard with unobstructed
+construction may use 1 sprinkler per room regardless of spacing.
 
-Return ONLY valid JSON (no markdown fences):
+IMPORTANT: Read the actual room labels from the drawing. Common rooms in healthcare/
+behavioral health facilities are ALL light hazard: patient rooms (CSU, PHF), day rooms,
+corridors, nurse stations, consultation rooms, exam rooms, hallways, toilets/showers,
+interview rooms, patio areas, quiet rooms, classrooms, staff areas, storage.
+
+Return ONLY valid JSON (no markdown):
 {{
   "building_dimensions": {{"width_ft": {bw}, "depth_ft": {bh}}},
   "floor_area_sf": {bw*bh:.0f},
   "ceiling_height_ft": {known_ch},
   "rooms": [
     {{
-      "name": "area name",
-      "hazard_classification": "light|ordinary_1|ordinary_2|esfr_k14|esfr_k25|tire_storage|freezer|cooler",
-      "nfpa_13_basis": "section reference",
+      "name": "exact room name from drawing",
+      "hazard_classification": "light|ordinary_1|ordinary_2|esfr_k14|tire_storage|freezer|cooler",
+      "nfpa_13_basis": "§8.5 light hazard / §22.1 / etc",
       "estimated_area_sf": number,
-      "boundary": [{{"x":0,"y":0}},{{"x":W,"y":0}},{{"x":W,"y":D}},{{"x":0,"y":D}}],
-      "ceiling_height_ft": {known_ch},
-      "special_notes": "rack storage / mezzanine / etc or empty string"
+      "boundary": [{{"x":x0,"y":y0}},{{"x":x1,"y":y0}},{{"x":x1,"y":y1}},{{"x":x0,"y":y1}}],
+      "ceiling_height_ft": number,
+      "small_room_rule": true_or_false,
+      "special_notes": ""
     }}
   ],
   "notes": []
-}}""", "Pass2")
+}}"""        , "Pass2")
 
         rooms=[]
         for r in p2.get("rooms",[]):
