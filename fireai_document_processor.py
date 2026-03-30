@@ -226,41 +226,33 @@ Set is_usable_for_sprinkler_design=true for: floor_plan, fire_protection, rcp, s
         doc_type = p1.get("document_type", "floor_plan")
         p2 = await self._vision_call(image_data, media_type, f"""You are an NFPA 13 fire sprinkler engineer analyzing a {doc_type} drawing.
 
-Project: {proj_name}
-Occupancy: {occupancy}
+Project: {proj_name} | Occupancy: {occupancy}
 Building: {bw}ft wide x {bh}ft deep = {bw*bh:.0f} SF
-Default ceiling height: {known_ch}ft
-Drawing scale: {p1.get('drawing_scale','unknown')}
+Ceiling height: {known_ch}ft | Scale: {p1.get('drawing_scale','unknown')}
 
-MISSION: Extract every room/area and assign the correct NFPA 13 hazard classification.
+MISSION: Extract every room/area and assign NFPA 13 hazard classification.
 Room boundaries must collectively cover 100% of the floor area.
 
-COORDINATE SYSTEM: Origin (0,0) = bottom-left corner of the building footprint.
-X increases right, Y increases up. All values in FEET.
+COORDINATE SYSTEM: Origin (0,0) = bottom-left of building. X=right, Y=up. FEET.
 
 NFPA 13 HAZARD CLASSIFICATIONS:
 - light: Patient rooms, offices, corridors, restrooms, lobbies, exam rooms, classrooms,
-         staff areas, lounges, storage <500 SF, consultation rooms, nursing stations
-         → Pendant K5.6, 225 SF max coverage, 15ft max spacing (§8.5)
+  staff areas, lounges, consultation rooms, nursing stations, PHF rooms, CSU rooms,
+  day rooms, hallways, interview rooms, quiet rooms, patio areas, toilets, showers,
+  storage <500 SF, all healthcare/behavioral health spaces → Pendant K5.6, 225 SF max (§8.5)
 - ordinary_1: Retail, parking, mechanical rooms, pharmacy, electrical rooms
-         → Pendant K5.6, 130 SF max coverage, 15ft max spacing (§8.5)
+  → Pendant K5.6, 130 SF max (§8.5)
 - ordinary_2: Commercial kitchen, food service, laundry, receiving/dock, storage >500 SF
-         → Pendant K8.0, 130 SF max coverage, 15ft max spacing (§8.5)
-- esfr_k14: Warehouse, high-pile storage ≤25ft, merchandise sales floor
-         → ESFR K14, 100 SF max coverage, 10ft max spacing (§22.1)
-- tire_storage: Tire storage, automotive with tires → ESFR K14 at 75psi (Ch.17)
-- freezer: Walk-in freezers → Upright K5.6 dry (§8.5)
-- cooler: Walk-in coolers, refrigerated areas → Pendant K5.6 (§8.5)
+  → Pendant K8.0, 130 SF max (§8.5)
+- esfr_k14: Warehouse, high-pile storage ≤25ft, merchandise floor → ESFR K14 (§22.1)
+- tire_storage: Tire storage → ESFR K14 75psi (Ch.17)
+- freezer: Walk-in freezers → Upright K5.6 dry
+- cooler: Walk-in coolers → Pendant K5.6
 
-SMALL ROOM RULE (NFPA 13 §3.3.206): Rooms ≤800 SF of light hazard with unobstructed
-construction may use 1 sprinkler per room regardless of spacing.
+SMALL ROOM RULE (§3.3.206): Rooms ≤800 SF light hazard with unobstructed ceiling
+may use 1 sprinkler regardless of spacing. Set small_room_rule=true for these rooms.
 
-IMPORTANT: Read the actual room labels from the drawing. Common rooms in healthcare/
-behavioral health facilities are ALL light hazard: patient rooms (CSU, PHF), day rooms,
-corridors, nurse stations, consultation rooms, exam rooms, hallways, toilets/showers,
-interview rooms, patio areas, quiet rooms, classrooms, staff areas, storage.
-
-Return ONLY valid JSON (no markdown):
+Read ALL room labels from the drawing. Return ONLY valid JSON:
 {{
   "building_dimensions": {{"width_ft": {bw}, "depth_ft": {bh}}},
   "floor_area_sf": {bw*bh:.0f},
@@ -269,7 +261,7 @@ Return ONLY valid JSON (no markdown):
     {{
       "name": "exact room name from drawing",
       "hazard_classification": "light|ordinary_1|ordinary_2|esfr_k14|tire_storage|freezer|cooler",
-      "nfpa_13_basis": "§8.5 light hazard / §22.1 / etc",
+      "nfpa_13_basis": "§8.5 light / §22.1 / etc",
       "estimated_area_sf": number,
       "boundary": [{{"x":x0,"y":y0}},{{"x":x1,"y":y0}},{{"x":x1,"y":y1}},{{"x":x0,"y":y1}}],
       "ceiling_height_ft": number,
@@ -278,7 +270,7 @@ Return ONLY valid JSON (no markdown):
     }}
   ],
   "notes": []
-}}"""        , "Pass2")
+}}""", "Pass2")
 
         rooms=[]
         for r in p2.get("rooms",[]):
@@ -547,21 +539,40 @@ def _empty_geometry():
             "building_dimensions":{},"floor_area_sf":0,"ceiling_height_ft":10}
 
 async def _file_to_image(file_path, file_type):
-    if file_type=="pdf":
+    """Convert file to base64 image for Vision API. Max 4000px per dimension."""
+    MAX_PX = 4000  # Claude API limit is 8000px, use 4000px for safety + speed
+
+    if file_type == "pdf":
         try:
             import pdfplumber
+            from PIL import Image as PILImage
             with pdfplumber.open(file_path) as pdf:
                 if pdf.pages:
-                    img=pdf.pages[0].to_image(resolution=200)
-                    buf=io.BytesIO(); img.save(buf,format="PNG")
-                    return base64.b64encode(buf.getvalue()).decode(),"image/png"
+                    # Start at 72 DPI — safe for large-format drawings
+                    img = pdf.pages[0].to_image(resolution=72)
+                    buf = io.BytesIO()
+                    img.save(buf, format="PNG")
+                    buf.seek(0)
+                    # Check dimensions and downscale if needed
+                    pil_img = PILImage.open(buf)
+                    w, h = pil_img.size
+                    if w > MAX_PX or h > MAX_PX:
+                        scale = MAX_PX / max(w, h)
+                        new_w = int(w * scale)
+                        new_h = int(h * scale)
+                        pil_img = pil_img.resize((new_w, new_h), PILImage.LANCZOS)
+                        log.info(f"[DocProcessor] Image scaled: {w}x{h} → {new_w}x{new_h}")
+                    out = io.BytesIO()
+                    pil_img.save(out, format="PNG", optimize=True)
+                    return base64.b64encode(out.getvalue()).decode(), "image/png"
         except Exception as e:
             log.warning(f"PDF→image: {e}")
-    with open(file_path,"rb") as f: data=f.read()
-    ext=Path(file_path).suffix.lower()[1:]
-    mt={"jpg":"image/jpeg","jpeg":"image/jpeg","png":"image/png",
-        "tif":"image/tiff","tiff":"image/tiff","pdf":"application/pdf"}.get(ext,"image/png")
-    return base64.b64encode(data).decode(),mt
+
+    with open(file_path, "rb") as f: data = f.read()
+    ext = Path(file_path).suffix.lower()[1:]
+    mt = {"jpg":"image/jpeg","jpeg":"image/jpeg","png":"image/png",
+          "tif":"image/tiff","tiff":"image/tiff","pdf":"application/pdf"}.get(ext,"image/png")
+    return base64.b64encode(data).decode(), mt
 
 
 # ─── Public handler ────────────────────────────────────────────────────────────
