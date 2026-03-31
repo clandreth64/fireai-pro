@@ -75,6 +75,11 @@ def normalize_geometry(geo: dict, ctx: dict) -> dict:
     """
     walls  = geo.get("walls",  [])
     rooms  = geo.get("rooms",  [])
+    # If document processor signaled Vision extraction failed, go straight to synthetic
+    if geo.get("_use_synthetic"):
+        log.info("[Geo] Vision room extraction insufficient — using occupancy-based synthetic layout")
+        return _synthetic(ctx)
+
     cols   = geo.get("columns",[])
 
     # Collect all coordinate points
