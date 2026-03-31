@@ -177,131 +177,116 @@ class DocumentProcessor:
     # ── Vision: two-pass analysis ──────────────────────────────────────────────
 
     async def _vision_full_analysis(self, file_path, file_type, project_context):
+        known_area = float(project_context.get("total_area", 0))
+        known_ch   = float(project_context.get("ceiling_height", 10))
+        occupancy  = project_context.get("occupancy", "")
+        proj_name  = project_context.get("project_name", "")
+
         try:
             image_data, media_type = await _file_to_image(file_path, file_type)
         except Exception as e:
             log.error(f"[DocProcessor] Image conversion: {e}")
             return _empty_geometry()
 
-        known_area = float(project_context.get("total_area",0))
-        known_ch   = float(project_context.get("ceiling_height",10))
-        occupancy  = project_context.get("occupancy","")
-        proj_name  = project_context.get("project_name","")
-
         # Pass 1: Document type + building dimensions
         p1 = await self._vision_call(image_data, media_type, f"""Analyze this construction document.
-
 Project: {proj_name} | Occupancy: {occupancy} | Known area: {known_area} SF
-
-Return ONLY JSON:
-{{
-  "document_type": "floor_plan|fire_protection|rcp|structural|mechanical|site_plan|detail|schedule|other",
-  "is_usable_for_sprinkler_design": true_or_false,
-  "building_width_ft": number_or_0,
-  "building_depth_ft": number_or_0,
-  "drawing_scale": "e.g. 1/4=1-0 or 1/8=1-0 or unknown",
-  "observations": "brief description of what you see"
-}}
-
-NOTE: Both architectural floor plans AND fire protection drawings contain building geometry.
-Set is_usable_for_sprinkler_design=true for: floor_plan, fire_protection, rcp, structural.""", "Pass1")
+Return ONLY valid JSON (no other text):
+{{"document_type":"floor_plan|fire_protection|rcp|structural|mechanical|site_plan|detail|schedule|other","is_usable_for_sprinkler_design":true,"building_width_ft":0,"building_depth_ft":0,"drawing_scale":"unknown","observations":"brief description"}}
+Set is_usable_for_sprinkler_design=true for floor_plan, fire_protection, rcp, structural.
+Estimate building_width_ft and building_depth_ft from the drawing in feet.""", "Pass1")
 
         if not p1.get("is_usable_for_sprinkler_design", True):
             log.warning(f"[DocProcessor] Not usable: {p1.get('document_type')}")
             return _empty_geometry()
 
-        bw = float(p1.get("building_width_ft",0))
-        bh = float(p1.get("building_depth_ft",0))
+        bw = float(p1.get("building_width_ft", 0))
+        bh = float(p1.get("building_depth_ft", 0))
 
-        if bw<=0 or bh<=0 or (known_area>0 and abs(bw*bh-known_area)/known_area>0.60):
-            if known_area>0:
-                occ_l=occupancy.lower()
-                ratio=0.65 if any(k in occ_l for k in ["warehouse","storage","wholesale","big box","costco"]) else 0.75
-                bw=round(math.sqrt(known_area/ratio),1); bh=round(known_area/bw,1)
+        if bw <= 0 or bh <= 0 or (known_area > 0 and abs(bw*bh - known_area)/known_area > 0.60):
+            if known_area > 0:
+                occ_l = occupancy.lower()
+                ratio = 0.65 if any(k in occ_l for k in
+                    ["warehouse","storage","wholesale","big box","costco","distribution"]) else 0.75
+                bw = round(math.sqrt(known_area / ratio), 1)
+                bh = round(known_area / bw, 1)
             else:
-                bw=bh=100.0
+                bw = bh = 100.0
         log.info(f"[DocProcessor] Building dims: {bw}x{bh}ft = {bw*bh:.0f} SF")
 
-        # Pass 2: Complete room-by-room hazard zone inventory
-        doc_type = p1.get("document_type", "floor_plan")
-        p2 = await self._vision_call(image_data, media_type, f"""You are an NFPA 13 fire sprinkler engineer analyzing a {doc_type} drawing.
+        # Pass 2: Room-by-room hazard inventory
+        p2 = await self._vision_call(image_data, media_type, f"""NFPA 13 fire sprinkler engineer analyzing a {p1.get('document_type','floor plan')}.
+Building: {proj_name} | {bw}ft x {bh}ft | Occupancy: {occupancy} | Ceiling: {known_ch}ft
 
-Project: {proj_name} | Occupancy: {occupancy}
-Building: {bw}ft wide x {bh}ft deep = {bw*bh:.0f} SF
-Ceiling height: {known_ch}ft | Scale: {p1.get('drawing_scale','unknown')}
+List every distinct room/area visible in this drawing with its NFPA 13 hazard class.
+COORDINATE SYSTEM: (0,0)=bottom-left, X=right, Y=up, units=FEET.
 
-MISSION: Extract every room/area and assign NFPA 13 hazard classification.
-Room boundaries must collectively cover 100% of the floor area.
+Hazard classes: light, ordinary_1, ordinary_2, esfr_k14, tire_storage, freezer, cooler
+- light: offices, corridors, patient rooms, lobbies, restrooms, staff areas, healthcare spaces
+- ordinary_1: retail, parking, mechanical, pharmacy
+- ordinary_2: kitchen, food service, laundry, receiving/dock
+- esfr_k14: warehouse floor, high-pile storage, merchandise sales
+- tire_storage: tire center  |  freezer: walk-in freezers  |  cooler: walk-in coolers
 
-COORDINATE SYSTEM: Origin (0,0) = bottom-left of building. X=right, Y=up. FEET.
+Return ONLY valid JSON:
+{{"rooms":[{{"name":"room name","hazard_classification":"light","boundary":[{{"x":0,"y":0}},{{"x":W,"y":0}},{{"x":W,"y":D}},{{"x":0,"y":D}}],"estimated_area_sf":100,"ceiling_height_ft":{known_ch},"small_room_rule":false}}],"notes":[]}}
+All room boundaries must use coordinates within 0-{bw}ft (x) and 0-{bh}ft (y).
+Rooms must cover approximately {bw*bh:.0f} SF total.""", "Pass2")
 
-NFPA 13 HAZARD CLASSIFICATIONS:
-- light: Patient rooms, offices, corridors, restrooms, lobbies, exam rooms, classrooms,
-  staff areas, lounges, consultation rooms, nursing stations, PHF rooms, CSU rooms,
-  day rooms, hallways, interview rooms, quiet rooms, patio areas, toilets, showers,
-  storage <500 SF, all healthcare/behavioral health spaces → Pendant K5.6, 225 SF max (§8.5)
-- ordinary_1: Retail, parking, mechanical rooms, pharmacy, electrical rooms
-  → Pendant K5.6, 130 SF max (§8.5)
-- ordinary_2: Commercial kitchen, food service, laundry, receiving/dock, storage >500 SF
-  → Pendant K8.0, 130 SF max (§8.5)
-- esfr_k14: Warehouse, high-pile storage ≤25ft, merchandise floor → ESFR K14 (§22.1)
-- tire_storage: Tire storage → ESFR K14 75psi (Ch.17)
-- freezer: Walk-in freezers → Upright K5.6 dry
-- cooler: Walk-in coolers → Pendant K5.6
-
-SMALL ROOM RULE (§3.3.206): Rooms ≤800 SF light hazard with unobstructed ceiling
-may use 1 sprinkler regardless of spacing. Set small_room_rule=true for these rooms.
-
-Read ALL room labels from the drawing. Return ONLY valid JSON:
-{{
-  "building_dimensions": {{"width_ft": {bw}, "depth_ft": {bh}}},
-  "floor_area_sf": {bw*bh:.0f},
-  "ceiling_height_ft": {known_ch},
-  "rooms": [
-    {{
-      "name": "exact room name from drawing",
-      "hazard_classification": "light|ordinary_1|ordinary_2|esfr_k14|tire_storage|freezer|cooler",
-      "nfpa_13_basis": "§8.5 light / §22.1 / etc",
-      "estimated_area_sf": number,
-      "boundary": [{{"x":x0,"y":y0}},{{"x":x1,"y":y0}},{{"x":x1,"y":y1}},{{"x":x0,"y":y1}}],
-      "ceiling_height_ft": number,
-      "small_room_rule": true_or_false,
-      "special_notes": ""
-    }}
-  ],
-  "notes": []
-}}""", "Pass2")
-
-        rooms=[]
-        for r in p2.get("rooms",[]):
-            hz=r.get("hazard_classification","")
+        rooms = []
+        for r in p2.get("rooms", []):
+            hz = r.get("hazard_classification", "")
             if hz not in HAZARD_CRITERIA:
-                hz=self._infer_hazard(r.get("name",""),occupancy)
-            bnd=r.get("boundary",[])
-            if len(bnd)<3: continue
-            area=_polygon_area(bnd)
-            if area<25: continue
+                hz = self._infer_hazard(r.get("name", ""), occupancy)
+            bnd = r.get("boundary", [])
+            if len(bnd) < 3: continue
+            area = _polygon_area(bnd)
+            if area < 25: continue
             rooms.append({
-                "name":r.get("name","Area"),
-                "boundary":bnd,
-                "area_sf":round(area,1),
-                "area":f"{area:.0f} SF",
-                "hazard_override":hz,
-                "hazard_classification":hz,
-                "ceiling_height_ft":float(r.get("ceiling_height_ft",known_ch)),
-                "nfpa_13_basis":r.get("nfpa_13_basis",""),
-                "special_notes":r.get("special_notes",""),
+                "name":               r.get("name", "Area"),
+                "boundary":           bnd,
+                "area_sf":            round(area, 1),
+                "area":               f"{area:.0f} SF",
+                "hazard_override":    hz,
+                "hazard_classification": hz,
+                "ceiling_height_ft":  float(r.get("ceiling_height_ft", known_ch)),
+                "nfpa_13_basis":      r.get("nfpa_13_basis", ""),
+                "small_room_rule":    bool(r.get("small_room_rule", False)),
+                "special_notes":      r.get("special_notes", ""),
             })
 
-        dims=p2.get("building_dimensions",{"width_ft":bw,"depth_ft":bh})
+        # KEY: if Vision returned no usable rooms, signal that
+        # the design engine should use its occupancy-based synthetic layout
+        # (which is accurate for standard building types)
+        total_room_area = sum(r["area_sf"] for r in rooms)
+        building_area = bw * bh
+        if not rooms or (building_area > 0 and total_room_area / building_area < 0.20):
+            log.warning(f"[DocProcessor] Vision returned {len(rooms)} rooms "
+                        f"covering {total_room_area:.0f}/{building_area:.0f} SF — "
+                        f"signaling design engine to use synthetic layout")
+            # Return empty rooms so design engine uses _synthetic()
+            # which correctly handles warehouse, office, retail, hospital, etc.
+            return {
+                "walls": [], "rooms": [], "columns": [], "obstructions": [],
+                "annotations": [], "structural_features": [],
+                "building_dimensions": {"width_ft": bw, "depth_ft": bh},
+                "floor_area_sf": building_area,
+                "ceiling_height_ft": known_ch,
+                "drawing_scale": p1.get("drawing_scale", ""),
+                "notes": ["Vision room extraction insufficient — design engine using occupancy-based layout"],
+                "_use_synthetic": True,
+            }
+
+        log.info(f"[DocProcessor] Vision extracted {len(rooms)} rooms, "
+                 f"{total_room_area:.0f}/{building_area:.0f} SF ({total_room_area/building_area:.0%})")
         return {
-            "walls":[],"rooms":rooms,"columns":[],"obstructions":[],
-            "annotations":[],"structural_features":p2.get("structural_features",[]),
-            "building_dimensions":dims,
-            "floor_area_sf":float(p2.get("floor_area_sf",bw*bh)),
-            "ceiling_height_ft":known_ch,
-            "drawing_scale":p1.get("drawing_scale",""),
-            "notes":p2.get("notes",[]),
+            "walls": [], "rooms": rooms, "columns": [], "obstructions": [],
+            "annotations": [], "structural_features": p2.get("structural_features", []),
+            "building_dimensions": {"width_ft": bw, "depth_ft": bh},
+            "floor_area_sf": building_area,
+            "ceiling_height_ft": known_ch,
+            "drawing_scale": p1.get("drawing_scale", ""),
+            "notes": p2.get("notes", []),
         }
 
     async def _vision_call(self, image_data, media_type, prompt, label):
@@ -314,10 +299,13 @@ Read ALL room labels from the drawing. Return ONLY valid JSON:
                     {"type":"text","text":prompt}
                 ]}]
             )
-            raw=next((b.text for b in resp.content if b.type=="text"),"{}")
-            raw=re.sub(r"^```(?:json)?\s*","",raw.strip())
-            raw=re.sub(r"\s*```$","",raw.strip())
-            result=json.loads(raw)
+            raw = next((b.text for b in resp.content if b.type == "text"), "{}")
+            raw = re.sub(r"^```(?:json)?\s*", "", raw.strip())
+            raw = re.sub(r"\s*```$", "", raw.strip())
+            if not raw or raw.isspace():
+                log.warning(f"[DocProcessor] {label} returned empty response")
+                return {}
+            result = json.loads(raw)
             log.info(f"[DocProcessor] {label}: {len(result.get('rooms',[]))} rooms")
             return result
         except json.JSONDecodeError as e:
@@ -539,8 +527,8 @@ def _empty_geometry():
             "building_dimensions":{},"floor_area_sf":0,"ceiling_height_ft":10}
 
 async def _file_to_image(file_path, file_type):
-    """Convert file to base64 image for Vision API. Max 4000px per dimension."""
-    MAX_PX = 4000  # Claude API limit is 8000px, use 4000px for safety + speed
+    """Convert file to base64 image for Vision API. Hard cap at 4000px per side."""
+    MAX_PX = 4000
 
     if file_type == "pdf":
         try:
@@ -548,27 +536,29 @@ async def _file_to_image(file_path, file_type):
             from PIL import Image as PILImage
             with pdfplumber.open(file_path) as pdf:
                 if pdf.pages:
-                    # Start at 72 DPI — safe for large-format drawings
                     img = pdf.pages[0].to_image(resolution=72)
                     buf = io.BytesIO()
                     img.save(buf, format="PNG")
                     buf.seek(0)
-                    # Check dimensions and downscale if needed
                     pil_img = PILImage.open(buf)
                     w, h = pil_img.size
                     if w > MAX_PX or h > MAX_PX:
                         scale = MAX_PX / max(w, h)
-                        new_w = int(w * scale)
-                        new_h = int(h * scale)
-                        pil_img = pil_img.resize((new_w, new_h), PILImage.LANCZOS)
-                        log.info(f"[DocProcessor] Image scaled: {w}x{h} → {new_w}x{new_h}")
+                        pil_img = pil_img.resize(
+                            (int(w*scale), int(h*scale)), PILImage.LANCZOS)
+                        log.info(f"[DocProcessor] PDF image: {w}x{h} → {int(w*scale)}x{int(h*scale)}px")
+                    else:
+                        log.info(f"[DocProcessor] PDF image: {w}x{h}px")
                     out = io.BytesIO()
                     pil_img.save(out, format="PNG", optimize=True)
                     return base64.b64encode(out.getvalue()).decode(), "image/png"
+        except ImportError:
+            log.warning("[DocProcessor] PIL not available — sending raw PDF")
         except Exception as e:
-            log.warning(f"PDF→image: {e}")
+            log.warning(f"[DocProcessor] PDF→image: {e}")
 
-    with open(file_path, "rb") as f: data = f.read()
+    with open(file_path, "rb") as f:
+        data = f.read()
     ext = Path(file_path).suffix.lower()[1:]
     mt = {"jpg":"image/jpeg","jpeg":"image/jpeg","png":"image/png",
           "tif":"image/tiff","tiff":"image/tiff","pdf":"application/pdf"}.get(ext,"image/png")
