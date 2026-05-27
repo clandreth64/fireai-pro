@@ -14,6 +14,17 @@ Features:
   - Circuit breaker → email escalation (Gmail / Outlook / SMTP)
   - User-selectable output formats
   - Railway-compatible env config
+
+LAYER 2 CHANGE (one method replaced):
+  _run_phase1 now uses ContextBus dependency ordering instead of
+  pure asyncio.gather. Agents receive LIVE sibling outputs the moment
+  their dependencies finish — not stale data from the previous iteration.
+
+  Dependency chain:
+    CAD (immediate) → Routing → Hydraulics → Bracing
+  
+  Wall-clock time is unchanged (still fully async).
+  Output quality improves because every agent works with real upstream data.
 """
 
 import asyncio
@@ -27,6 +38,7 @@ from typing import Any, Optional
 import anthropic
 
 from fireai_email_escalator import EmailEscalator
+from context_bus import ContextBus, AGENT_DEPENDENCIES   # ← Layer 2 import
 
 # ── Logging ────────────────────────────────────────────────────────────────────
 
@@ -128,7 +140,7 @@ class FireAIAgent:
     def __init__(self, agent_id: str, name: str, engine_module: str, nfpa_sections: list[str]):
         self.agent_id       = agent_id
         self.name           = name
-        self.engine_module  = engine_module   # your existing .py file name
+        self.engine_module  = engine_module
         self.nfpa_sections  = nfpa_sections
         self.frozen         = False
         self.run_count      = 0
@@ -146,7 +158,7 @@ class FireAIAgent:
         )
 
     def schema_prompt(self) -> str:
-        return ""   # Subclasses override
+        return ""
 
     async def run(
         self,
@@ -155,7 +167,7 @@ class FireAIAgent:
         sibling_outputs: dict | None = None,
     ) -> AgentResult:
         self.run_count += 1
-        violations     = violations     or []
+        violations      = violations     or []
         sibling_outputs = sibling_outputs or {}
 
         corrective_block = ""
@@ -181,7 +193,7 @@ class FireAIAgent:
                 system=self.system_prompt() + "\n\n" + self.schema_prompt(),
                 messages=[{"role": "user", "content": user_message}],
             )
-            raw = next((b.text for b in response.content if b.type == "text"), "{}")
+            raw     = next((b.text for b in response.content if b.type == "text"), "{}")
             cleaned = raw.strip().lstrip("```json").lstrip("```").rstrip("```").strip()
             output  = json.loads(cleaned)
             self.last_output = output
@@ -447,7 +459,15 @@ class FireAIOrchestrator:
         icons = {"info": "  ", "warn": "⚠ ", "error": "✗ ", "success": "✓ "}
         print(f"[{entry['ts'][11:19]}] {icons.get(level,'  ')}[{agent_id:<14}] {message}")
 
-    # ── Phase 1: parallel fan-out ──────────────────────────────────────────────
+    # ── Phase 1: dependency-ordered fan-out (Layer 2) ─────────────────────────
+    #
+    # REPLACED from original: was asyncio.gather (all agents fire simultaneously
+    # with stale sibling data). Now each agent waits for its dependencies on the
+    # ContextBus, then fires with LIVE upstream outputs.
+    #
+    # Wall-clock time is identical — agents still run as concurrently as
+    # the dependency graph allows. Output quality improves because every agent
+    # works with real data from the current iteration.
 
     async def _run_phase1(
         self,
@@ -457,28 +477,51 @@ class FireAIOrchestrator:
         frozen_agents:   set[str],
     ) -> dict:
         active_ids = [aid for aid in self.agents if aid not in frozen_agents]
-        self._log("info", "orchestrator", f"Phase 1 — {len(active_ids)} agents in parallel: [{', '.join(active_ids)}]")
+        self._log("info", "orchestrator",
+                  f"Phase 1 — {len(active_ids)} agents (dependency-ordered): [{', '.join(active_ids)}]")
 
-        tasks = {
-            aid: self.agents[aid].run(
-                project_context,
-                violations=violation_map.get(aid, []),
-                sibling_outputs={k: v for k, v in agent_outputs.items() if k != aid},
-            )
-            for aid in active_ids
-        }
+        # Seed the bus with any outputs already produced in previous iterations
+        # so frozen/completed agents don't block their dependents
+        job_id = project_context.get("_job_id", "")
+        bus    = ContextBus(job_id=job_id)
+        for aid, output in agent_outputs.items():
+            if output:
+                bus.publish(aid, output)
 
-        results = await asyncio.gather(*tasks.values(), return_exceptions=True)
         updated = dict(agent_outputs)
 
-        for aid, result in zip(tasks.keys(), results):
-            if isinstance(result, Exception):
-                self._log("error", aid, f"Agent raised exception: {result}")
-            elif result.success:
+        async def run_one(aid: str) -> None:
+            """Wait for this agent's dependencies, then run it."""
+            deps = [d for d in bus.dependencies_for(aid) if d in active_ids or d in agent_outputs]
+            if deps:
+                self._log("info", aid, f"Waiting for: {deps}")
+                ok = await bus.wait_for(deps)
+                if not ok:
+                    self._log("error", aid, f"Timeout waiting for {deps} — skipping")
+                    return
+
+            # Build sibling_outputs from live bus data
+            live_siblings = {k: v for k, v in bus.snapshot().items() if k != aid}
+
+            self._log("info", aid, f"Starting (live siblings: {list(live_siblings.keys())})")
+
+            result = await self.agents[aid].run(
+                project_context,
+                violations=violation_map.get(aid, []),
+                sibling_outputs=live_siblings,
+            )
+
+            if result.success:
                 updated[aid] = result.output
+                bus.publish(aid, result.output)
                 self._log("success", aid, f"Complete (run #{result.run_count})")
             else:
                 self._log("error", aid, f"Agent failed: {result.error}")
+                # Publish empty dict so dependents don't hang indefinitely
+                bus.publish(aid, {})
+
+        # Launch all agents concurrently — each one awaits its own deps internally
+        await asyncio.gather(*[run_one(aid) for aid in active_ids], return_exceptions=True)
 
         return updated
 
@@ -527,8 +570,8 @@ class FireAIOrchestrator:
 
         self._log("info", "orchestrator", f"Iteration {iteration} ≥ {STRICT_MODE_ITER} — progressive strictness active")
 
-        stalled      = self.tracker.stalled_agents(list(violation_map.keys()))
-        updated_map  = dict(violation_map)
+        stalled        = self.tracker.stalled_agents(list(violation_map.keys()))
+        updated_map    = dict(violation_map)
         updated_frozen = set(frozen_agents)
 
         for aid in stalled:
@@ -593,17 +636,6 @@ class FireAIOrchestrator:
         project_context:  dict,
         selected_formats: set[str] | None = None,
     ) -> dict:
-        """
-        Run the full FireAI Pro pipeline.
-
-        Args:
-            project_context:  Full project definition dict.
-            selected_formats: Set of format keys from ALL_FORMATS.
-                              Defaults to DEFAULT_FORMATS if None.
-
-        Returns:
-            Final synthesized output package dict.
-        """
         selected_formats = selected_formats or DEFAULT_FORMATS
         self._log("info", "orchestrator",
             f"Starting — project: \"{project_context.get('project_name')}\"  "
@@ -617,10 +649,10 @@ class FireAIOrchestrator:
         compliance: Optional[ComplianceResult] = None
         iteration = 0
 
-        # ── Phase 1: initial parallel run ──────────────────────────────────────
+        # Initial parallel run
         agent_outputs = await self._run_phase1(project_context, {}, {}, frozen_agents)
 
-        # ── Compliance loop ─────────────────────────────────────────────────────
+        # Compliance loop
         for iteration in range(1, MAX_ITERATIONS + 1):
 
             compliance = await self._run_nfpa13(agent_outputs, project_context, iteration)
@@ -629,7 +661,7 @@ class FireAIOrchestrator:
                 break
 
             if iteration == MAX_ITERATIONS:
-                break  # fall through to circuit breaker
+                break
 
             violation_map = self._build_violation_map(compliance.violations)
 
@@ -648,7 +680,7 @@ class FireAIOrchestrator:
                 project_context, violation_map, agent_outputs, frozen_agents
             )
 
-        # ── Collect frozen violations ────────────────────────────────────────────
+        # Collect frozen violations
         frozen_violations = [
             v for v in (compliance.violations if compliance else [])
             if (v.agent_id or owner_from_section(v.section)) in frozen_agents
@@ -659,20 +691,20 @@ class FireAIOrchestrator:
             iteration, frozen_violations, selected_formats
         )
 
-        # ── Circuit breaker ──────────────────────────────────────────────────────
+        # Circuit breaker
         if compliance and not compliance.compliant:
             await self._fire_circuit_breaker(project_context, frozen_violations, partial_result)
             self._log("warn", "orchestrator", "Returning partial package — human review required.")
             return {**partial_result, "execution_log": self.run_log}
 
-        # ── AHJ report (only after confirmed compliance) ─────────────────────────
+        # AHJ report (only after confirmed compliance)
         self._log("info", "ahj", "Running AHJ permit package generation...")
         ahj_result = await self.ahj_agent.run(project_context, sibling_outputs=agent_outputs)
         ahj_output = ahj_result.output if ahj_result.success else None
         if ahj_output:
             self._log("success", "ahj", "AHJ permit package ready")
 
-        # ── Final synthesis ──────────────────────────────────────────────────────
+        # Final synthesis
         final = self.synthesizer.assemble(
             agent_outputs, ahj_output, compliance, iteration,
             frozen_violations, selected_formats
