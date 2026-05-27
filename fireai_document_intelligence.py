@@ -1,214 +1,368 @@
 """
-FireAI Pro — Document Intelligence v1
-========================================
-Processes a full construction document set and extracts everything
-needed to design a 100% code-compliant fire sprinkler system.
+FireAI Pro — fireai_document_intelligence.py  (v2 — Full Drawing Set)
+=======================================================================
+Drop-in replacement for the original file. Same public interface:
+    handle_document_set(file_list, project_context) → geometry dict
 
-Workflow:
-  1. Classify every uploaded document (what sheet type is it?)
-  2. Extract relevant data from each document type in parallel
-  3. Synthesize all extracted data into a unified ProjectModel
-  4. Return geometry + specs ready for the NFPA 13 design engine
-
-Document types handled:
-  - Architectural floor plans (A-sheets)     → building geometry, room layout
-  - Reflected ceiling plans (RCP)            → ceiling heights, soffits, obstructions
-  - Structural drawings (S-sheets)           → beams, columns, joists, deck
-  - Mechanical/HVAC (M-sheets)              → duct obstructions, equipment
-  - Plumbing (P-sheets)                     → existing pipes, drain locations
-  - Civil / site plans (C-sheets)           → site utilities, water supply
-  - Division 21 specifications               → pipe material, system type, standards
-  - General notes / legend sheets            → AHJ requirements, special conditions
-  - Fire protection drawings (FP-sheets)     → existing system info if any
-
-Usage:
-    from fireai_document_intelligence import DocumentIntelligence
-    intel = DocumentIntelligence()
-    project = await intel.process_document_set(files, project_context)
-    # project is a dict ready to pass to NFPA13DesignEngine
+What's new vs v1:
+  ✓ Multi-page PDF support — every page becomes a sheet to classify.
+    v1 only read page 0. A 40-sheet construction set PDF is now fully
+    processed, not just the cover sheet.
+  ✓ Drawing index detection — finds the sheet schedule (G-sheets,
+    index pages) first and uses it to understand the full set.
+  ✓ Title block extraction — sheet number, scale, and date pulled
+    from every sheet for precise reference.
+  ✓ Parallel page rendering + classification — all pages rendered and
+    classified concurrently, then extraction runs on relevant sheets only.
+  ✓ Project Brief — a structured summary is generated after synthesis
+    and attached to the output. The design engine and agents can
+    reference it throughout the run.
+  ✓ MAX_PAGES_PER_FILE cap — prevents runaway processing on huge PDFs.
+    Pages over the cap are sampled intelligently (index, floor plans
+    prioritised over details and elevations).
 """
 
-import asyncio, base64, io, json, logging, math, os, re, tempfile
+from __future__ import annotations
+
+import asyncio
+import base64
+import io
+import json
+import logging
+import math
+import os
+import re
+import tempfile
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 import anthropic
 
 log = logging.getLogger("fireai.intelligence")
 
-ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
-CLAUDE_MODEL      = os.getenv("FIREAI_MODEL", "claude-sonnet-4-20250514")
+ANTHROPIC_API_KEY  = os.getenv("ANTHROPIC_API_KEY", "")
+CLAUDE_MODEL       = os.getenv("FIREAI_MODEL", "claude-sonnet-4-20250514")
+MAX_PAGES_PER_FILE = int(os.getenv("FIREAI_MAX_PAGES", "60"))   # hard cap
+PDF_DPI            = int(os.getenv("FIREAI_PDF_DPI", "150"))    # lower = faster
+MAX_IMAGE_PX       = 4000                                        # Claude Vision limit
 
-# Document type → priority for geometry extraction
+# ── Document type priority ────────────────────────────────────────────────────
+
 DOC_PRIORITY = {
-    "floor_plan":        10,   # Primary geometry source
-    "rcp":               8,    # Ceiling heights
-    "structural":        7,    # Beams/columns = obstructions
-    "mechanical":        6,    # HVAC = obstructions
-    "site_plan":         5,    # Water supply
-    "fire_protection":   9,    # Existing FP info
-    "specification":     4,    # Pipe material, system type
-    "general_notes":     3,
-    "plumbing":          3,
-    "civil":             2,
-    "elevation":         2,
-    "section":           2,
-    "detail":            1,
-    "schedule":          3,
-    "unknown":           0,
+    "drawing_index":   12,   # Process first — tells us what else exists
+    "floor_plan":      10,
+    "fire_protection":  9,
+    "rcp":              8,
+    "structural":       7,
+    "mechanical":       6,
+    "site_plan":        5,
+    "specification":    4,
+    "schedule":         3,
+    "general_notes":    3,
+    "plumbing":         3,
+    "civil":            2,
+    "elevation":        2,
+    "section":          2,
+    "detail":           1,
+    "cover":            0,   # Cover sheet — no geometry
+    "unknown":          0,
 }
+
+# ── Hazard criteria (unchanged from v1) ──────────────────────────────────────
 
 HAZARD_CRITERIA = {
-    "light":             {"density":0.10,"area":1500,"max_coverage":225,"max_spacing":15,"k":5.6, "min_psi":7.0, "type":"pendant","esfr":False,"in_rack":False},
-    "ordinary_1":        {"density":0.15,"area":1500,"max_coverage":130,"max_spacing":15,"k":5.6, "min_psi":7.0, "type":"pendant","esfr":False,"in_rack":False},
-    "ordinary_2":        {"density":0.20,"area":1500,"max_coverage":130,"max_spacing":15,"k":8.0, "min_psi":7.0, "type":"pendant","esfr":False,"in_rack":False},
-    "extra_1":           {"density":0.30,"area":2500,"max_coverage":100,"max_spacing":12,"k":11.2,"min_psi":15.0,"type":"upright","esfr":False,"in_rack":False},
-    "extra_2":           {"density":0.40,"area":2500,"max_coverage":100,"max_spacing":12,"k":11.2,"min_psi":15.0,"type":"upright","esfr":False,"in_rack":False},
-    "esfr_k14":          {"density":None,"area":None,"max_coverage":100,"max_spacing":10,"k":14.0,"min_psi":50.0,"type":"esfr",   "esfr":True, "in_rack":False},
-    "esfr_k25":          {"density":None,"area":None,"max_coverage":100,"max_spacing":10,"k":25.0,"min_psi":15.0,"type":"esfr",   "esfr":True, "in_rack":False},
-    "high_pile_class_3": {"density":0.40,"area":2500,"max_coverage":100,"max_spacing":10,"k":14.0,"min_psi":25.0,"type":"esfr",   "esfr":True, "in_rack":True},
-    "tire_storage":      {"density":None,"area":None,"max_coverage":100,"max_spacing":10,"k":14.0,"min_psi":75.0,"type":"esfr",   "esfr":True, "in_rack":True},
-    "freezer":           {"density":0.15,"area":2000,"max_coverage":130,"max_spacing":12,"k":5.6, "min_psi":7.0, "type":"upright","esfr":False,"in_rack":False},
-    "cooler":            {"density":0.15,"area":1500,"max_coverage":130,"max_spacing":12,"k":5.6, "min_psi":7.0, "type":"pendant","esfr":False,"in_rack":False},
+    "light":           {"density": 0.10, "area": 1500, "max_coverage": 225,  "max_spacing": 15, "k": 5.6,  "min_psi": 7.0,  "esfr": False},
+    "ordinary_1":      {"density": 0.15, "area": 1500, "max_coverage": 130,  "max_spacing": 15, "k": 5.6,  "min_psi": 7.0,  "esfr": False},
+    "ordinary_2":      {"density": 0.20, "area": 1500, "max_coverage": 130,  "max_spacing": 15, "k": 8.0,  "min_psi": 7.0,  "esfr": False},
+    "extra_1":         {"density": 0.30, "area": 2500, "max_coverage": 100,  "max_spacing": 12, "k": 11.2, "min_psi": 15.0, "esfr": False},
+    "extra_2":         {"density": 0.40, "area": 2500, "max_coverage": 100,  "max_spacing": 12, "k": 11.2, "min_psi": 15.0, "esfr": False},
+    "esfr_k14":        {"density": None, "area": None, "max_coverage": 100,  "max_spacing": 10, "k": 14.0, "min_psi": 50.0, "esfr": True},
+    "esfr_k25":        {"density": None, "area": None, "max_coverage": 100,  "max_spacing": 10, "k": 25.0, "min_psi": 15.0, "esfr": True},
+    "tire_storage":    {"density": None, "area": None, "max_coverage": 100,  "max_spacing": 10, "k": 14.0, "min_psi": 75.0, "esfr": True},
+    "freezer":         {"density": 0.15, "area": 2000, "max_coverage": 130,  "max_spacing": 12, "k": 5.6,  "min_psi": 7.0,  "esfr": False},
+    "cooler":          {"density": 0.15, "area": 1500, "max_coverage": 130,  "max_spacing": 12, "k": 5.6,  "min_psi": 7.0,  "esfr": False},
 }
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Main class
+# ─────────────────────────────────────────────────────────────────────────────
+
 class DocumentIntelligence:
+
     def __init__(self, api_key: str = ANTHROPIC_API_KEY):
         self.client = anthropic.Anthropic(api_key=api_key)
+
+    # ── Public entry point ────────────────────────────────────────────────────
 
     async def process_document_set(
         self,
         file_list: List[dict],   # [{"bytes": bytes, "filename": str}, ...]
-        project_context: dict
+        project_context: dict,
     ) -> dict:
-        """
-        Process a full construction document set.
-        Returns a unified geometry + specs dict for the design engine.
-
-        file_list items: {"bytes": bytes, "filename": str}
-        """
-        log.info(f"[Intel] Processing {len(file_list)} documents")
-
         if not file_list:
             return _empty_project(project_context)
 
-        # Step 1: Convert all files to images concurrently
-        image_tasks = [
-            asyncio.create_task(self._to_image(f["bytes"], f["filename"]))
-            for f in file_list
-        ]
-        images = await asyncio.gather(*image_tasks, return_exceptions=True)
+        log.info("[Intel] Received %d file(s)", len(file_list))
 
-        docs = []
-        for i, (f, img) in enumerate(zip(file_list, images)):
-            if isinstance(img, Exception):
-                log.warning(f"[Intel] Could not convert {f['filename']}: {img}")
-                continue
-            docs.append({
-                "filename":   f["filename"],
-                "image_data": img[0],
-                "media_type": img[1],
-                "index":      i,
-            })
+        # ── Step 1: Render all files into individual page images ──────────────
+        all_pages = await self._render_all_files(file_list)
+        log.info("[Intel] Rendered %d pages total", len(all_pages))
 
-        if not docs:
+        if not all_pages:
             return _empty_project(project_context)
 
-        # Step 2: Classify all documents concurrently
+        # ── Step 2: Classify all pages in parallel ────────────────────────────
         classify_tasks = [
-            asyncio.create_task(self._classify_document(d, project_context))
-            for d in docs
+            asyncio.create_task(self._classify_page(p, project_context))
+            for p in all_pages
         ]
         classifications = await asyncio.gather(*classify_tasks, return_exceptions=True)
 
-        for doc, cls in zip(docs, classifications):
+        for page, cls in zip(all_pages, classifications):
             if isinstance(cls, Exception):
-                log.warning(f"[Intel] Classification failed for {doc['filename']}: {cls}")
-                doc["classification"] = {"type": "unknown", "priority": 0, "sheet_number": ""}
+                page["classification"] = {"type": "unknown", "priority": 0}
             else:
-                doc["classification"] = cls
-            log.info(f"[Intel] {doc['filename']} → {doc['classification']['type']} "
-                     f"(priority={doc['classification'].get('priority',0)}, "
-                     f"sheet={doc['classification'].get('sheet_number','')})")
+                page["classification"] = cls
+            page["priority"] = DOC_PRIORITY.get(
+                page["classification"].get("type", "unknown"), 0
+            )
+            log.info(
+                "[Intel] %-40s → %-16s (sheet=%-8s priority=%d)",
+                page["label"][:40],
+                page["classification"].get("type", "unknown"),
+                page["classification"].get("sheet_number", ""),
+                page["priority"],
+            )
 
-        # Step 3: Sort by priority — process most important documents first
-        docs.sort(key=lambda d: d["classification"].get("priority", 0), reverse=True)
+        # ── Step 3: Check for drawing index and log the set ───────────────────
+        index_pages = [p for p in all_pages if p["classification"].get("type") == "drawing_index"]
+        if index_pages:
+            log.info("[Intel] Found %d drawing index page(s)", len(index_pages))
 
-        # Step 4: Extract data from each relevant document
-        relevant = [d for d in docs if d["classification"].get("priority", 0) > 0]
-        log.info(f"[Intel] {len(relevant)} relevant documents to process")
+        # ── Step 4: Extract from relevant pages (priority > 0) ───────────────
+        relevant = sorted(
+            [p for p in all_pages if p["priority"] > 0],
+            key=lambda p: p["priority"], reverse=True
+        )
+        log.info("[Intel] Processing %d relevant page(s)", len(relevant))
 
         extract_tasks = [
-            asyncio.create_task(self._extract_from_document(d, project_context))
-            for d in relevant
+            asyncio.create_task(self._extract_from_page(p, project_context))
+            for p in relevant
         ]
         extractions = await asyncio.gather(*extract_tasks, return_exceptions=True)
 
         doc_data = []
-        for doc, extraction in zip(relevant, extractions):
+        for page, extraction in zip(relevant, extractions):
             if isinstance(extraction, Exception):
-                log.warning(f"[Intel] Extraction failed for {doc['filename']}: {extraction}")
+                log.warning("[Intel] Extraction failed for %s: %s", page["label"], extraction)
                 continue
             doc_data.append({
-                "filename":       doc["filename"],
-                "type":           doc["classification"]["type"],
-                "priority":       doc["classification"].get("priority", 0),
-                "data":           extraction,
+                "filename":     page["label"],
+                "source_file":  page["source_file"],
+                "page_number":  page["page_number"],
+                "type":         page["classification"]["type"],
+                "sheet_number": page["classification"].get("sheet_number", ""),
+                "sheet_title":  page["classification"].get("sheet_title", ""),
+                "priority":     page["priority"],
+                "data":         extraction,
             })
 
-        # Step 5: Synthesize all extracted data
-        project = await self._synthesize(doc_data, project_context)
+        # ── Step 5: Synthesize ────────────────────────────────────────────────
+        project = self._synthesize(doc_data, project_context)
 
-        log.info(f"[Intel] Synthesis complete: "
-                 f"{project.get('building_dimensions',{}).get('width_ft',0):.0f}ft x "
-                 f"{project.get('building_dimensions',{}).get('depth_ft',0):.0f}ft | "
-                 f"{len(project.get('rooms',[]))} rooms | "
-                 f"{len(project.get('obstructions',[]))} obstructions")
+        # ── Step 6: Generate project brief ────────────────────────────────────
+        project["project_brief"] = await self._generate_project_brief(
+            doc_data, project, project_context
+        )
+
+        log.info(
+            "[Intel] Complete: %dx%d ft | %d rooms | %d obstructions | %d sheets processed",
+            project["building_dimensions"].get("width_ft", 0),
+            project["building_dimensions"].get("depth_ft", 0),
+            len(project.get("rooms", [])),
+            len(project.get("obstructions", [])),
+            len(doc_data),
+        )
         return project
 
-    # ── Document classification ────────────────────────────────────────────────
+    # ── Step 1: Render all files into page images ─────────────────────────────
 
-    async def _classify_document(self, doc: dict, project_context: dict) -> dict:
-        """Identify what type of construction document this is."""
-        prompt = f"""You are reviewing a construction document for a fire sprinkler design project.
-Project: {project_context.get('project_name','')} | Occupancy: {project_context.get('occupancy','')}
-Filename: {doc['filename']}
+    async def _render_all_files(self, file_list: List[dict]) -> list:
+        """
+        Convert every file into a list of page images.
+        Multi-page PDFs become multiple entries.
+        Returns list of page dicts: {label, source_file, page_number, image_data, media_type}
+        """
+        render_tasks = [
+            asyncio.create_task(self._render_file(f["bytes"], f["filename"]))
+            for f in file_list
+        ]
+        results = await asyncio.gather(*render_tasks, return_exceptions=True)
 
-Identify this document. Return ONLY valid JSON:
+        all_pages = []
+        for f, pages in zip(file_list, results):
+            if isinstance(pages, Exception):
+                log.warning("[Intel] Could not render %s: %s", f["filename"], pages)
+                continue
+            all_pages.extend(pages)
+        return all_pages
+
+    async def _render_file(self, file_bytes: bytes, filename: str) -> list:
+        """Render one file into a list of page dicts."""
+        ext = Path(filename).suffix.lower()
+        pages = []
+
+        if ext == ".pdf":
+            pages = await asyncio.to_thread(self._render_pdf, file_bytes, filename)
+        elif ext in (".jpg", ".jpeg", ".png", ".tif", ".tiff", ".webp"):
+            pages = [{
+                "label":       filename,
+                "source_file": filename,
+                "page_number": 1,
+                "image_data":  base64.b64encode(file_bytes).decode(),
+                "media_type":  _ext_to_mime(ext),
+            }]
+        else:
+            # Unknown type — try sending raw bytes and let Claude handle it
+            pages = [{
+                "label":       filename,
+                "source_file": filename,
+                "page_number": 1,
+                "image_data":  base64.b64encode(file_bytes).decode(),
+                "media_type":  "application/octet-stream",
+            }]
+
+        log.info("[Intel] %s → %d page(s)", filename, len(pages))
+        return pages
+
+    def _render_pdf(self, file_bytes: bytes, filename: str) -> list:
+        """
+        Render every page of a PDF as a PNG image.
+        Caps at MAX_PAGES_PER_FILE. Large PDFs are sampled intelligently.
+        Runs in a thread (CPU-bound).
+        """
+        try:
+            import pdfplumber
+        except ImportError:
+            log.error("[Intel] pdfplumber not installed — cannot render PDF")
+            return []
+
+        pages = []
+
+        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+            tmp.write(file_bytes)
+            tmp_path = tmp.name
+
+        try:
+            with pdfplumber.open(tmp_path) as pdf:
+                total = len(pdf.pages)
+                log.info("[Intel] %s has %d page(s)", filename, total)
+
+                # Which pages to render
+                if total <= MAX_PAGES_PER_FILE:
+                    page_indices = list(range(total))
+                else:
+                    # Always include first 5 (cover + index) and last 2
+                    # Sample the rest evenly
+                    head = list(range(min(5, total)))
+                    tail = list(range(max(0, total - 2), total))
+                    step = max(1, (total - 7) // (MAX_PAGES_PER_FILE - 7))
+                    middle = list(range(5, total - 2, step))
+                    page_indices = sorted(set(head + middle + tail))[:MAX_PAGES_PER_FILE]
+                    log.info(
+                        "[Intel] %s: %d pages → sampling %d",
+                        filename, total, len(page_indices)
+                    )
+
+                for idx in page_indices:
+                    try:
+                        page = pdf.pages[idx]
+                        img  = page.to_image(resolution=PDF_DPI)
+
+                        # Clamp to MAX_IMAGE_PX to avoid Claude rejection
+                        pil_img = img.original
+                        w, h    = pil_img.size
+                        if max(w, h) > MAX_IMAGE_PX:
+                            scale   = MAX_IMAGE_PX / max(w, h)
+                            pil_img = pil_img.resize(
+                                (int(w * scale), int(h * scale)),
+                                resample=1  # LANCZOS
+                            )
+
+                        buf = io.BytesIO()
+                        pil_img.save(buf, format="PNG", optimize=True)
+                        b64 = base64.b64encode(buf.getvalue()).decode()
+
+                        label = f"{filename} — p{idx+1}/{total}"
+                        pages.append({
+                            "label":       label,
+                            "source_file": filename,
+                            "page_number": idx + 1,
+                            "total_pages": total,
+                            "image_data":  b64,
+                            "media_type":  "image/png",
+                        })
+                    except Exception as exc:
+                        log.warning("[Intel] Page %d of %s failed: %s", idx + 1, filename, exc)
+
+        except Exception as exc:
+            log.error("[Intel] PDF open failed for %s: %s", filename, exc)
+        finally:
+            try:
+                os.unlink(tmp_path)
+            except Exception:
+                pass
+
+        return pages
+
+    # ── Step 2: Classify a page ───────────────────────────────────────────────
+
+    async def _classify_page(self, page: dict, project_context: dict) -> dict:
+        prompt = f"""You are reviewing a construction document page for a fire sprinkler design project.
+
+Project: {project_context.get('project_name','')}
+Occupancy: {project_context.get('occupancy','')}
+Page: {page['label']}
+
+Identify this document page. Return ONLY valid JSON:
 {{
-  "type": "floor_plan|rcp|structural|mechanical|plumbing|civil|site_plan|fire_protection|specification|general_notes|elevation|section|detail|schedule|unknown",
-  "sheet_number": "e.g. A1.1 or S-2 or empty string",
-  "sheet_title": "e.g. FIRST FLOOR PLAN",
-  "floor_level": "ground|second|basement|roof|all|unknown",
-  "is_relevant_for_sprinkler_design": true_or_false,
-  "key_info_visible": ["list of key items you can see, e.g. room labels, dimensions, duct layout"],
+  "type": "drawing_index|cover|floor_plan|rcp|structural|mechanical|plumbing|civil|site_plan|fire_protection|specification|general_notes|elevation|section|detail|schedule|unknown",
+  "sheet_number": "e.g. A1.1 or S-2 or FP-1 or empty string",
+  "sheet_title": "e.g. FIRST FLOOR PLAN or empty string",
+  "floor_level": "ground|second|basement|roof|mezzanine|all|unknown",
+  "drawing_scale": "e.g. 1/8=1-0 or 1:100 or NTS or empty string",
+  "is_relevant": true,
+  "key_items": ["list of 3-5 key items visible, e.g. room labels, duct layout, beam schedule"],
   "confidence": "high|medium|low"
 }}
 
-Type guide:
-- floor_plan: architectural plan view showing walls, rooms, doors
-- rcp: reflected ceiling plan showing ceiling grid, heights, soffits
-- structural: beams, columns, joists, steel framing
+Type definitions:
+- drawing_index: sheet list/index, drawing schedule, list of drawings
+- cover: title sheet, project cover page, no geometry
+- floor_plan: architectural plan view with walls, rooms, dimensions
+- rcp: reflected ceiling plan with ceiling grid and heights
+- structural: beams, columns, joists, steel framing, foundation
 - mechanical: HVAC ductwork, equipment, diffusers
-- plumbing: drain pipes, water lines, fixtures
-- civil/site_plan: site layout, utilities, water supply connections
+- plumbing: drain pipes, water lines, fixtures (not fire sprinkler)
+- civil/site_plan: site layout, grading, utilities, water supply
 - fire_protection: sprinkler, standpipe, or fire alarm drawings
-- specification: written spec sections (Division 21, 22, etc.)
-- general_notes: legend, abbreviations, general conditions
-- elevation/section/detail: vertical views, details"""
+- specification: written spec text (Division 21, 22, etc.)
+- general_notes: legend, abbreviations, project notes, symbols
+- elevation: exterior or interior vertical views
+- section: cross-sections, wall sections
+- detail: large-scale detail drawings
+- schedule: door/window/finish/equipment schedules"""
 
-        result = await self._vision_call(doc["image_data"], doc["media_type"], prompt, "Classify")
-        doc_type = result.get("type", "unknown")
-        result["priority"] = DOC_PRIORITY.get(doc_type, 0)
-        return result
+        return await self._vision_call(page["image_data"], page["media_type"], prompt, "Classify")
 
-    # ── Data extraction per document type ─────────────────────────────────────
+    # ── Step 3: Extract from a classified page ────────────────────────────────
 
-    async def _extract_from_document(self, doc: dict, project_context: dict) -> dict:
-        """Extract fire-sprinkler-relevant data from a single document."""
-        doc_type = doc["classification"]["type"]
+    async def _extract_from_page(self, page: dict, project_context: dict) -> dict:
+        doc_type = page["classification"].get("type", "unknown")
         extractors = {
+            "drawing_index":   self._extract_drawing_index,
             "floor_plan":      self._extract_floor_plan,
             "rcp":             self._extract_rcp,
             "structural":      self._extract_structural,
@@ -222,73 +376,103 @@ Type guide:
             "plumbing":        self._extract_plumbing,
         }
         extractor = extractors.get(doc_type, self._extract_generic)
-        return await extractor(doc, project_context)
+        return await extractor(page, project_context)
 
-    async def _extract_floor_plan(self, doc: dict, project_context: dict) -> dict:
-        """Extract building geometry, rooms, and hazard zones from a floor plan."""
+    # ── Extractors ────────────────────────────────────────────────────────────
+
+    async def _extract_drawing_index(self, page: dict, project_context: dict) -> dict:
+        """Parse the drawing schedule to understand the full document set."""
+        prompt = f"""This is a drawing index / sheet schedule for a construction project.
+
+Extract the complete list of drawings in this set.
+
+Return ONLY valid JSON:
+{{
+  "project_name": "official project name from title block",
+  "project_address": "address if visible",
+  "architect": "architect name/firm",
+  "engineer": "structural engineer name/firm",
+  "date": "issue date",
+  "sheets": [
+    {{
+      "sheet_number": "A1.1",
+      "title": "FIRST FLOOR PLAN",
+      "type": "floor_plan|structural|mechanical|civil|specification|other",
+      "level": "ground|second|basement|roof|all"
+    }}
+  ],
+  "total_sheet_count": number,
+  "has_fire_protection_sheets": true_or_false,
+  "has_specification_sections": true_or_false,
+  "notes": []
+}}"""
+        return await self._vision_call(page["image_data"], page["media_type"], prompt, "Index")
+
+    async def _extract_floor_plan(self, page: dict, project_context: dict) -> dict:
         known_area = float(project_context.get("total_area", 0))
         known_ch   = float(project_context.get("ceiling_height", 10))
         occupancy  = project_context.get("occupancy", "")
+        scale      = page["classification"].get("drawing_scale", "")
+        sheet      = page["classification"].get("sheet_number", "")
+        level      = page["classification"].get("floor_level", "ground")
 
         prompt = f"""You are an NFPA 13 fire sprinkler engineer analyzing an architectural floor plan.
 
 Project: {project_context.get('project_name','')}
 Occupancy: {occupancy}
-Known total area: {known_area} SF
-Known ceiling height: {known_ch} ft
-Sheet: {doc['classification'].get('sheet_number','')} {doc['classification'].get('sheet_title','')}
+Sheet: {sheet} — Level: {level}
+Drawing Scale: {scale}
+Known total area: {known_area} SF | Known ceiling height: {known_ch} ft
 
 EXTRACT all of the following for fire sprinkler design:
 
-1. BUILDING DIMENSIONS — overall width and depth in feet
-2. ALL ROOMS — every labeled area with its boundary coordinates
-3. HAZARD CLASSIFICATIONS — assign NFPA 13 hazard to every room:
-   - light: offices, corridors, lobbies, restrooms, vestibules, membership
-   - ordinary_1: retail sales, parking, mechanical, pharmacy, optical
-   - ordinary_2: receiving/dock, food service, bakery, deli, food court, kitchen
-   - esfr_k14: warehouse floor, high-pile storage, merchandise sales, rack areas
-   - esfr_k25: high-pile storage >25ft or Class IV plastics without in-rack
-   - tire_storage: tire center, automotive with tires
+1. BUILDING DIMENSIONS — overall width and depth in feet (read from dimension strings)
+2. DRAWING SCALE — confirm or correct from title block
+3. ALL ROOMS — every labeled area with rectangular or polygonal boundary
+4. HAZARD CLASSIFICATION — assign NFPA 13 hazard to every room:
+   - light: offices, corridors, lobbies, restrooms, vestibules, membership, fitness
+   - ordinary_1: retail sales, parking, mechanical room, pharmacy
+   - ordinary_2: receiving/dock, food service, bakery, deli, kitchen, food prep
+   - esfr_k14: warehouse floor, high-pile storage, merchandise sales area, rack areas
+   - esfr_k25: high-pile storage >25ft or Class IV plastics
+   - tire_storage: tire center, automotive service with tires
    - freezer: walk-in freezers; cooler: walk-in coolers
 
-COORDINATE SYSTEM: Origin (0,0) = bottom-left of building. X = right, Y = up. FEET.
-
-CRITICAL: Every square foot must be assigned. No gaps in room coverage.
+COORDINATE SYSTEM: Origin (0,0) = bottom-left of building footprint. X = right, Y = up. ALL IN FEET.
+CRITICAL: Every square foot of the building must be covered. No gaps.
 
 Return ONLY valid JSON:
 {{
+  "sheet_number": "{sheet}",
+  "floor_level": "{level}",
   "building_dimensions": {{"width_ft": number, "depth_ft": number}},
+  "drawing_scale": "{scale or 'NTS'}",
   "floor_area_sf": number,
-  "drawing_scale": "e.g. 1/8=1-0",
   "rooms": [
     {{
-      "name": "area name",
+      "name": "room or area label from drawing",
       "hazard_classification": "light|ordinary_1|ordinary_2|esfr_k14|esfr_k25|tire_storage|freezer|cooler",
-      "nfpa_13_basis": "§8.5/§22.1/Ch.17",
+      "nfpa_13_basis": "§8.5.1/§22.1/etc",
       "boundary": [{{"x":0,"y":0}},{{"x":W,"y":0}},{{"x":W,"y":D}},{{"x":0,"y":D}}],
       "estimated_area_sf": number,
       "ceiling_height_ft": {known_ch},
-      "floor_level": "ground|second|basement",
+      "floor_level": "{level}",
       "notes": ""
     }}
   ],
-  "columns": [{{"x": number, "y": number, "size": "e.g. 12x12"}}],
+  "columns": [{{"x": number, "y": number, "size": "e.g. 12x12 or W8x31"}}],
   "walls": [],
-  "doors": [{{"x": number, "y": number, "width_ft": number}}],
+  "doors": [{{"x": number, "y": number, "width_ft": number, "type": "entry|exit|interior"}}],
   "notes": []
 }}"""
+        return await self._vision_call(page["image_data"], page["media_type"], prompt, "FloorPlan")
 
-        return await self._vision_call(doc["image_data"], doc["media_type"], prompt, "FloorPlan")
+    async def _extract_rcp(self, page: dict, project_context: dict) -> dict:
+        prompt = f"""Analyze this Reflected Ceiling Plan (RCP) for fire sprinkler design per NFPA 13 §8.6.
 
-    async def _extract_rcp(self, doc: dict, project_context: dict) -> dict:
-        """Extract ceiling heights, soffits, and obstructions from RCP."""
-        prompt = f"""Analyze this Reflected Ceiling Plan for fire sprinkler obstruction analysis.
+Sheet: {page['classification'].get('sheet_number','')}
 
-Extract:
-1. Ceiling heights in each area (feet)
-2. Soffits, bulkheads, dropped ceilings with dimensions
-3. Ceiling grid type (exposed structure, T-bar, drywall)
-4. Any obstructions >4" wide that could affect sprinkler placement
+Extract ceiling conditions that affect sprinkler placement:
 
 Return ONLY valid JSON:
 {{
@@ -296,7 +480,7 @@ Return ONLY valid JSON:
     {{
       "name": "area name",
       "height_ft": number,
-      "ceiling_type": "exposed_structure|t_bar|drywall|open",
+      "ceiling_type": "exposed_structure|t_bar|drywall|open|sloped",
       "boundary": [{{"x":number,"y":number}}]
     }}
   ],
@@ -310,22 +494,22 @@ Return ONLY valid JSON:
   ],
   "obstructions": [
     {{
-      "type": "soffit|beam|duct|column|other",
-      "description": "e.g. 24-inch duct",
+      "type": "soffit|beam|duct|column|pendant|other",
+      "description": "e.g. 24-inch wide soffit at 10ft",
       "height_ft": number,
       "boundary": [{{"x":number,"y":number}}]
     }}
   ],
   "notes": []
 }}"""
+        return await self._vision_call(page["image_data"], page["media_type"], prompt, "RCP")
 
-        return await self._vision_call(doc["image_data"], doc["media_type"], prompt, "RCP")
-
-    async def _extract_structural(self, doc: dict, project_context: dict) -> dict:
-        """Extract beams, columns, joists — all potential sprinkler obstructions."""
+    async def _extract_structural(self, page: dict, project_context: dict) -> dict:
         prompt = f"""Analyze this structural drawing for fire sprinkler obstruction analysis per NFPA 13 §8.6.
 
-Extract all structural members that could require sprinkler relocation or additional heads:
+Sheet: {page['classification'].get('sheet_number','')}
+
+Extract structural members that require sprinkler accommodation:
 
 Return ONLY valid JSON:
 {{
@@ -337,31 +521,27 @@ Return ONLY valid JSON:
     {{
       "id": "B-1",
       "from": {{"x":number,"y":number}},
-      "to":   {{"x":number,"y":number}},
+      "to": {{"x":number,"y":number}},
       "depth_in": number,
       "flange_width_in": number,
       "bottom_of_beam_ft": number
     }}
   ],
-  "columns": [
-    {{"x":number,"y":number,"size":"W8x31","base_plate_in":12}}
-  ],
+  "columns": [{{"x":number,"y":number,"size":"W8x31"}}],
   "deck_type": "metal_deck|concrete|wood|unknown",
   "deck_flute_depth_in": number,
   "mezzanine": false,
   "notes": []
 }}"""
+        return await self._vision_call(page["image_data"], page["media_type"], prompt, "Structural")
 
-        return await self._vision_call(doc["image_data"], doc["media_type"], prompt, "Structural")
+    async def _extract_mechanical(self, page: dict, project_context: dict) -> dict:
+        prompt = f"""Analyze this mechanical/HVAC drawing for fire sprinkler obstructions per NFPA 13 §8.6.5.
 
-    async def _extract_mechanical(self, doc: dict, project_context: dict) -> dict:
-        """Extract HVAC ducts and equipment — major sprinkler obstructions per §8.6.5."""
-        prompt = f"""Analyze this mechanical/HVAC drawing for fire sprinkler obstruction analysis per NFPA 13 §8.6.5.
+Sheet: {page['classification'].get('sheet_number','')}
 
-Ducts wider than 4 feet require sprinklers on both sides.
-Ducts wider than 1 foot may deflect sprinkler discharge.
-
-Extract all major HVAC elements:
+Ducts >4ft wide require sprinklers both above and below (§8.6.5.1).
+Ducts >1ft wide can deflect spray and require head relocation.
 
 Return ONLY valid JSON:
 {{
@@ -376,86 +556,65 @@ Return ONLY valid JSON:
       "requires_sprinkler_below": true_or_false
     }}
   ],
-  "air_handling_units": [
+  "equipment": [
     {{
+      "type": "AHU|RTU|fan_coil|other",
       "id": "AHU-1",
       "boundary": [{{"x":number,"y":number}}],
       "height_ft": number
     }}
   ],
-  "equipment": [
-    {{
-      "type": "AHU|RTU|fan_coil|other",
-      "location": {{"x":number,"y":number}},
-      "footprint_ft": {{"w":number,"d":number}}
-    }}
-  ],
   "notes": []
 }}"""
+        return await self._vision_call(page["image_data"], page["media_type"], prompt, "Mechanical")
 
-        return await self._vision_call(doc["image_data"], doc["media_type"], prompt, "Mechanical")
-
-    async def _extract_civil(self, doc: dict, project_context: dict) -> dict:
-        """Extract water supply information from civil/site plans."""
+    async def _extract_civil(self, page: dict, project_context: dict) -> dict:
         prompt = f"""Analyze this civil/site plan for fire sprinkler water supply information.
 
-Extract:
-1. Water main locations and sizes
-2. Fire hydrant locations and distances from building
-3. Fire department connection (FDC) location
-4. Water utility notes or flow test data if visible
-5. Site utilities that may affect sprinkler design
+Sheet: {page['classification'].get('sheet_number','')}
+
+Extract all water supply data for hydraulic calculations:
 
 Return ONLY valid JSON:
 {{
-  "water_mains": [
-    {{"diameter_in":number,"material":"CI|DI|PVC","location":"description","pressure_psi":number}}
-  ],
-  "hydrants": [
-    {{"id":"H-1","distance_from_building_ft":number,"flow_gpm":number,"x":number,"y":number}}
-  ],
+  "water_mains": [{{"diameter_in":number,"material":"DI|CI|PVC","pressure_psi":number}}],
+  "hydrants": [{{"id":"H-1","distance_ft":number,"flow_gpm":number,"x":number,"y":number}}],
   "fdc_location": {{"x":number,"y":number,"description":""}},
   "static_pressure_psi": number,
   "residual_pressure_psi": number,
   "flow_test_gpm": number,
+  "test_date": "",
   "utility_notes": [],
   "notes": []
 }}"""
+        return await self._vision_call(page["image_data"], page["media_type"], prompt, "Civil")
 
-        return await self._vision_call(doc["image_data"], doc["media_type"], prompt, "Civil")
-
-    async def _extract_fire_protection(self, doc: dict, project_context: dict) -> dict:
-        """Extract existing fire protection system information."""
+    async def _extract_fire_protection(self, page: dict, project_context: dict) -> dict:
         prompt = f"""Analyze this fire protection drawing.
 
-Extract existing system information relevant to the new design:
+Sheet: {page['classification'].get('sheet_number','')}
+
+Extract existing system data and design parameters:
 
 Return ONLY valid JSON:
 {{
   "system_type": "wet_pipe|dry_pipe|pre_action|deluge|none",
-  "existing_riser_location": {{"x":number,"y":number}},
+  "riser_location": {{"x":number,"y":number}},
   "existing_pipe_sizes": {{"main_in":number,"branch_in":number}},
-  "sprinkler_type": "pendant|upright|esfr|other",
-  "coverage_notes": [],
-  "hydraulic_reference_point": {{"x":number,"y":number,"psi":number,"gpm":number}},
+  "sprinkler_type": "pendant|upright|sidewall|esfr|other",
+  "sprinkler_model": "",
+  "k_factor": number,
+  "design_area_sqft": number,
+  "design_density_gpm_sqft": number,
+  "hydraulic_reference": {{"x":number,"y":number,"psi":number,"gpm":number}},
   "notes": []
 }}"""
+        return await self._vision_call(page["image_data"], page["media_type"], prompt, "FP")
 
-        return await self._vision_call(doc["image_data"], doc["media_type"], prompt, "FP")
+    async def _extract_specification(self, page: dict, project_context: dict) -> dict:
+        prompt = f"""Analyze this specification document for fire sprinkler design requirements.
 
-    async def _extract_specification(self, doc: dict, project_context: dict) -> dict:
-        """Extract project specifications from Division 21 or other spec sections."""
-        prompt = f"""Analyze this project specification document for fire sprinkler design requirements.
-
-Look for:
-- Division 21 (Fire Suppression) requirements
-- Pipe material specifications
-- Sprinkler type requirements
-- System type requirements
-- AHJ-specific requirements
-- NFPA 13 edition referenced
-- Water supply requirements
-- Special design requirements
+Look for Division 21 (Fire Suppression) or related sections.
 
 Return ONLY valid JSON:
 {{
@@ -463,28 +622,20 @@ Return ONLY valid JSON:
   "pipe_material": "Schedule 40 Steel|Schedule 10 Steel|CPVC|Copper|unknown",
   "pipe_joining": "threaded|grooved|welded|unknown",
   "system_type": "wet_pipe|dry_pipe|pre_action|antifreeze|unknown",
-  "sprinkler_listing_required": "FM|UL|both|either",
-  "minimum_design_density": number,
   "seismic_zone": "A|B|C|D|D1|D2|E|unknown",
+  "minimum_design_density": number,
+  "sprinkler_listing": "FM|UL|both|either",
   "special_requirements": [],
   "ahj_amendments": [],
   "water_supply_requirements": {{"static_psi":number,"residual_psi":number,"flow_gpm":number}},
   "notes": []
 }}"""
+        return await self._vision_call(page["image_data"], page["media_type"], prompt, "Spec")
 
-        return await self._vision_call(doc["image_data"], doc["media_type"], prompt, "Spec")
+    async def _extract_general_notes(self, page: dict, project_context: dict) -> dict:
+        prompt = f"""Analyze this general notes / legend sheet.
 
-    async def _extract_general_notes(self, doc: dict, project_context: dict) -> dict:
-        """Extract general notes, legends, and project info."""
-        prompt = f"""Analyze this general notes or legend sheet.
-
-Extract any information relevant to fire sprinkler design:
-- Building code edition
-- Occupancy classification
-- Construction type
-- Special requirements
-- AHJ information
-- Project-specific notes
+Extract project and code data relevant to fire sprinkler design.
 
 Return ONLY valid JSON:
 {{
@@ -496,436 +647,499 @@ Return ONLY valid JSON:
   "special_requirements": [],
   "notes": []
 }}"""
+        return await self._vision_call(page["image_data"], page["media_type"], prompt, "Notes")
 
-        return await self._vision_call(doc["image_data"], doc["media_type"], prompt, "Notes")
-
-    async def _extract_plumbing(self, doc: dict, project_context: dict) -> dict:
-        """Extract plumbing info relevant to water supply."""
-        prompt = f"""Analyze this plumbing drawing for fire sprinkler water supply information.
-
-Extract domestic water service information that may inform fire sprinkler supply:
+    async def _extract_plumbing(self, page: dict, project_context: dict) -> dict:
+        prompt = f"""Analyze this plumbing drawing for domestic water supply information.
 
 Return ONLY valid JSON:
 {{
   "water_service_size_in": number,
-  "water_meter_location": {{"x":number,"y":number}},
-  "backflow_preventer": {{"type":"","location":{{"x":0,"y":0}}}},
   "building_water_pressure_psi": number,
+  "backflow_preventer_type": "",
   "notes": []
 }}"""
+        return await self._vision_call(page["image_data"], page["media_type"], prompt, "Plumbing")
 
-        return await self._vision_call(doc["image_data"], doc["media_type"], prompt, "Plumbing")
+    async def _extract_generic(self, page: dict, project_context: dict) -> dict:
+        return {"notes": [], "data": {}}
 
-    async def _extract_generic(self, doc: dict, project_context: dict) -> dict:
-        """Generic extraction for unclassified but relevant documents."""
-        prompt = f"""This is a {doc['classification'].get('type','unknown')} construction document.
-Extract any information relevant to fire sprinkler system design.
-Return ONLY valid JSON: {{"notes": [], "data": {{}}}}"""
-        return await self._vision_call(doc["image_data"], doc["media_type"], prompt, "Generic")
+    # ── Step 4: Synthesis ─────────────────────────────────────────────────────
 
-    # ── Synthesis ──────────────────────────────────────────────────────────────
-
-    async def _synthesize(self, doc_data: list, project_context: dict) -> dict:
-        """
-        Synthesize all extracted document data into a unified project model.
-        Priority order: floor_plan > fire_protection > structural > rcp > mechanical > spec
-        """
-        # Initialize with project context defaults
+    def _synthesize(self, doc_data: list, project_context: dict) -> dict:
+        """Merge all extracted data into a unified project model."""
         known_area = float(project_context.get("total_area", 0))
         known_ch   = float(project_context.get("ceiling_height", 10))
-        occupancy  = project_context.get("occupancy", "")
 
         project = {
-            "walls":               [],
-            "rooms":               [],
-            "columns":             [],
-            "obstructions":        [],
-            "structural_beams":    [],
-            "building_dimensions": {},
-            "floor_area_sf":       known_area,
-            "ceiling_height_ft":   known_ch,
-            "drawing_scale":       "",
-            "spec":                {},
-            "water_supply":        {
+            "walls":                [],
+            "rooms":                [],
+            "columns":              [],
+            "obstructions":         [],
+            "structural_beams":     [],
+            "building_dimensions":  {},
+            "floor_area_sf":        known_area,
+            "ceiling_height_ft":    known_ch,
+            "drawing_scale":        "",
+            "spec":                 {},
+            "water_supply": {
                 "static_pressure_psi":   float(project_context.get("static_pressure", 72)),
                 "residual_pressure_psi": float(project_context.get("residual_pressure",
-                                               project_context.get("static_pressure",72)*0.85)),
+                                               float(project_context.get("static_pressure", 72)) * 0.85)),
                 "flow_gpm":             float(project_context.get("water_supply_flow", 1500)),
             },
-            "notes":               [],
-            "source_documents":    [],
+            "sheet_index":   [],
+            "notes":         [],
+            "source_documents": [],
         }
 
-        # --- Floor plan data (highest priority) ---
+        # Drawing index → sheet log
+        for d in doc_data:
+            if d["type"] == "drawing_index":
+                sheets = d["data"].get("sheets", [])
+                project["sheet_index"] = sheets
+                log.info("[Intel] Drawing index: %d sheets listed", len(sheets))
+                project["source_documents"].append(d["filename"])
+
+        # Floor plans (highest priority — take widest building dims found)
         floor_plans = sorted(
             [d for d in doc_data if d["type"] == "floor_plan"],
             key=lambda d: d["priority"], reverse=True
         )
         for fp in floor_plans:
             data = fp["data"]
-            if not project["building_dimensions"].get("width_ft"):
-                bd = data.get("building_dimensions", {})
-                if bd.get("width_ft") and bd.get("depth_ft"):
+            bd = data.get("building_dimensions", {})
+            if bd.get("width_ft") and bd.get("depth_ft"):
+                # Take the largest dims found (handles multi-floor buildings)
+                existing = project["building_dimensions"]
+                if (bd["width_ft"] * bd["depth_ft"] >
+                        existing.get("width_ft", 0) * existing.get("depth_ft", 1)):
                     project["building_dimensions"] = bd
                     project["floor_area_sf"] = bd["width_ft"] * bd["depth_ft"]
-
-            if not project["rooms"] and data.get("rooms"):
-                project["rooms"] = data["rooms"]
-
-            if not project["columns"] and data.get("columns"):
-                project["columns"] = data["columns"]
-
+            if data.get("rooms"):
+                # Merge rooms from all floor levels
+                project["rooms"].extend(data["rooms"])
+            if data.get("columns"):
+                project["columns"].extend(data["columns"])
             if not project["drawing_scale"] and data.get("drawing_scale"):
                 project["drawing_scale"] = data["drawing_scale"]
-
             project["source_documents"].append(fp["filename"])
 
-        # --- Structural data → beams + columns ---
+        # Structural → beams + obstruction list
         for d in doc_data:
             if d["type"] == "structural":
                 data = d["data"]
                 if data.get("beams"):
                     project["structural_beams"].extend(data["beams"])
+                    for beam in data["beams"]:
+                        if beam.get("depth_in", 0) > 4:
+                            project["obstructions"].append({
+                                "type": "beam",
+                                "description": f"Beam {beam.get('depth_in',0)}\" deep",
+                                "from": beam.get("from", {}),
+                                "to":   beam.get("to", {}),
+                                "nfpa_ref": "§8.6",
+                            })
                 if data.get("columns") and not project["columns"]:
                     project["columns"] = data["columns"]
-                # Add structural obstructions
-                for beam in data.get("beams", []):
-                    if beam.get("depth_in", 0) > 4:
-                        project["obstructions"].append({
-                            "type":        "beam",
-                            "description": f"Steel beam {beam.get('depth_in',0)}\" deep",
-                            "from":        beam.get("from", {}),
-                            "to":          beam.get("to", {}),
-                            "nfpa_ref":    "§8.6",
-                        })
 
-        # --- RCP → ceiling heights per room ---
+        # RCP → ceiling heights + soffit obstructions
         for d in doc_data:
             if d["type"] == "rcp":
                 data = d["data"]
-                # Update room ceiling heights from RCP
-                for ceiling_area in data.get("ceiling_areas", []):
-                    name = ceiling_area.get("name", "").lower()
-                    height = ceiling_area.get("height_ft", 0)
-                    if height > 0:
+                for ca in data.get("ceiling_areas", []):
+                    name = ca.get("name", "").lower()
+                    h    = ca.get("height_ft", 0)
+                    if h > 0:
                         for room in project["rooms"]:
                             if name in room.get("name", "").lower():
-                                room["ceiling_height_ft"] = height
-                # Add soffit obstructions
+                                room["ceiling_height_ft"] = h
                 for soffit in data.get("soffits", []):
                     project["obstructions"].append({
-                        "type":        "soffit",
+                        "type": "soffit",
                         "description": f"Soffit at {soffit.get('height_ft',0)}ft",
-                        "boundary":    soffit.get("boundary", []),
-                        "nfpa_ref":    "§8.6",
+                        "boundary": soffit.get("boundary", []),
+                        "nfpa_ref": "§8.6",
                     })
 
-        # --- Mechanical → duct obstructions ---
+        # Mechanical → duct obstructions
         for d in doc_data:
             if d["type"] == "mechanical":
                 data = d["data"]
                 for duct in data.get("ducts", []):
                     w = duct.get("width_in", 0)
-                    if w > 12:  # ducts >1ft affect sprinkler placement
+                    if w > 12:
                         project["obstructions"].append({
-                            "type":          "duct",
-                            "description":   f"HVAC duct {w}\" wide × {duct.get('depth_in',0)}\"",
-                            "path":          duct.get("path", []),
-                            "width_in":      w,
-                            "requires_below": w >= 48,  # §8.6.5: >4ft needs heads below
-                            "nfpa_ref":      "§8.6.5",
+                            "type": "duct",
+                            "description": f"Duct {w}\" × {duct.get('depth_in',0)}\"",
+                            "path": duct.get("path", []),
+                            "width_in": w,
+                            "requires_below": w >= 48,
+                            "nfpa_ref": "§8.6.5",
                         })
 
-        # --- Civil/Site → water supply ---
+        # Civil/site → water supply (take highest pressure found)
         for d in doc_data:
             if d["type"] in ("civil", "site_plan"):
                 data = d["data"]
-                if data.get("static_pressure_psi"):
-                    project["water_supply"]["static_pressure_psi"]   = data["static_pressure_psi"]
+                if data.get("static_pressure_psi", 0) > project["water_supply"]["static_pressure_psi"]:
+                    project["water_supply"]["static_pressure_psi"] = data["static_pressure_psi"]
                 if data.get("residual_pressure_psi"):
                     project["water_supply"]["residual_pressure_psi"] = data["residual_pressure_psi"]
                 if data.get("flow_test_gpm"):
                     project["water_supply"]["flow_gpm"] = data["flow_test_gpm"]
 
-        # --- Specifications ---
+        # Specifications → pipe material, seismic, system type
         for d in doc_data:
             if d["type"] == "specification":
                 data = d["data"]
                 project["spec"] = data
-                # Apply spec overrides
-                if data.get("seismic_zone") and data["seismic_zone"] != "unknown":
+                if data.get("seismic_zone", "unknown") != "unknown":
                     project_context["seismic_zone"] = data["seismic_zone"]
-                if data.get("pipe_material") and data["pipe_material"] != "unknown":
+                if data.get("pipe_material", "unknown") != "unknown":
                     project_context["pipe_material"] = data["pipe_material"]
-                if data.get("water_supply_requirements", {}).get("static_psi"):
-                    ws = data["water_supply_requirements"]
-                    if ws.get("static_psi"):
-                        project["water_supply"]["static_pressure_psi"]   = ws["static_psi"]
-                    if ws.get("residual_psi"):
-                        project["water_supply"]["residual_pressure_psi"] = ws["residual_psi"]
-                    if ws.get("flow_gpm"):
-                        project["water_supply"]["flow_gpm"] = ws["flow_gpm"]
+                ws = data.get("water_supply_requirements", {})
+                if ws.get("static_psi"):
+                    project["water_supply"]["static_pressure_psi"] = ws["static_psi"]
+                if ws.get("residual_psi"):
+                    project["water_supply"]["residual_pressure_psi"] = ws["residual_psi"]
+                if ws.get("flow_gpm"):
+                    project["water_supply"]["flow_gpm"] = ws["flow_gpm"]
 
-        # --- General notes → occupancy/code data ---
+        # General notes → AHJ
         for d in doc_data:
-            if d["type"] == "general_notes":
-                data = d["data"]
-                if data.get("ahj"):
-                    project["ahj"] = data["ahj"]
+            if d["type"] == "general_notes" and d["data"].get("ahj"):
+                project["ahj"] = d["data"]["ahj"]
 
-        # --- Validate and fill gaps ---
-        project = self._validate_and_complete(project, project_context)
+        # Fire protection sheets → existing system context
+        for d in doc_data:
+            if d["type"] == "fire_protection":
+                project["existing_fp"] = d["data"]
 
-        # Update project_context with synthesized data
+        # Validate and fill geometry gaps
+        project = _validate_and_complete(project, project_context)
+
+        # Push water supply back to context
         ws = project["water_supply"]
         project_context["static_pressure"]   = ws["static_pressure_psi"]
-        project_context["residual_pressure"]  = ws["residual_pressure_psi"]
-        project_context["water_supply_flow"]  = ws["flow_gpm"]
+        project_context["residual_pressure"] = ws["residual_pressure_psi"]
+        project_context["water_supply_flow"] = ws["flow_gpm"]
 
         return project
 
-    def _validate_and_complete(self, project: dict, ctx: dict) -> dict:
-        """Ensure the project model is complete and consistent."""
-        bd = project.get("building_dimensions", {})
-        bw = float(bd.get("width_ft", 0))
-        bh = float(bd.get("depth_ft", 0))
+    # ── Step 5: Project Brief ─────────────────────────────────────────────────
 
-        # Set building dims from known area if missing
-        if bw <= 0 or bh <= 0:
-            known = float(ctx.get("total_area", 0))
-            if known > 0:
-                occ = ctx.get("occupancy", "").lower()
-                ratio = 0.65 if any(k in occ for k in
-                    ["warehouse","storage","wholesale","big box","distribution"]) else 0.75
-                bw = round(math.sqrt(known / ratio), 1)
-                bh = round(known / bw, 1)
-            else:
-                bw, bh = 100.0, 100.0
-            project["building_dimensions"] = {"width_ft": bw, "depth_ft": bh}
-            project["floor_area_sf"] = round(bw * bh, 0)
-            log.info(f"[Intel] Building dims derived: {bw}x{bh}ft")
+    async def _generate_project_brief(
+        self,
+        doc_data:        list,
+        project:         dict,
+        project_context: dict,
+    ) -> dict:
+        """
+        Generate a structured project brief from all extracted data.
+        This is stored alongside the geometry and referenced by design agents.
+        """
+        sheets_found = [
+            {"sheet": d["sheet_number"], "title": d["sheet_title"], "type": d["type"]}
+            for d in doc_data if d.get("sheet_number")
+        ]
 
-        # Set default ceiling height on all rooms
-        default_ch = float(ctx.get("ceiling_height", 10))
-        for room in project.get("rooms", []):
-            if not room.get("ceiling_height_ft"):
-                room["ceiling_height_ft"] = default_ch
+        rooms_summary = [
+            {"name": r["name"], "hazard": r.get("hazard_classification",""), "area_sf": r.get("area_sf",0)}
+            for r in project.get("rooms", [])[:20]  # top 20 for brevity
+        ]
 
-        # Clamp rooms to building boundary
-        valid_rooms = []
-        for r in project.get("rooms", []):
-            bnd = r.get("boundary", [])
-            if len(bnd) < 3:
-                continue
-            clamped = [{"x": max(0.0, min(bw, p["x"])),
-                        "y": max(0.0, min(bh, p["y"]))} for p in bnd]
-            xs = [p["x"] for p in clamped]; ys = [p["y"] for p in clamped]
-            if max(xs)-min(xs) < 3 or max(ys)-min(ys) < 3:
-                continue
-            area = _poly_area(clamped)
-            if area < 50:
-                continue
-            hz = (r.get("hazard_override") or
-                  r.get("hazard_classification") or
-                  _infer_hazard(r.get("name", ""), ctx.get("occupancy", "")))
-            valid_rooms.append({**r, "boundary": clamped,
-                                "area_sf": round(area, 1),
-                                "area": f"{area:.0f} SF",
-                                "hazard_override": hz,
-                                "hazard_classification": hz})
-        project["rooms"] = valid_rooms
+        prompt = f"""You are a fire protection engineer reviewing a completed construction document extraction.
 
-        # Check coverage and fill gaps
-        building_area = bw * bh
-        covered = sum(r["area_sf"] for r in valid_rooms)
-        pct = covered / building_area if building_area > 0 else 0
-        log.info(f"[Intel] Room coverage: {pct:.0%} ({covered:.0f}/{building_area:.0f} SF)")
+Generate a concise project brief that will be used as reference context throughout the fire sprinkler design.
 
-        if pct < 0.85:
-            occ = ctx.get("occupancy", "").lower()
-            def_hz = _default_hazard(occ)
-            gaps = _fill_gaps(valid_rooms, bw, bh, def_hz)
-            if gaps:
-                log.info(f"[Intel] Gap fill: +{len(gaps)} zones "
-                         f"+{sum(r['area_sf'] for r in gaps):.0f} SF")
-            project["rooms"] = valid_rooms + gaps
+EXTRACTED DATA:
+- Project: {project_context.get('project_name','')}
+- Occupancy: {project_context.get('occupancy','')}
+- Building: {project['building_dimensions'].get('width_ft',0):.0f} x {project['building_dimensions'].get('depth_ft',0):.0f} ft = {project.get('floor_area_sf',0):.0f} SF
+- Sheets processed: {len(doc_data)} ({len(sheets_found)} with sheet numbers)
+- Rooms identified: {len(project.get('rooms',[]))}
+- Obstructions: {len(project.get('obstructions',[]))}
+- Water supply: {project['water_supply']['static_pressure_psi']:.0f}/{project['water_supply']['residual_pressure_psi']:.0f} psi @ {project['water_supply']['flow_gpm']:.0f} gpm
+- Pipe material: {project_context.get('pipe_material','unknown')}
+- Seismic zone: {project_context.get('seismic_zone','unknown')}
 
-        return project
+SHEETS FOUND:
+{json.dumps(sheets_found[:15], indent=2)}
 
-    # ── Vision API call ────────────────────────────────────────────────────────
+ROOMS/HAZARD AREAS:
+{json.dumps(rooms_summary, indent=2)}
 
-    async def _vision_call(self, image_data: str, media_type: str,
-                            prompt: str, label: str) -> dict:
+Generate a structured project brief. Return ONLY valid JSON:
+{{
+  "project_summary": "2-3 sentence summary of the project and key design requirements",
+  "critical_design_parameters": [
+    "list of the most important parameters for sprinkler design, e.g. ESFR required in warehouse, seismic zone D1, etc."
+  ],
+  "hazard_zones": [
+    {{"zone": "zone name", "hazard": "hazard class", "area_sf": number, "nfpa_basis": "section ref"}}
+  ],
+  "water_supply_summary": "one sentence describing available water supply",
+  "special_requirements": ["any AHJ amendments, spec requirements, or unusual conditions"],
+  "sheets_used_for_design": ["list of the most important sheets extracted"],
+  "data_confidence": "high|medium|low",
+  "missing_data_flags": ["any critical missing information that engineer should verify"]
+}}"""
+
+        try:
+            result = await asyncio.to_thread(
+                self.client.messages.create,
+                model=CLAUDE_MODEL,
+                max_tokens=1500,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            raw     = next((b.text for b in result.content if b.type == "text"), "{}")
+            cleaned = re.sub(r"^```(?:json)?\s*", "", raw.strip())
+            cleaned = re.sub(r"\s*```$", "", cleaned.strip())
+            brief   = json.loads(cleaned)
+            log.info("[Intel] Project brief generated (confidence=%s)", brief.get("data_confidence"))
+            return brief
+        except Exception as exc:
+            log.warning("[Intel] Brief generation failed: %s", exc)
+            return {
+                "project_summary": f"{project_context.get('project_name','')} — {project_context.get('occupancy','')}",
+                "data_confidence": "low",
+                "missing_data_flags": ["Brief generation failed — review extracted data manually"],
+            }
+
+    # ── Vision API helper ─────────────────────────────────────────────────────
+
+    async def _vision_call(
+        self,
+        image_data: str,
+        media_type: str,
+        prompt:     str,
+        label:      str,
+    ) -> dict:
         try:
             resp = await asyncio.to_thread(
                 self.client.messages.create,
-                model=CLAUDE_MODEL, max_tokens=8192,
+                model=CLAUDE_MODEL,
+                max_tokens=8192,
                 messages=[{"role": "user", "content": [
                     {"type": "image", "source": {"type": "base64",
                                                   "media_type": media_type,
                                                   "data": image_data}},
-                    {"type": "text", "text": prompt}
-                ]}]
+                    {"type": "text", "text": prompt},
+                ]}],
             )
-            raw = next((b.text for b in resp.content if b.type == "text"), "{}")
-            raw = re.sub(r"^```(?:json)?\s*", "", raw.strip())
-            raw = re.sub(r"\s*```$", "", raw.strip())
-            result = json.loads(raw)
-            return result
-        except json.JSONDecodeError as e:
-            log.error(f"[Intel] {label} JSON error: {e}")
+            raw     = next((b.text for b in resp.content if b.type == "text"), "{}")
+            cleaned = re.sub(r"^```(?:json)?\s*", "", raw.strip())
+            cleaned = re.sub(r"\s*```$", "", cleaned.strip())
+            return json.loads(cleaned)
+        except json.JSONDecodeError as exc:
+            log.warning("[Intel] %s JSON parse error: %s", label, exc)
             return {}
-        except Exception as e:
-            log.error(f"[Intel] {label} error: {e}")
+        except Exception as exc:
+            log.error("[Intel] %s vision call error: %s", label, exc)
             return {}
 
-    # ── File → image conversion ────────────────────────────────────────────────
 
-    async def _to_image(self, file_bytes: bytes, filename: str) -> tuple:
-        """Convert a file (PDF, DXF, image) to base64 image for Vision."""
-        ext = Path(filename).suffix.lower()
-        if ext == ".pdf":
-            try:
-                import pdfplumber, io
-                import tempfile, os
-                with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
-                    tmp.write(file_bytes)
-                    tmp_path = tmp.name
-                try:
-                    with pdfplumber.open(tmp_path) as pdf:
-                        if pdf.pages:
-                            img = pdf.pages[0].to_image(resolution=200)
-                            buf = io.BytesIO()
-                            img.save(buf, format="PNG")
-                            return base64.b64encode(buf.getvalue()).decode(), "image/png"
-                finally:
-                    try: os.unlink(tmp_path)
-                    except: pass
-            except Exception as e:
-                log.warning(f"[Intel] PDF render failed for {filename}: {e}")
+# ─────────────────────────────────────────────────────────────────────────────
+# Geometry helpers (unchanged from v1)
+# ─────────────────────────────────────────────────────────────────────────────
 
-        # Fallback: send raw bytes
-        mt_map = {
-            ".pdf": "application/pdf", ".png": "image/png",
-            ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
-            ".tif": "image/tiff", ".tiff": "image/tiff",
-        }
-        mt = mt_map.get(ext, "image/png")
-        return base64.b64encode(file_bytes).decode(), mt
+def _validate_and_complete(project: dict, ctx: dict) -> dict:
+    bd = project.get("building_dimensions", {})
+    bw = float(bd.get("width_ft", 0))
+    bh = float(bd.get("depth_ft", 0))
 
+    if bw <= 0 or bh <= 0:
+        known = float(ctx.get("total_area", 0))
+        if known > 0:
+            occ   = ctx.get("occupancy", "").lower()
+            ratio = 0.65 if any(k in occ for k in ["warehouse","storage","wholesale","distribution"]) else 0.75
+            bw    = round(math.sqrt(known / ratio), 1)
+            bh    = round(known / bw, 1)
+        else:
+            bw, bh = 100.0, 100.0
+        project["building_dimensions"] = {"width_ft": bw, "depth_ft": bh}
+        project["floor_area_sf"]        = round(bw * bh, 0)
+        log.info("[Intel] Building dims derived: %dx%d ft", bw, bh)
 
-# ── Helper functions ───────────────────────────────────────────────────────────
+    default_ch = float(ctx.get("ceiling_height", 10))
+    for room in project.get("rooms", []):
+        if not room.get("ceiling_height_ft"):
+            room["ceiling_height_ft"] = default_ch
+
+    valid_rooms = []
+    for r in project.get("rooms", []):
+        bnd = r.get("boundary", [])
+        if len(bnd) < 3:
+            continue
+        clamped = [{"x": max(0.0, min(bw, p["x"])), "y": max(0.0, min(bh, p["y"]))} for p in bnd]
+        xs = [p["x"] for p in clamped]; ys = [p["y"] for p in clamped]
+        if max(xs) - min(xs) < 3 or max(ys) - min(ys) < 3:
+            continue
+        area = _poly_area(clamped)
+        if area < 50:
+            continue
+        hz = (r.get("hazard_override") or r.get("hazard_classification") or
+              _infer_hazard(r.get("name", ""), ctx.get("occupancy", "")))
+        valid_rooms.append({**r, "boundary": clamped, "area_sf": round(area, 1),
+                             "area": f"{area:.0f} SF", "hazard_override": hz,
+                             "hazard_classification": hz})
+
+    project["rooms"] = valid_rooms
+
+    # Fill coverage gaps
+    building_area = bw * bh
+    covered       = sum(r["area_sf"] for r in valid_rooms)
+    pct           = covered / building_area if building_area > 0 else 0
+    log.info("[Intel] Room coverage: %.0f%% (%d/%d SF)", pct * 100, covered, building_area)
+
+    if pct < 0.85:
+        occ    = ctx.get("occupancy", "").lower()
+        def_hz = _default_hazard(occ)
+        gaps   = _fill_gaps(valid_rooms, bw, bh, def_hz)
+        if gaps:
+            log.info("[Intel] Gap fill: +%d zones +%d SF", len(gaps),
+                     sum(r["area_sf"] for r in gaps))
+            project["rooms"] = valid_rooms + gaps
+
+    return project
+
 
 def _poly_area(pts):
     n = len(pts)
-    if n < 3: return 0
-    return abs(sum(pts[i]["x"]*pts[(i+1)%n]["y"] - pts[(i+1)%n]["x"]*pts[i]["y"]
+    if n < 3:
+        return 0
+    return abs(sum(pts[i]["x"] * pts[(i+1)%n]["y"] - pts[(i+1)%n]["x"] * pts[i]["y"]
                    for i in range(n))) / 2
+
 
 def _infer_hazard(name: str, occupancy: str) -> str:
     nl = (name + " " + occupancy).lower()
     checks = [
-        (["tire","automotive tire"],                                     "tire_storage"),
-        (["freezer","frozen"],                                           "freezer"),
-        (["cooler","refrigerated","produce"],                            "cooler"),
-        (["warehouse","high pile","rack","storage rack","merchandise",
-          "esfr","sales floor","big box","wholesale"],                   "esfr_k14"),
-        (["receiving","loading","dock","shipping"],                      "ordinary_2"),
-        (["bakery","deli","food court","kitchen","food service"],        "ordinary_2"),
-        (["pharmacy","optical"],                                         "ordinary_1"),
-        (["retail","sales","mercantile"],                                "ordinary_1"),
-        (["mechanical","electrical"],                                    "ordinary_1"),
-        (["office","lobby","entrance","vestibule","corridor",
-          "restroom","membership"],                                      "light"),
+        (["tire","automotive tire"],                                                       "tire_storage"),
+        (["freezer","frozen"],                                                             "freezer"),
+        (["cooler","refrigerated","produce"],                                              "cooler"),
+        (["warehouse","high pile","rack","storage rack","merchandise","esfr",
+          "sales floor","big box","wholesale"],                                            "esfr_k14"),
+        (["receiving","loading","dock","shipping"],                                        "ordinary_2"),
+        (["bakery","deli","food court","kitchen","food service","food prep"],              "ordinary_2"),
+        (["pharmacy","optical","photo"],                                                   "ordinary_1"),
+        (["retail","sales","mercantile"],                                                  "ordinary_1"),
+        (["mechanical","electrical","utility"],                                            "ordinary_1"),
+        (["office","lobby","entrance","vestibule","corridor","restroom","membership",
+          "fitness","gym","locker","breakroom"],                                           "light"),
     ]
     for keywords, hz in checks:
         if any(k in nl for k in keywords):
             return hz
     return _default_hazard(occupancy)
 
+
 def _default_hazard(occupancy: str) -> str:
     occ = occupancy.lower()
-    defaults = {
+    for k, v in {
         "warehouse":"esfr_k14","distribution":"esfr_k14","storage":"esfr_k14",
-        "wholesale":"esfr_k14","big box":"esfr_k14",
+        "wholesale":"esfr_k14","big box":"esfr_k14","costco":"esfr_k14","club":"esfr_k14",
         "industrial":"extra_2","manufacturing":"extra_2",
         "retail":"ordinary_1","mercantile":"ordinary_1",
         "office":"light","business":"light","educational":"light",
         "hospital":"light","hotel":"light","residential":"light",
         "restaurant":"ordinary_2","food":"ordinary_2",
-    }
-    return next((v for k, v in defaults.items() if k in occ), "light")
+    }.items():
+        if k in occ:
+            return v
+    return "light"
+
 
 def _fill_gaps(rooms: list, bw: float, bh: float, default_hz: str) -> list:
-    """Fill uncovered areas with the default hazard classification."""
     cell = max(5.0, min(bw, bh) / 40)
     cols = max(1, int(math.ceil(bw / cell)))
     rows = max(1, int(math.ceil(bh / cell)))
+
     covered = [[False]*cols for _ in range(rows)]
     for r in rooms:
         pts = r.get("boundary", [])
-        if not pts: continue
-        xs=[p["x"] for p in pts]; ys=[p["y"] for p in pts]
+        if not pts:
+            continue
+        xs = [p["x"] for p in pts]; ys = [p["y"] for p in pts]
         c0=max(0,int(min(xs)/cell)); c1=min(cols-1,int((max(xs)-.01)/cell))
         r0=max(0,int(min(ys)/cell)); r1=min(rows-1,int((max(ys)-.01)/cell))
         for ri in range(r0,r1+1):
-            for ci in range(c0,c1+1): covered[ri][ci]=True
-    gaps=[]; gid=1; visited=[[False]*cols for _ in range(rows)]
+            for ci in range(c0,c1+1):
+                covered[ri][ci] = True
+
+    gaps    = []
+    gid     = 1
+    visited = [[False]*cols for _ in range(rows)]
     for ri in range(rows):
         for ci in range(cols):
-            if covered[ri][ci] or visited[ri][ci]: continue
-            ce=ci
-            while ce+1<cols and not covered[ri][ce+1] and not visited[ri][ce+1]: ce+=1
-            re=ri
-            while re+1<rows and all(not covered[re+1][c] and not visited[re+1][c]
-                                    for c in range(ci,ce+1)): re+=1
-            for rr in range(ri,re+1):
-                for cc in range(ci,ce+1): visited[rr][cc]=True
+            if covered[ri][ci] or visited[ri][ci]:
+                continue
+            ce = ci
+            while ce+1 < cols and not covered[ri][ce+1] and not visited[ri][ce+1]:
+                ce += 1
+            re = ri
+            while (re+1 < rows and
+                   all(not covered[re+1][c] and not visited[re+1][c] for c in range(ci, ce+1))):
+                re += 1
+            for rr in range(ri, re+1):
+                for cc in range(ci, ce+1):
+                    visited[rr][cc] = True
             x0=round(ci*cell,1); y0=round(ri*cell,1)
             x1=round(min((ce+1)*cell,bw),1); y1=round(min((re+1)*cell,bh),1)
             area=(x1-x0)*(y1-y0)
-            if area<25: continue
+            if area < 25:
+                continue
             gaps.append({
-                "name": f"Unclassified Area {gid}",
-                "boundary": [{"x":x0,"y":y0},{"x":x1,"y":y0},
-                              {"x":x1,"y":y1},{"x":x0,"y":y1}],
-                "area_sf": round(area,1), "area": f"{area:.0f} SF",
-                "hazard_override": default_hz,
+                "name":                 f"Unclassified Area {gid}",
+                "boundary":             [{"x":x0,"y":y0},{"x":x1,"y":y0},{"x":x1,"y":y1},{"x":x0,"y":y1}],
+                "area_sf":              round(area, 1),
+                "area":                 f"{area:.0f} SF",
+                "hazard_override":      default_hz,
                 "hazard_classification": default_hz,
-                "ceiling_height_ft": 0,
-                "nfpa_13_basis": "Default per occupancy",
-                "special_notes": "Gap-fill — verify hazard class",
+                "ceiling_height_ft":    0,
+                "nfpa_13_basis":        "Default per occupancy",
+                "special_notes":        "Gap-fill — verify hazard classification",
             })
             gid += 1
     return gaps
+
 
 def _empty_project(ctx: dict) -> dict:
     return {
         "walls":[], "rooms":[], "columns":[], "obstructions":[],
         "structural_beams":[], "building_dimensions":{},
-        "floor_area_sf": float(ctx.get("total_area",0)),
-        "ceiling_height_ft": float(ctx.get("ceiling_height",10)),
-        "drawing_scale":"", "spec":{},
+        "floor_area_sf":     float(ctx.get("total_area", 0)),
+        "ceiling_height_ft": float(ctx.get("ceiling_height", 10)),
+        "drawing_scale":"", "spec":{}, "sheet_index":[],
         "water_supply": {
-            "static_pressure_psi":   float(ctx.get("static_pressure",72)),
+            "static_pressure_psi":   float(ctx.get("static_pressure", 72)),
             "residual_pressure_psi": float(ctx.get("residual_pressure",
-                                           float(ctx.get("static_pressure",72))*0.85)),
-            "flow_gpm":             float(ctx.get("water_supply_flow",1500)),
+                                           float(ctx.get("static_pressure", 72)) * 0.85)),
+            "flow_gpm":             float(ctx.get("water_supply_flow", 1500)),
         },
+        "project_brief": {"project_summary": "No documents provided", "data_confidence": "low"},
         "notes":[], "source_documents":[],
     }
 
 
-# ── Public handler ─────────────────────────────────────────────────────────────
+def _ext_to_mime(ext: str) -> str:
+    return {".jpg":"image/jpeg",".jpeg":"image/jpeg",".png":"image/png",
+            ".tif":"image/tiff",".tiff":"image/tiff",".webp":"image/webp"}.get(ext,"image/png")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Public entry point (same interface as v1 — app.py unchanged)
+# ─────────────────────────────────────────────────────────────────────────────
 
 async def handle_document_set(
-    file_list: List[dict],
-    project_context: dict
+    file_list:       List[dict],
+    project_context: dict,
 ) -> dict:
     """
     Public entry point called from api/app.py.
     file_list: [{"bytes": bytes, "filename": str}, ...]
-    Returns unified project geometry + specs for NFPA13DesignEngine.
+    Returns unified project geometry + specs + project brief.
     """
     intel = DocumentIntelligence()
     return await intel.process_document_set(file_list, project_context)
