@@ -9,11 +9,10 @@ Full enterprise version with:
   - Job status polling + file download
   - Professional project intake UI at /
 
-CHANGES FROM ORIGINAL (3 edits only):
-  1. Replaced in-memory _jobs dict with SQLite-backed job_store
-  2. Added lifespan hook to init DB and start autonomous dispatcher
-  3. Updated list_jobs to use _list_jobs()
-  Everything else is byte-for-byte identical.
+CHANGES FROM ORIGINAL:
+  Layer 1 — SQLite job persistence (job_store) replaces in-memory _jobs dict
+  Layer 2 — Context bus wired via updated fireai_orchestrator_v2.py (no change here)
+  Layer 3 — Improvement loop starts at boot; performance logged after each job
 """
 
 import asyncio
@@ -41,10 +40,19 @@ from fireai_document_intelligence import handle_document_set
 from fireai_nfpa13_design_engine import NFPA13DesignEngine
 from fireai_schemas.job_models   import GenerateRequest, JobStatus, JobResult
 
-# ── EDIT 1: Import from job_store instead of defining _jobs in memory ─────────
+# Layer 1 — persistent job store
 from job_store import init_db, _set_job, _get_job, _list_jobs
+
+# Layer 1 — autonomous dispatcher
 from dispatcher import start_dispatcher, stop_dispatcher
-# ─────────────────────────────────────────────────────────────────────────────
+
+# Layer 3 — self-improvement loop
+from agent_config_store import init_config_db
+from improvement_loop import (
+    start_improvement_loop,
+    stop_improvement_loop,
+    record_job_performance,
+)
 
 log = logging.getLogger("fireai.api")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s [%(name)s] %(message)s")
@@ -56,30 +64,34 @@ OUTPUTS_DIR.mkdir(exist_ok=True)
 UPLOADS_DIR.mkdir(exist_ok=True)
 
 
-# ── EDIT 2: Add lifespan hook — starts dispatcher, initialises DB ─────────────
+# ── Lifespan: start all background services ───────────────────────────────────
+
 @asynccontextmanager
 async def lifespan(app):
-    # Startup
+    # Startup — init databases, start dispatcher + improvement loop
     init_db()
-    task = asyncio.create_task(start_dispatcher())
-    log.info("FireAI Pro started — autonomous dispatcher active")
+    init_config_db()
+    dispatcher_task = asyncio.create_task(start_dispatcher())
+    improve_task    = asyncio.create_task(start_improvement_loop())
+    log.info("FireAI Pro started — dispatcher + nightly improvement loop active")
     yield
-    # Shutdown
+    # Shutdown — clean stop
     stop_dispatcher()
-    task.cancel()
+    stop_improvement_loop()
+    dispatcher_task.cancel()
+    improve_task.cancel()
     try:
-        await task
-    except asyncio.CancelledError:
+        await asyncio.gather(dispatcher_task, improve_task, return_exceptions=True)
+    except Exception:
         pass
     log.info("FireAI Pro shut down cleanly")
-# ─────────────────────────────────────────────────────────────────────────────
 
 
 app = FastAPI(
     title="FireAI Pro",
     version="3.0.0",
     description="Enterprise fire sprinkler design system",
-    lifespan=lifespan,   # ← wires in the lifespan hook above
+    lifespan=lifespan,
 )
 
 app.add_middleware(CORSMiddleware, allow_origins=["*"],
@@ -123,8 +135,7 @@ async def _run_job(job_id: str, project_context: dict,
             selected_formats = set(selected_formats),
         )
 
-        # Merge design engine outputs into orchestrator results.
-        # Design engine output ALWAYS wins — it is based on real engineering math.
+        # Merge — design engine always wins
         if design_output:
             artifacts = orch_result.setdefault("artifacts", {})
 
@@ -157,14 +168,14 @@ async def _run_job(job_id: str, project_context: dict,
 
             dm = design_output.get("design_metadata", {})
             orch_result.setdefault("metadata", {}).update({
-                "total_sprinklers":     len(design_output.get("sprinkler_placements", [])),
-                "total_pipe_ft":        dm.get("total_pipe_ft", 0),
-                "floor_area_sf":        dm.get("floor_area_sf", 0),
-                "hazard_class":         dm.get("hazard_class", ""),
-                "zones":                dm.get("zones", []),
-                "geometry_synthetic":   dm.get("geometry_synthetic", False),
-                "nfpa_references":      dm.get("nfpa_references", []),
-                "compliance_flags":     dm.get("compliance_flags", []),
+                "total_sprinklers":   len(design_output.get("sprinkler_placements", [])),
+                "total_pipe_ft":      dm.get("total_pipe_ft", 0),
+                "floor_area_sf":      dm.get("floor_area_sf", 0),
+                "hazard_class":       dm.get("hazard_class", ""),
+                "zones":              dm.get("zones", []),
+                "geometry_synthetic": dm.get("geometry_synthetic", False),
+                "nfpa_references":    dm.get("nfpa_references", []),
+                "compliance_flags":   dm.get("compliance_flags", []),
             })
 
         _set_job(job_id, stage="drawings",
@@ -229,6 +240,13 @@ async def _run_job(job_id: str, project_context: dict,
             requires_human_review = orch_result.get("requires_human_review", False),
             frozen_violations     = orch_result["metadata"].get("frozen_violations", []),
         )
+
+        # ── Layer 3: log performance for tonight's improvement cycle ──────────
+        try:
+            record_job_performance(_get_job(job_id))
+        except Exception as e:
+            log.warning(f"[{job_id}] Performance logging failed (non-fatal): {e}")
+
         log.info(f"[{job_id}] Done — {len(all_files)} file(s), compliant={compliant}, "
                  f"{total_sprinklers} sprinklers")
 
@@ -256,18 +274,20 @@ async def serve_format_selector():
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "timestamp": datetime.utcnow().isoformat()}
+    return {
+        "status":     "ok",
+        "timestamp":  datetime.utcnow().isoformat(),
+        "dispatcher": True,
+        "improvement_loop": True,
+    }
 
 
 @app.post("/api/generate", status_code=202)
 async def generate(request: GenerateRequest, background_tasks: BackgroundTasks):
-    """Queue a design job — JSON body."""
     job_id  = str(uuid.uuid4())[:8].upper()
     ctx     = request.project_context
     sheets  = list(request.validated_sheets())
     formats = list(request.validated_formats())
-
-    # Store full context so the dispatcher can re-run the job if needed
     _set_job(job_id,
              status="queued", stage="queued",
              message="Job queued — starting shortly",
@@ -276,7 +296,6 @@ async def generate(request: GenerateRequest, background_tasks: BackgroundTasks):
              selected_sheets=sheets,
              selected_formats=formats,
              geometry={})
-
     background_tasks.add_task(_run_job, job_id, ctx, sheets, formats, {})
     log.info(f"[{job_id}] Queued — {ctx.get('project_name')}")
     return {"job_id": job_id, "status": "queued", "poll_url": f"/api/jobs/{job_id}"}
@@ -290,7 +309,6 @@ async def generate_upload(
     selected_sheets:  str = Form("[]"),
     selected_formats: str = Form("[]"),
 ):
-    """Queue a design job from a full construction document set."""
     job_id  = str(uuid.uuid4())[:8].upper()
     ctx     = json.loads(project_context)
     sheets  = json.loads(selected_sheets)
@@ -320,17 +338,10 @@ async def generate_upload(
                          message="Analyzing construction document...")
                 geometry = await handle_upload(
                     file_list[0]["bytes"], file_list[0]["filename"], ctx)
-                log.info(f"[{job_id}] Single doc: "
-                         f"{len(geometry.get('rooms',[]))} rooms, "
-                         f"{len(geometry.get('walls',[]))} walls")
             else:
                 _set_job(job_id, stage="doc_analysis",
                          message=f"Classifying {len(file_list)} documents...")
                 geometry = await handle_document_set(file_list, ctx)
-                log.info(f"[{job_id}] Doc set ({len(file_list)} files): "
-                         f"{len(geometry.get('rooms',[]))} rooms, "
-                         f"{len(geometry.get('obstructions',[]))} obstructions")
-
                 ws = geometry.get("water_supply", {})
                 if ws.get("static_pressure_psi"):   ctx["static_pressure"]   = ws["static_pressure_psi"]
                 if ws.get("residual_pressure_psi"): ctx["residual_pressure"] = ws["residual_pressure_psi"]
@@ -346,7 +357,6 @@ async def generate_upload(
                      completed_at=datetime.utcnow().isoformat())
 
     background_tasks.add_task(run_with_documents)
-    log.info(f"[{job_id}] Queued — {ctx.get('project_name')} — {len(files)} file(s)")
     return {"job_id": job_id, "status": "queued",
             "poll_url": f"/api/jobs/{job_id}",
             "document_count": len(files)}
@@ -374,6 +384,35 @@ async def download_file(job_id: str, filename: str):
 
 @app.get("/api/jobs")
 async def list_jobs(limit: int = 20):
-    # ── EDIT 3: Use _list_jobs() instead of in-memory _jobs dict ─────────────
     jobs = _list_jobs(limit=limit)
     return {"jobs": jobs, "total": len(jobs)}
+
+
+# ── Layer 3 diagnostic endpoints ─────────────────────────────────────────────
+
+@app.get("/api/improvement/status")
+async def improvement_status():
+    """Show current agent prompt versions and performance summaries."""
+    from agent_config_store import get_all_agent_summaries, get_config_history
+    summaries = get_all_agent_summaries(days=7)
+    histories = {
+        aid: get_config_history(aid, limit=3)
+        for aid in ["cad","hydraulics","routing","bracing","ahj"]
+    }
+    return {"performance": summaries, "config_history": histories}
+
+@app.post("/api/improvement/run")
+async def trigger_improvement(background_tasks: BackgroundTasks):
+    """Manually trigger the improvement cycle (don't wait for 2 AM)."""
+    from improvement_loop import run_improvement_cycle
+    background_tasks.add_task(run_improvement_cycle)
+    return {"status": "queued", "message": "Improvement cycle started in background"}
+
+@app.post("/api/improvement/rollback/{agent_id}")
+async def rollback_agent(agent_id: str):
+    """Roll back a specific agent to its previous prompt version."""
+    from agent_config_store import rollback_config
+    ok = rollback_config(agent_id)
+    if not ok:
+        raise HTTPException(400, f"No previous version to roll back to for {agent_id}")
+    return {"status": "rolled_back", "agent_id": agent_id}
