@@ -40,6 +40,7 @@ from fireai_drawing_engine       import FireAIDrawingEngine
 from fireai_document_processor   import handle_upload
 from fireai_document_intelligence import handle_document_set
 from fireai_nfpa13_design_engine import NFPA13DesignEngine
+from fireai_project_extractor    import extract_project_context
 from fireai_schemas.job_models   import GenerateRequest, JobStatus, JobResult
 
 # Layer 1 — persistent job store + dispatcher
@@ -358,27 +359,71 @@ async def generate_upload(
 
     async def run_with_documents():
         try:
+            import tempfile, os
+
+            # ── STAGE 1: PROJECT CONTEXT EXTRACTION ──────────────────────────
+            # For every uploaded PDF, run the project extractor to fill in all
+            # design parameters (occupancy, construction type, areas, hazard,
+            # structural framing, codes, rooms, etc.).
+            #
+            # Priority: fields already in ctx (user-entered in UI) are never
+            # overwritten. Extracted values fill in gaps only.
+            _set_job(job_id, stage="doc_analysis",
+                     message=f"Reading {len(file_list)} document(s) for project data...")
+
+            for doc in file_list:
+                fname = doc["filename"].lower()
+                # Only extract from PDFs (DXFs/IFCs go straight to geometry)
+                if not fname.endswith(".pdf"):
+                    continue
+                # Write to temp file so extractor can read it
+                with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+                    tmp.write(doc["bytes"])
+                    tmp_path = tmp.name
+                try:
+                    _set_job(job_id, stage="doc_analysis",
+                             message=f"Extracting project data from {doc['filename']}...")
+                    extracted = await extract_project_context(tmp_path, run_vision=True)
+
+                    # Merge into ctx — extracted values fill in only what's missing
+                    filled = 0
+                    for k, v in extracted.items():
+                        if v is None or v == "" or v == [] or v == {}:
+                            continue
+                        if k not in ctx or ctx[k] in (None, "", [], {}):
+                            ctx[k] = v
+                            filled += 1
+                    log.info(f"[{job_id}] Extracted {filled} fields from {doc['filename']}")
+                finally:
+                    try: os.unlink(tmp_path)
+                    except: pass
+
+            log.info(f"[{job_id}] Context after extraction: "                     f"project='{ctx.get('project_name','?')}' "                     f"area={ctx.get('total_area','?')} "                     f"hazard={ctx.get('warehouse_hazard','?')}")
+
+            # ── STAGE 2: BUILDING GEOMETRY EXTRACTION ─────────────────────────
+            # Extract room boundaries, walls, structural grid from the floor plan.
+            # This produces the geometry dict used by NFPA13DesignEngine.
+            _set_job(job_id, stage="doc_analysis",
+                     message="Extracting building geometry...")
+
             if len(file_list) == 1:
-                _set_job(job_id, stage="doc_analysis",
-                         message="Analyzing construction document...")
                 geometry = await handle_upload(
                     file_list[0]["bytes"], file_list[0]["filename"], ctx)
-                log.info(f"[{job_id}] Single doc: "
-                         f"{len(geometry.get('rooms',[]))} rooms, "
-                         f"{len(geometry.get('walls',[]))} walls")
+                log.info(f"[{job_id}] Single doc: "                         f"{len(geometry.get('rooms',[]))} rooms, "                         f"{len(geometry.get('walls',[]))} walls")
             else:
-                _set_job(job_id, stage="doc_analysis",
-                         message=f"Classifying {len(file_list)} documents...")
                 geometry = await handle_document_set(file_list, ctx)
-                log.info(f"[{job_id}] Doc set ({len(file_list)} files): "
-                         f"{len(geometry.get('rooms',[]))} rooms, "
-                         f"{len(geometry.get('obstructions',[]))} obstructions")
+                log.info(f"[{job_id}] Doc set ({len(file_list)} files): "                         f"{len(geometry.get('rooms',[]))} rooms")
                 ws = geometry.get("water_supply", {})
                 if ws.get("static_pressure_psi"):   ctx["static_pressure"]   = ws["static_pressure_psi"]
                 if ws.get("residual_pressure_psi"): ctx["residual_pressure"] = ws["residual_pressure_psi"]
                 if ws.get("flow_gpm"):              ctx["water_supply_flow"] = ws["flow_gpm"]
-                if geometry.get("spec", {}).get("pipe_material"): ctx["pipe_material"] = geometry["spec"]["pipe_material"]
-                if geometry.get("spec", {}).get("seismic_zone"):  ctx["seismic_zone"]  = geometry["spec"]["seismic_zone"]
+                if geometry.get("spec", {}).get("pipe_material"): ctx.setdefault("pipe_material", geometry["spec"]["pipe_material"])
+                if geometry.get("spec", {}).get("seismic_zone"):  ctx.setdefault("seismic_zone",  geometry["spec"]["seismic_zone"])
+
+            # Rooms from geometry extractor override rooms from project extractor
+            # (geometry extractor has actual floor plan coordinates)
+            if geometry.get("rooms") and not ctx.get("_rooms_from_user"):
+                ctx["rooms"] = geometry["rooms"]
 
             await _run_job(job_id, ctx, sheets, formats, geometry)
 
