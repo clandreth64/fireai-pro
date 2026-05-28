@@ -399,12 +399,33 @@ def extract(source: DocumentSource) -> dict:
 # --------------------------------------------------------------------------- #
 def main(argv=None):
     ap = argparse.ArgumentParser(description="FireAI Pro document extractor")
-    ap.add_argument("pdf", help="path to the construction document (PDF)")
+    ap.add_argument("path", help="construction document: .pdf, .ifc, .dwg/.dxf")
     ap.add_argument("--json", help="write structured output to this path")
+    ap.add_argument("--vision-heights", action="store_true",
+                    help="(PDF only) run the OCR/vision pass for deck/clearance heights")
+    ap.add_argument("--vision-backend", default="tesseract",
+                    choices=["tesseract", "anthropic"])
     args = ap.parse_args(argv)
 
-    source = DocumentSource.for_file(args.pdf).load()
-    result = extract(source)
+    ext = Path(args.path).suffix.lower()
+
+    if ext == ".ifc":
+        # Highest-fidelity path — read the model directly.
+        from fireai_ifc_source import extract_ifc
+        result = extract_ifc(args.path)
+    else:
+        source = DocumentSource.for_file(args.path).load()
+        result = extract(source)
+        if args.vision_heights and ext == ".pdf":
+            from fireai_vision_heights import extract_heights
+            heights = extract_heights(args.path, [p for p in source.pages],
+                                      backend=args.vision_backend)
+            # Attach the structured clearance data and upgrade ceiling height.
+            result["fields"]["clearance_heights"] = heights
+            if heights.get("value"):
+                ch = result["fields"]["ceiling_height_ft"]
+                ch["note"] = (ch.get("note", "") + " | clearance sheet read: "
+                              + json.dumps(heights["value"])[:200])
 
     text = json.dumps(result, indent=2)
     if args.json:
