@@ -93,12 +93,14 @@ class DocumentProcessor:
         # Optionally enrich with vector wall lines - but NEVER override dims
         try:
             import pdfplumber
+            from pdf_building_extractor import find_floor_plan_page
+            fp_page_idx = find_floor_plan_page(file_path)
             bw = float(geometry.get("building_dimensions", {}).get("width_ft", 0))
             bh = float(geometry.get("building_dimensions", {}).get("depth_ft", 0))
 
             if bw > 10 and bh > 10:
                 with pdfplumber.open(file_path) as pdf:
-                    page  = pdf.pages[0]
+                    page  = pdf.pages[min(fp_page_idx, len(pdf.pages)-1)]
                     lines = page.lines or []
                     words = page.extract_words() or []
 
@@ -214,24 +216,35 @@ Estimate building_width_ft and building_depth_ft from the drawing in feet.""", "
                 bw = bh = 100.0
         log.info(f"[DocProcessor] Building dims: {bw}x{bh}ft = {bw*bh:.0f} SF")
 
-        # Pass 2: Room-by-room hazard inventory
-        p2 = await self._vision_call(image_data, media_type, f"""NFPA 13 fire sprinkler engineer analyzing a {p1.get('document_type','floor plan')}.
-Building: {proj_name} | {bw}ft x {bh}ft | Occupancy: {occupancy} | Ceiling: {known_ch}ft
+        # Pass 2: Room-by-room hazard inventory using structural grid
+        p2 = await self._vision_call(image_data, media_type, f"""You are an NFPA 13 fire sprinkler engineer analyzing this floor plan.
+Building: {proj_name} | {bw:.0f}ft x {bh:.0f}ft | Occupancy: {occupancy} | Ceiling: {known_ch}ft
 
-List every distinct room/area visible in this drawing with its NFPA 13 hazard class.
-COORDINATE SYSTEM: (0,0)=bottom-left, X=right, Y=up, units=FEET.
+STEP 1 — READ THE STRUCTURAL GRID:
+Look for column letter labels (A, B, C...) along the top/bottom and row number labels (1, 2, 3...) along the sides.
+Read the dimension strings between grid lines (e.g. "4'-5", "10'-0", "24'-7").
+Compute cumulative X positions for each column and Y positions for each row from these dimensions.
+Origin: column A or leftmost grid line = X=0; bottom row = Y=0.
 
-Hazard classes: light, ordinary_1, ordinary_2, esfr_k14, tire_storage, freezer, cooler
-- light: offices, corridors, patient rooms, lobbies, restrooms, staff areas, healthcare spaces
-- ordinary_1: retail, parking, mechanical, pharmacy
-- ordinary_2: kitchen, food service, laundry, receiving/dock
-- esfr_k14: warehouse floor, high-pile storage, merchandise sales
-- tire_storage: tire center  |  freezer: walk-in freezers  |  cooler: walk-in coolers
+STEP 2 — MAP ROOMS TO GRID:
+For each labeled room/area, identify which grid cells it occupies and compute its boundary in feet.
 
-Return ONLY valid JSON:
-{{"rooms":[{{"name":"room name","hazard_classification":"light","boundary":[{{"x":0,"y":0}},{{"x":W,"y":0}},{{"x":W,"y":D}},{{"x":0,"y":D}}],"estimated_area_sf":100,"ceiling_height_ft":{known_ch},"small_room_rule":false}}],"notes":[]}}
-All room boundaries must use coordinates within 0-{bw}ft (x) and 0-{bh}ft (y).
-Rooms must cover approximately {bw*bh:.0f} SF total.""", "Pass2")
+STEP 3 — ASSIGN NFPA 13 HAZARD:
+- light: offices, corridors, restrooms, lobbies, classrooms, gyms, cafeterias, foyers
+- ordinary_1: retail, parking, mechanical, pharmacy, receiving  
+- ordinary_2: kitchen, food prep, laundry, storage with commodities
+- esfr_k14: warehouse floor, high-pile storage, merchandise sales floor
+- freezer: walk-in freezers  |  cooler: walk-in coolers
+
+COORDINATE SYSTEM: (0,0)=bottom-left of building, X=right, Y=up, all in FEET.
+
+Return ONLY valid JSON (no text before or after):
+{{"structural_grid":{{"columns":[{{"label":"A","x_ft":0}},{{"label":"B","x_ft":4.4}}],"rows":[{{"label":"1","y_ft":0}},{{"label":"2","y_ft":8.3}}]}},"rooms":[{{"name":"GYMNASIUM","tag":"108","hazard_classification":"light","boundary":[{{"x":43.3,"y":8.3}},{{"x":150,"y":8.3}},{{"x":150,"y":87.5}},{{"x":43.3,"y":87.5}}],"estimated_area_sf":9000,"ceiling_height_ft":{known_ch},"notes":""}}],"walls":[]}}
+All room boundaries must fit within 0-{bw:.0f}ft (x) and 0-{bh:.0f}ft (y).
+Cover the entire {bw*bh:.0f} SF building — no gaps.""", "Pass2")
+
+        # Store structural grid for drawing engine (grid bubbles)
+        structural_grid = p2.get("structural_grid", {})
 
         rooms = []
         for r in p2.get("rooms", []):
@@ -526,17 +539,28 @@ def _empty_geometry():
     return {"walls":[],"rooms":[],"columns":[],"obstructions":[],"annotations":[],
             "building_dimensions":{},"floor_area_sf":0,"ceiling_height_ft":10}
 
-async def _file_to_image(file_path, file_type):
-    """Convert file to base64 image for Vision API. Hard cap at 4000px per side."""
+async def _file_to_image(file_path, file_type, page_index: int = None):
+    """Convert file to base64 image for Vision API. Hard cap at 4000px per side.
+    
+    page_index: 0-based page to render. If None, auto-detects the floor plan page.
+    """
     MAX_PX = 4000
 
     if file_type == "pdf":
         try:
             import pdfplumber
             from PIL import Image as PILImage
+            # Auto-detect the floor plan page if not specified
+            if page_index is None:
+                try:
+                    from pdf_building_extractor import find_floor_plan_page
+                    page_index = find_floor_plan_page(file_path)
+                except Exception:
+                    page_index = 0
             with pdfplumber.open(file_path) as pdf:
                 if pdf.pages:
-                    img = pdf.pages[0].to_image(resolution=72)
+                    pg_idx = min(page_index, len(pdf.pages)-1)
+                    img = pdf.pages[pg_idx].to_image(resolution=100)
                     buf = io.BytesIO()
                     img.save(buf, format="PNG")
                     buf.seek(0)
