@@ -645,196 +645,190 @@ class NFPA13DesignEngine:
 
     def _route_pipes_tree(self, sprinklers: list, zones: list) -> list:
         """
-        Route pipes as a proper NFPA 13 tree system:
-          Riser → Supply main → Cross-mains → Branch lines → (Arm-overs) → Heads
+        Route pipes as a proper NFPA 13 tree with per-span sections.
 
-        Pipe sizes from NFPA 13 schedule method (Table 12.1/12.2).
-        Arm-overs generated for heads > 6" from branch line centerline (§8.7.2).
+        Every pipe section is ONE SPAN between two connection points:
+          - Branch line: wall → head1 → head2 → … → headN → wall
+          - Cross-main:  spine tee → branch tee1 → branch tee2 → … → end
+          - Supply main: riser → spine tee1 → spine tee2 → … → end
+
+        Each span gets:
+          - Its own length  (actual center-to-center ft, from real head/tee coords)
+          - Its own diameter (NFPA 13 schedule based on heads downstream of that span)
+          - Its own elevation_ft
+
+        This produces the section granularity needed for fabrication labels on drawings.
         """
         csp = [s for s in sprinklers if not s.get("in_rack")]
         if not csp:
             return []
 
         secs = []
-        pid  = [1]  # mutable counter
+        pid  = [1]
 
-        def next_id(prefix):
+        def nxt(prefix):
             n = f"{prefix}-{pid[0]:03d}"
             pid[0] += 1
             return n
 
-        mat = self.ctx.get("pipe_material","Steel")
+        def seg(pid_prefix, pipe_type, fx, fy, tx, ty, elev, diameter, schedule, mat, fittings, note="§6"):
+            length = round(abs(tx-fx) + abs(ty-fy), 2)   # rectilinear length (no diagonals in tree)
+            return {
+                "id": nxt(pid_prefix), "pipe_type": pipe_type,
+                "from": {"x": round(fx,2), "y": round(fy,2)},
+                "to":   {"x": round(tx,2), "y": round(ty,2)},
+                "diameter": diameter, "schedule": schedule, "material": mat,
+                "length": length, "elevation_ft": elev,
+                "fittings": fittings, "nfpa_ref": note,
+            }
 
-        # ── Riser location (near one corner by convention) ────────────────────
-        xs  = [s["x"] for s in csp]; ys = [s["y"] for s in csp]
-        rx  = round(min(xs) - 4, 1)   # riser just outside building envelope
-        ry  = round((min(ys)+max(ys))/2, 1)
+        mat        = self.ctx.get("pipe_material","Steel")
+        sched      = "Sch 10" if "10" in mat.lower() else "Sch 40"
+        hz_cat     = self._hz_category(self.def_hz)
+        main_elev  = round(self.ch - 0.67, 2)   # mains: 8" below structure
+        branch_elev= round(self.ch - 0.17, 2)   # branches: 2" below structure
 
-        # ── Determine dominant run direction ──────────────────────────────────
-        # Cross-mains run along the longer building dimension
-        # Branch lines run perpendicular
-        bw, bd = self.bw, self.bd
-        run_along_x = (bw >= bd)   # True = cross-mains parallel to X axis
+        xs = [s["x"] for s in csp]; ys = [s["y"] for s in csp]
+        rx = round(min(xs) - 4, 1)   # riser X
+        ry = round((min(ys)+max(ys))/2, 1)
 
-        # ── Group heads into branch line rows ─────────────────────────────────
-        # Each "row" shares a Y coordinate (for run_along_x) or X coordinate
-        tol = 3.0   # ft — heads within this distance share a branch line
+        bw, bd     = self.bw, self.bd
+        run_along_x= (bw >= bd)
+        tol        = 3.0
 
         if run_along_x:
-            # Branch lines run left→right; cross-mains run bottom→top
             rows = self._group_by(csp, "y", tol)
         else:
             rows = self._group_by(csp, "x", tol)
 
-        # Sort rows from far to near (riser is at bottom/left)
-        row_keys = sorted(rows.keys(), key=lambda v: abs(v - (ry if run_along_x else rx)))
-
-        # ── Total heads per cross-main group ─────────────────────────────────
-        # Determine supply main size (feeds all heads)
+        row_keys = sorted(rows.keys(), key=lambda v: abs(v-(ry if run_along_x else rx)))
         n_ceiling = len(csp)
-        hz_cat    = self._hz_category(self.def_hz)
         main_d    = self._pipe_size_schedule(n_ceiling, hz_cat)
 
-        # ── Supply main: riser → first cross-main junction ────────────────────
-        first_jx = rx + 4   # just inside building
-        first_jy = ry
-        # Pipe elevation = ceiling height minus clearance (mains 6-8" below structure)
-        main_elev   = round(self.ch - 0.67, 2)   # 8" below ceiling
-        branch_elev = round(self.ch - 0.17, 2)   # 2" below ceiling (branches run higher)
+        # ── Riser stub ────────────────────────────────────────────────────────
+        first_jx = round(rx + 4, 1); first_jy = ry
+        secs.append(seg("M", "main", rx, ry, first_jx, first_jy,
+                        main_elev, main_d, sched, mat,
+                        ["gate_valve","alarm_check","check_valve"]))
 
-        secs.append({
-            "id": next_id("M"), "pipe_type": "main",
-            "from": {"x": rx,       "y": ry},
-            "to":   {"x": first_jx, "y": first_jy},
-            "diameter": main_d, "schedule": "Sch 40", "material": mat,
-            "length": round(first_jx - rx, 1),
-            "elevation_ft": main_elev,
-            "fittings": ["gate_valve","alarm_check","check_valve"],
-            "nfpa_ref": "§6",
-        })
-
-        # Spine of the main runs across the building
+        # ── Supply main — broken at each cross-main tee ───────────────────────
+        # Tee positions along the spine are the cross-main junction X/Y coords
         if run_along_x:
-            spine_y  = ry
-            spine_x0 = first_jx
-            spine_x1 = round(max(xs) + 4, 1)
-            secs.append({
-                "id": next_id("M"), "pipe_type": "main",
-                "from": {"x": spine_x0, "y": spine_y},
-                "to":   {"x": spine_x1, "y": spine_y},
-                "diameter": main_d, "schedule": "Sch 40", "material": mat,
-                "length": round(spine_x1 - spine_x0, 1),
-                "fittings": ["tee_branch"] * len(row_keys),
-                "nfpa_ref": "§6",
-            })
-        else:
-            spine_x  = rx + 4
-            spine_y0 = first_jy
-            spine_y1 = round(max(ys) + 4, 1)
-            secs.append({
-                "id": next_id("M"), "pipe_type": "main",
-                "from": {"x": spine_x, "y": spine_y0},
-                "to":   {"x": spine_x, "y": spine_y1},
-                "diameter": main_d, "schedule": "Sch 40", "material": mat,
-                "length": round(spine_y1 - spine_y0, 1),
-                "fittings": ["tee_branch"] * len(row_keys),
-                "nfpa_ref": "§6",
-            })
+            spine_y   = ry
+            spine_end = round(max(xs) + 4, 1)
+            # Tee points: sorted by distance from riser
+            tee_xs = sorted(set(
+                round((min(s["x"] for s in rows[rk]) + max(s["x"] for s in rows[rk]))/2, 1)
+                for rk in row_keys if rows[rk]
+            ))
+            # Walk spine from first_jx → tee1 → tee2 → … → spine_end
+            prev_x = first_jx
+            heads_beyond = n_ceiling   # all heads are beyond riser
+            for tee_x in tee_xs:
+                tee_x = max(tee_x, prev_x + 0.1)
+                d = self._pipe_size_schedule(heads_beyond, hz_cat)
+                secs.append(seg("M","main", prev_x, spine_y, tee_x, spine_y,
+                                main_elev, d, sched, mat, ["tee_branch"]))
+                # Reduce heads_beyond by heads on this branch
+                branch_heads = len(rows.get(
+                    min(row_keys, key=lambda rk: abs(
+                        round((min(s["x"] for s in rows[rk])+max(s["x"] for s in rows[rk]))/2,1) - tee_x
+                    )), []))
+                heads_beyond = max(0, heads_beyond - branch_heads)
+                prev_x = tee_x
+            # Final stub to spine end
+            if prev_x < spine_end - 0.2:
+                secs.append(seg("M","main", prev_x, spine_y, spine_end, spine_y,
+                                main_elev, main_d, sched, mat, []))
 
-        # ── Cross-mains + Branch lines ────────────────────────────────────────
+        else:
+            spine_x   = round(rx + 4, 1)
+            spine_end = round(max(ys) + 4, 1)
+            tee_ys = sorted(set(
+                round((min(s["y"] for s in rows[rk]) + max(s["y"] for s in rows[rk]))/2, 1)
+                for rk in row_keys if rows[rk]
+            ))
+            prev_y = first_jy
+            heads_beyond = n_ceiling
+            for tee_y in tee_ys:
+                tee_y = max(tee_y, prev_y + 0.1)
+                d = self._pipe_size_schedule(heads_beyond, hz_cat)
+                secs.append(seg("M","main", spine_x, prev_y, spine_x, tee_y,
+                                main_elev, d, sched, mat, ["tee_branch"]))
+                branch_heads = len(rows.get(
+                    min(row_keys, key=lambda rk: abs(
+                        round((min(s["y"] for s in rows[rk])+max(s["y"] for s in rows[rk]))/2,1) - tee_y
+                    )), []))
+                heads_beyond = max(0, heads_beyond - branch_heads)
+                prev_y = tee_y
+            if prev_y < spine_end - 0.2:
+                secs.append(seg("M","main", spine_x, prev_y, spine_x, spine_end,
+                                main_elev, main_d, sched, mat, []))
+
+        # ── Cross-mains + per-span branch lines ───────────────────────────────
         for row_key in row_keys:
             row_sp = rows[row_key]
             if not row_sp: continue
 
-            n_row    = len(row_sp)
-            hz_row   = self._hz_category(row_sp[0].get("zone_hazard", self.def_hz))
-            cross_d  = self._pipe_size_schedule(n_row, hz_row)
+            n_row  = len(row_sp)
+            hz_row = self._hz_category(row_sp[0].get("zone_hazard", self.def_hz))
 
             if run_along_x:
-                # Cross-main runs from spine Y up/down to this row Y
-                cross_jx = round((min(s["x"] for s in row_sp) + max(s["x"] for s in row_sp))/2, 1)
                 cross_jy = row_key
-                jx = cross_jx
-                # Feed from spine to cross-main junction
-                if abs(cross_jy - spine_y) > 1:
-                    secs.append({
-                        "id": next_id("X"), "pipe_type": "cross",
-                        "from": {"x": jx,         "y": spine_y},
-                        "to":   {"x": jx,         "y": cross_jy},
-                        "diameter": cross_d, "schedule": "Sch 40", "material": mat,
-                        "length": round(abs(cross_jy - spine_y), 1),
-                        "fittings": ["tee_branch"],
-                        "nfpa_ref": "§6",
-                    })
-                # Branch line along this row (left → right)
-                bx0 = round(min(s["x"] for s in row_sp) - 1, 1)
-                bx1 = round(max(s["x"] for s in row_sp) + 1, 1)
-                branch_d = self._pipe_size_schedule(n_row, hz_row)
-                secs.append({
-                    "id": next_id("B"), "pipe_type": "branch",
-                    "from": {"x": bx0, "y": cross_jy},
-                    "to":   {"x": bx1, "y": cross_jy},
-                    "diameter": branch_d, "schedule": "Sch 40", "material": mat,
-                    "length": round(bx1 - bx0, 1),
-                    "elevation_ft": branch_elev,
-                    "fittings": ["tee_branch"] * n_row,
-                    "nfpa_ref": "§6",
-                })
-                # Arm-overs for heads not on branch centerline (§8.7.2: max 12")
-                for s in row_sp:
-                    arm = abs(s["y"] - cross_jy)
-                    if arm > 0.5:
-                        arm_clamped = min(arm, 1.0)  # max 12" = 1ft
-                        secs.append({
-                            "id": next_id("A"), "pipe_type": "armover",
-                            "from": {"x": s["x"], "y": cross_jy},
-                            "to":   {"x": s["x"], "y": round(cross_jy + (1 if s["y"]>cross_jy else -1)*arm_clamped, 2)},
-                            "diameter": 0.75, "schedule": "Sch 40", "material": mat,
-                            "length": round(arm_clamped, 2),
-                            "fittings": ["tee_branch","90_elbow"],
-                            "nfpa_ref": "§8.7.2",
-                        })
+                cross_jx = round((min(s["x"] for s in row_sp)+max(s["x"] for s in row_sp))/2, 1)
+
+                # ── Cross-main stub (spine → branch tee) ─────────────────────
+                if abs(cross_jy - spine_y) > 0.2:
+                    cross_d = self._pipe_size_schedule(n_row, hz_row)
+                    secs.append(seg("X","cross", cross_jx, spine_y, cross_jx, cross_jy,
+                                    main_elev, cross_d, sched, mat, ["tee_branch"]))
+
+                # ── Branch line: sort heads L→R, create per-span segments ─────
+                sorted_heads = sorted(row_sp, key=lambda s: s["x"])
+                xs_row = [s["x"] for s in sorted_heads]
+                # Wall offsets per §8.5.4.1: first head position already includes offset
+                wall_left  = round(min(xs_row) - 1.0, 2)   # ~1ft past first head to wall
+                wall_right = round(max(xs_row) + 1.0, 2)
+
+                # Nodes along the branch: wall_left, h1, h2, ..., hN, wall_right
+                nodes = [wall_left] + xs_row + [wall_right]
+
+                for i in range(len(nodes)-1):
+                    x_from = nodes[i]; x_to = nodes[i+1]
+                    # Heads downstream of this span: everything to the right
+                    n_downstream = len([h for h in sorted_heads if h["x"] >= x_to - 0.01])
+                    d = self._pipe_size_schedule(max(n_downstream, 1), hz_row) if n_downstream > 0 else 0.75
+                    fittings = []
+                    if i > 0: fittings.append("tee_branch")         # tee at each head
+                    if i == 0: fittings.append("tee_branch")        # tee at branch entry
+                    secs.append(seg("B","branch", x_from, cross_jy, x_to, cross_jy,
+                                    branch_elev, d, sched, mat, fittings))
+
             else:
-                # Branch lines run up/down; cross-main runs across
-                cross_jy = round((min(s["y"] for s in row_sp) + max(s["y"] for s in row_sp))/2, 1)
                 cross_jx = row_key
-                if abs(cross_jx - spine_x) > 1:
-                    secs.append({
-                        "id": next_id("X"), "pipe_type": "cross",
-                        "from": {"x": spine_x, "y": cross_jy},
-                        "to":   {"x": cross_jx,"y": cross_jy},
-                        "diameter": cross_d, "schedule": "Sch 40", "material": mat,
-                        "length": round(abs(cross_jx - spine_x), 1),
-                        "fittings": ["tee_branch"],
-                        "nfpa_ref": "§6",
-                    })
-                by0 = round(min(s["y"] for s in row_sp) - 1, 1)
-                by1 = round(max(s["y"] for s in row_sp) + 1, 1)
-                branch_d = self._pipe_size_schedule(n_row, hz_row)
-                secs.append({
-                    "id": next_id("B"), "pipe_type": "branch",
-                    "from": {"x": cross_jx, "y": by0},
-                    "to":   {"x": cross_jx, "y": by1},
-                    "diameter": branch_d, "schedule": "Sch 40", "material": mat,
-                    "length": round(by1 - by0, 1),
-                    "fittings": ["tee_branch"] * n_row,
-                    "nfpa_ref": "§6",
-                })
-                for s in row_sp:
-                    arm = abs(s["x"] - cross_jx)
-                    if arm > 0.5:
-                        arm_clamped = min(arm, 1.0)
-                        secs.append({
-                            "id": next_id("A"), "pipe_type": "armover",
-                            "from": {"x": cross_jx, "y": s["y"]},
-                            "to":   {"x": round(cross_jx + (1 if s["x"]>cross_jx else -1)*arm_clamped, 2), "y": s["y"]},
-                            "diameter": 0.75, "schedule": "Sch 40", "material": mat,
-                            "length": round(arm_clamped, 2),
-                            "fittings": ["tee_branch","90_elbow"],
-                            "nfpa_ref": "§8.7.2",
-                        })
+                cross_jy = round((min(s["y"] for s in row_sp)+max(s["y"] for s in row_sp))/2, 1)
+
+                if abs(cross_jx - spine_x) > 0.2:
+                    cross_d = self._pipe_size_schedule(n_row, hz_row)
+                    secs.append(seg("X","cross", spine_x, cross_jy, cross_jx, cross_jy,
+                                    main_elev, cross_d, sched, mat, ["tee_branch"]))
+
+                sorted_heads = sorted(row_sp, key=lambda s: s["y"])
+                ys_row = [s["y"] for s in sorted_heads]
+                wall_bot = round(min(ys_row) - 1.0, 2)
+                wall_top = round(max(ys_row) + 1.0, 2)
+                nodes = [wall_bot] + ys_row + [wall_top]
+
+                for i in range(len(nodes)-1):
+                    y_from = nodes[i]; y_to = nodes[i+1]
+                    n_downstream = len([h for h in sorted_heads if h["y"] >= y_to - 0.01])
+                    d = self._pipe_size_schedule(max(n_downstream,1), hz_row) if n_downstream > 0 else 0.75
+                    fittings = ["tee_branch"] if i > 0 else ["tee_branch"]
+                    secs.append(seg("B","branch", cross_jx, y_from, cross_jx, y_to,
+                                    branch_elev, d, sched, mat, fittings))
 
         return secs
+
 
     def _group_by(self, sp: list, axis: str, tol: float) -> dict:
         """Group sprinklers into rows/columns by coordinate proximity."""
