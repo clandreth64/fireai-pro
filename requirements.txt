@@ -34,3 +34,7 @@ aiofiles>=23.0.0           # async file operations
 
 # ── Optional: STEP solid geometry ─────────────────────────────────────────────
 # pythonocc-core>=7.7.0    # large install (~200MB), only if STEP export needed
+
+pytesseract
+ifcopenshell
+pillow
