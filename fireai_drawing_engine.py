@@ -69,6 +69,7 @@ SHEET_BUILDER_MAP = {
     "sheet_fp50": ("FP5.0 — Details",         "_build_details",     "FP5_0_Details.dxf"),
     "sheet_fp51": ("FP5.1 — Sections",        "_build_sections",    "FP5_1_Sections.dxf"),
     "sheet_fp60": ("FP6.0 — BOM",             "_build_bom_sheet",   "FP6_0_BOM.dxf"),
+    "sheet_fp70": ("FP7.0 — Isometric View",  "_build_isometric",   "FP7_0_Isometric.dxf"),
 }
 
 def _scale_annotation(scale_du_per_ft: float) -> str:
@@ -710,50 +711,71 @@ class PlanViewRenderer:
             ry -= lh
 
     
-    def draw_grid(self, building_w_ft, building_d_ft, ox=0, oy=0):
-        """Draw structural grid with bubble callouts — column lines A,B,C... and 1,2,3..."""
-        SF = SCALE_FACTOR
-        bw = building_w_ft * SF
-        bd = building_d_ft * SF
-        bx0 = BORDER_X + ox
-        by0 = BORDER_Y + oy
-        bubble_r = 20
-        # Determine grid interval — aim for 4-8 grid lines each direction
-        x_interval = max(10.0, round(building_w_ft / 6 / 5) * 5)
-        y_interval = max(10.0, round(building_d_ft / 6 / 5) * 5)
-        import string
-        col_letters = list(string.ascii_uppercase)
+    def draw_grid(self, building_w_ft, building_d_ft, ox=0, oy=0, structural_grid=None):
+        """
+        Draw structural grid with bubble callouts.
+        If structural_grid dict is provided (from Vision extraction), uses actual
+        column/row positions from the drawings. Otherwise generates a synthetic grid.
+        """
+        bw    = building_w_ft * self.scale
+        bd    = building_d_ft * self.scale
+        bx0   = BORDER_X + ox
+        by0   = BORDER_Y + oy
+        r_bub = 20
 
-        # Vertical grid lines (A, B, C...)
-        xi = 0; li = 0
-        while xi <= building_w_ft + 0.1:
-            gx = bx0 + xi * SF
-            # Grid line (dashed, very light)
-            self.msp.add_line((gx, by0-bubble_r-4),(gx, by0+bd+bubble_r+4),
-                              dxfattribs={"layer":"FP-GRID","color":8})
-            # Bubbles top and bottom
-            lbl = col_letters[li % 26] if li < 26 else col_letters[li//26-1]+col_letters[li%26]
-            for gy in [by0-bubble_r-4, by0+bd+bubble_r+4]:
-                self.msp.add_circle((gx,gy), bubble_r,
-                                    dxfattribs={"layer":"FP-GRID","color":8,"lineweight":13})
+        sg = structural_grid or {}
+        sg_cols = sg.get("columns", [])  # [{"label":"A","x_ft":0}, ...]
+        sg_rows = sg.get("rows",    [])  # [{"label":"1","y_ft":0}, ...]
+
+        # Build column list — from actual grid if available, else synthetic
+        if sg_cols:
+            cols = [(c["label"], float(c["x_ft"])) for c in sg_cols
+                    if 0 <= float(c["x_ft"]) <= building_w_ft + 1]
+        else:
+            import string
+            x_interval = max(10.0, round(building_w_ft / 6 / 5) * 5)
+            letters    = list(string.ascii_uppercase)
+            cols       = [(letters[i], xi)
+                          for i, xi in enumerate(
+                              [j*x_interval for j in range(int(building_w_ft/x_interval)+2)]
+                              ) if xi <= building_w_ft + 0.1]
+
+        # Build row list
+        if sg_rows:
+            rows = [(str(r["label"]), float(r["y_ft"])) for r in sg_rows
+                    if 0 <= float(r["y_ft"]) <= building_d_ft + 1]
+        else:
+            y_interval = max(10.0, round(building_d_ft / 6 / 5) * 5)
+            rows       = [(str(i+1), yi)
+                          for i, yi in enumerate(
+                              [j*y_interval for j in range(int(building_d_ft/y_interval)+2)]
+                              ) if yi <= building_d_ft + 0.1]
+
+        # Draw vertical grid lines + bubbles (columns A, B, C...)
+        for lbl, x_ft in cols:
+            gx = bx0 + x_ft * self.scale
+            self.msp.add_line((gx, by0-r_bub-4),(gx, by0+bd+r_bub+4),
+                              dxfattribs={"layer":"FP-GRID","color":8,"linetype":"DASHED"})
+            for gy in [by0-r_bub-4, by0+bd+r_bub+4]:
+                self.msp.add_circle((gx,gy), r_bub,
+                    dxfattribs={"layer":"FP-GRID","color":8,"lineweight":13})
                 self.msp.add_text(lbl,
                     dxfattribs={"layer":"FP-GRID","height":TEXT_SM,"style":FONT_BOLD,"color":8}
-                ).set_placement((gx,gy-TEXT_SM*0.4), align=TextEntityAlignment.MIDDLE_CENTER)
-            xi += x_interval; li += 1
+                ).set_placement((gx,gy-TEXT_SM*0.4),
+                                align=TextEntityAlignment.MIDDLE_CENTER)
 
-        # Horizontal grid lines (1, 2, 3...)
-        yi = 0; ni = 1
-        while yi <= building_d_ft + 0.1:
-            gy = by0 + yi * SF
-            self.msp.add_line((bx0-bubble_r-4,gy),(bx0+bw+bubble_r+4,gy),
-                              dxfattribs={"layer":"FP-GRID","color":8})
-            for gx in [bx0-bubble_r-4, bx0+bw+bubble_r+4]:
-                self.msp.add_circle((gx,gy), bubble_r,
-                                    dxfattribs={"layer":"FP-GRID","color":8,"lineweight":13})
-                self.msp.add_text(str(ni),
+        # Draw horizontal grid lines + bubbles (rows 1, 2, 3...)
+        for lbl, y_ft in rows:
+            gy = by0 + y_ft * self.scale
+            self.msp.add_line((bx0-r_bub-4,gy),(bx0+bw+r_bub+4,gy),
+                              dxfattribs={"layer":"FP-GRID","color":8,"linetype":"DASHED"})
+            for gx in [bx0-r_bub-4, bx0+bw+r_bub+4]:
+                self.msp.add_circle((gx,gy), r_bub,
+                    dxfattribs={"layer":"FP-GRID","color":8,"lineweight":13})
+                self.msp.add_text(lbl,
                     dxfattribs={"layer":"FP-GRID","height":TEXT_SM,"style":FONT_BOLD,"color":8}
-                ).set_placement((gx,gy-TEXT_SM*0.4), align=TextEntityAlignment.MIDDLE_CENTER)
-            yi += y_interval; ni += 1
+                ).set_placement((gx,gy-TEXT_SM*0.4),
+                                align=TextEntityAlignment.MIDDLE_CENTER)
 
     def draw_sway_braces(self, braces, ox=0, oy=0):
         """Draw seismic sway brace markers — LAT# and LNG# labels with cross symbol."""
@@ -1400,10 +1422,11 @@ class FireAIDrawingEngine:
 
     def _build_floor_plan(self, floor_num=1):
         doc, msp, meta = self._new_sheet(f"Floor Plan — Level {floor_num}", f"FP1.{floor_num}")
-        meta_dm = self.cad.get("design_metadata", {})
-        bw_ft   = float(meta_dm.get("building_w_ft") or
-                        (self.project.get("total_area",10000) / 0.65) ** 0.5)
-        bd_ft   = float(meta_dm.get("building_d_ft") or bw_ft * 0.65)
+        meta_dm      = self.cad.get("design_metadata", {})
+        cad          = self.cad   # shorthand
+        bw_ft        = float(meta_dm.get("building_w_ft") or
+                             (self.project.get("total_area",10000) / 0.65) ** 0.5)
+        bd_ft        = float(meta_dm.get("building_d_ft") or bw_ft * 0.65)
 
         # Dynamic scale: fit building within floor plan panel with margins
         margin_du = 100
@@ -1423,7 +1446,9 @@ class FireAIDrawingEngine:
         remote_ids = {n.get("node","") for n in node_calcs}
 
         # 1. Grid bubbles (architectural background layer)
-        r.draw_grid(bw_ft, bd_ft)
+        # Use actual structural grid from document intelligence if available
+        structural_grid = cad.get("structural_grid") or cad.get("design_metadata",{}).get("structural_grid")
+        r.draw_grid(bw_ft, bd_ft, structural_grid=structural_grid)
 
         # 2. Architectural background: walls, columns, rooms
         if self.cad.get("walls"):   r.draw_walls(self.cad["walls"])
@@ -2108,7 +2133,168 @@ class FireAIDrawingEngine:
         except Exception:
             pass
 
-    # ── generate_all() ────────────────────────────────────────────────────────
+
+    # ── FP7.0 Isometric view ──────────────────────────────────────────────────
+
+    def _build_isometric(self):
+        """
+        FP7.0 — Fire Sprinkler Piping Plan: Isometric View.
+        Matches AutoSprink / Battalion One FP-3 quality.
+        3D axonometric projection showing full pipe network,
+        all labels, symbols, sway braces, hangers, and sprinkler drops.
+        """
+        from isometric_builder import build_isometric, _define_blocks, _fmt_dia, _fmt_len
+
+        doc, msp, meta = self._new_sheet(
+            "Fire Sprinkler Piping Plan — Isometric View",
+            "FP7.0", scale="NO SCALE")
+
+        _define_blocks(doc)
+
+        p        = self.project
+        cad      = self.cad
+        ps       = cad.get("pipe_sections", [])
+        sp       = cad.get("sprinkler_placements", [])
+        valves   = cad.get("valves", [])
+        hangers  = self.bracing.get("hanger_schedule") or cad.get("hangers", [])
+        braces   = self.bracing.get("sway_braces") or cad.get("sway_braces", [])
+        meta_dm  = cad.get("design_metadata", {})
+
+        if not ps:
+            msp.add_text("No pipe data available",
+                dxfattribs={"layer":"FP-ANNO-NOTE","height":TEXT_LG,"style":FONT_BOLD}
+            ).set_placement((SHEET_W//2, SHEET_H//2),
+                            align=TextEntityAlignment.MIDDLE_CENTER)
+            return doc
+
+        # ── Compute scale to fit building on sheet ────────────────────────────
+        bw_ft  = float(meta_dm.get("building_w_ft",100) or 100)
+        bd_ft  = float(meta_dm.get("building_d_ft",65)  or 65)
+        ch_ft  = float(p.get("ceiling_height", 12))
+
+        # Isometric projected extents
+        import math
+        rad   = math.radians(30)
+        # Bounding box of projected building
+        corners_w = [(0,0,0),(bw_ft,0,0),(bw_ft,bd_ft,0),(0,bd_ft,0),
+                     (0,0,ch_ft),(bw_ft,0,ch_ft),(bw_ft,bd_ft,ch_ft),(0,bd_ft,ch_ft)]
+        def iso_raw(wx,wy,wz):
+            return ((wx-wy)*math.cos(rad), (wx+wy)*math.sin(rad) + wz)
+        proj = [iso_raw(wx,wy,wz) for wx,wy,wz in corners_w]
+        proj_xs = [p2[0] for p2 in proj]; proj_ys = [p2[1] for p2 in proj]
+        raw_w = max(proj_xs) - min(proj_xs)
+        raw_h = max(proj_ys) - min(proj_ys)
+
+        # Drawing area (leave margins for legend, title)
+        avail_w  = DRAW_W * 0.90
+        avail_h  = DRAW_H * 0.78
+        if raw_w > 0 and raw_h > 0:
+            scale    = min(avail_w/raw_w, avail_h/raw_h)
+        else:
+            scale    = 12.0
+        scale_z  = scale * 1.2   # vertical slightly exaggerated for clarity
+
+        # Centre the projected building in the drawing area
+        min_px   = min(proj_xs)*scale; min_py = min(proj_ys)*scale
+        cx_sheet = BORDER_X + DRAW_W * 0.45
+        cy_sheet = BORDER_Y + DRAW_H * 0.45
+        origin_x = cx_sheet - (min_px + (max(proj_xs)-min(proj_xs))*scale/2)
+        origin_y = cy_sheet - (min_py + (max(proj_ys)-min(proj_ys))*scale/2)
+
+        # ── Render isometric ─────────────────────────────────────────────────
+        build_isometric(
+            msp          = msp,
+            pipe_sections= ps,
+            sprinklers   = sp,
+            valves       = valves,
+            hangers      = hangers,
+            sway_braces  = braces,
+            cad_output   = cad,
+            project      = p,
+            origin_x     = origin_x,
+            origin_y     = origin_y,
+            iso_scale    = scale,
+            iso_scale_z  = scale_z,
+        )
+
+        # ── Sheet title ───────────────────────────────────────────────────────
+        msp.add_text(
+            "FIRE SPRINKLER PIPING PLAN — ISOMETRIC VIEW",
+            dxfattribs={"layer":"FP-ANNO-NOTE","height":TEXT_LG,"style":FONT_BOLD}
+        ).set_placement((BORDER_X + DRAW_W//2, BORDER_Y + 30),
+                        align=TextEntityAlignment.MIDDLE_CENTER)
+        msp.add_text(
+            "NO SCALE",
+            dxfattribs={"layer":"FP-ANNO-NOTE","height":TEXT_SM,"style":FONT}
+        ).set_placement((BORDER_X + DRAW_W//2, BORDER_Y + 16),
+                        align=TextEntityAlignment.MIDDLE_CENTER)
+
+        # ── Hanger designations legend (bottom-left) ──────────────────────────
+        lx = BORDER_X + 30; ly = BORDER_Y + 200
+        msp.add_lwpolyline(
+            [(lx,ly),(lx+360,ly),(lx+360,ly-170),(lx,ly-170),(lx,ly)],
+            dxfattribs={"layer":"FP-ANNO-NOTE","lineweight":18})
+        msp.add_text("HANGER DESIGNATIONS:",
+            dxfattribs={"layer":"FP-ANNO-NOTE","height":TEXT_SM,"style":FONT_BOLD}
+        ).set_placement((lx+6, ly-8))
+
+        # Build legend dynamically from actual hangers
+        seen = {}
+        for h in hangers:
+            num  = h.get("designation",1)
+            desc = h.get("description","HANGER")
+            if num not in seen: seen[num] = desc.upper()
+        if 2 not in seen: seen[2] = "END OF LINE RESTRAINT"
+
+        hy = ly - 24
+        for num, desc in sorted(seen.items()):
+            msp.add_circle((lx+10, hy-4), 7,
+                           dxfattribs={"layer":"FP-HNGR","color":colors.CYAN,"lineweight":9})
+            msp.add_text(str(num),
+                dxfattribs={"layer":"FP-HNGR","height":TEXT_SM*0.75,
+                            "style":FONT_BOLD,"color":colors.CYAN}
+            ).set_placement((lx+10, hy-4-TEXT_SM*0.35),
+                            align=TextEntityAlignment.MIDDLE_CENTER)
+            msp.add_text(desc,
+                dxfattribs={"layer":"FP-ANNO-NOTE","height":TEXT_SM*0.82,"style":FONT}
+            ).set_placement((lx+24, hy-8))
+            hy -= 18
+
+        # ── Symbols legend (bottom-center) ───────────────────────────────────
+        sx = BORDER_X + 420; sy = ly
+        msp.add_lwpolyline(
+            [(sx,sy),(sx+380,sy),(sx+380,sy-170),(sx,sy-170),(sx,sy)],
+            dxfattribs={"layer":"FP-ANNO-NOTE","lineweight":18})
+        msp.add_text("SYMBOLS LEGEND",
+            dxfattribs={"layer":"FP-ANNO-NOTE","height":TEXT_SM,"style":FONT_BOLD}
+        ).set_placement((sx+6, sy-8))
+
+        sym_items = [
+            ("★ 0'-0 FF↑", colors.CYAN,  "PIPE ELEVATION"),
+            ("──────",     30,            "GROOVED COUPLING"),
+            ("──|──",      30,            "FLEXIBLE COUPLING"),
+            ("◆",          colors.GREEN,  "GATE VALVE"),
+            ("◆",          colors.GREEN,  "BUTTERFLY VALVE"),
+            ("◆",          colors.RED,    "CHECK VALVE"),
+            ("╳",          colors.WHITE,  "END OF LINE RESTRAINT"),
+            ("LAT/LNG →",  colors.CYAN,   "SWAY BRACE"),
+            ("╋",          colors.RED,    "4-WAY BRACE"),
+        ]
+        syy = sy - 24
+        for sym, clr, desc in sym_items:
+            msp.add_text(sym,
+                dxfattribs={"layer":"FP-ANNO-NOTE","height":TEXT_SM*0.9,
+                            "style":FONT_BOLD,"color":clr}
+            ).set_placement((sx+10, syy-4))
+            msp.add_text(desc,
+                dxfattribs={"layer":"FP-ANNO-NOTE","height":TEXT_SM*0.82,"style":FONT}
+            ).set_placement((sx+46, syy-4))
+            syy -= 17
+
+        return doc
+
+
+    # ── generate_all() ─────────────────────────────────────────────────────────
 
     def generate_all(self, output_dir="./outputs/drawings"):
         Path(output_dir).mkdir(parents=True, exist_ok=True)
