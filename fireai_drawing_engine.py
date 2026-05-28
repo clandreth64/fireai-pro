@@ -48,6 +48,11 @@ BORDER_Y     = MARGIN + TB_HEIGHT
 DRAW_W       = SHEET_W - 2 * MARGIN
 DRAW_H       = SHEET_H - MARGIN - TB_HEIGHT - MARGIN
 
+# Floor plan uses left 72% of drawing area; right 28% = details/tables panel
+FP_PANEL_W   = int(DRAW_W * 0.72)
+DTL_PANEL_X  = BORDER_X + FP_PANEL_W + 20
+DTL_PANEL_W  = DRAW_W - FP_PANEL_W - 20
+
 FONT      = "ROMANS"
 FONT_BOLD = "ROMAND"
 TEXT_SM   = 9
@@ -65,6 +70,14 @@ SHEET_BUILDER_MAP = {
     "sheet_fp51": ("FP5.1 — Sections",        "_build_sections",    "FP5_1_Sections.dxf"),
     "sheet_fp60": ("FP6.0 — BOM",             "_build_bom_sheet",   "FP6_0_BOM.dxf"),
 }
+
+def _scale_annotation(scale_du_per_ft: float) -> str:
+    """Convert DXF units/ft scale to human-readable annotation string."""
+    STD = {96:'1in=1ft', 48:'1/2in=1ft', 32:'3/8in=1ft',
+           24:'1/4in=1ft', 16:'3/16in=1ft', 12:'1/8in=1ft',
+           8:'3/32in=1ft', 6:'1/16in=1ft', 4:'1/32in=1ft'}
+    best = min(STD.keys(), key=lambda s: abs(s - scale_du_per_ft))
+    return STD.get(best, f'{scale_du_per_ft:.0f}u/ft')
 
 LAYER_DEFS = {
     "A-WALL-FULL":  {"color": colors.GRAY,  "desc": "Full-height walls"},
@@ -388,12 +401,13 @@ class SymbolLibrary:
 # ─── Plan view renderer ───────────────────────────────────────────────────────
 
 class PlanViewRenderer:
-    def __init__(self, msp, project):
-        self.msp = msp
+    def __init__(self, msp, project, scale=SCALE_FACTOR):
+        self.msp     = msp
         self.project = project
+        self.scale   = scale
 
     def _ft(self, v):
-        return v * SCALE_FACTOR
+        return v * self.scale
 
     def _pt(self, x, y, ox=0, oy=0):
         return (BORDER_X + ox + self._ft(x), BORDER_Y + oy + self._ft(y))
@@ -401,10 +415,15 @@ class PlanViewRenderer:
     def draw_walls(self, walls, ox=0, oy=0):
         for w in walls:
             pts = [(BORDER_X+ox+self._ft(p["x"]), BORDER_Y+oy+self._ft(p["y"])) for p in w["points"]]
-            self.msp.add_lwpolyline(
-                pts, close=w.get("closed", False),
-                dxfattribs={"layer":"A-WALL-PART" if w.get("partial") else "A-WALL-FULL",
-                            "lineweight": 35 if w.get("exterior") else 18})
+            is_ext  = w.get("exterior", False)
+            is_part = w.get("partial", False)
+            layer   = "A-WALL-PART" if is_part else "A-WALL-FULL"
+            lw      = 50 if is_ext else 25
+            lt      = "DASHED" if is_part else "CONTINUOUS"
+            if len(pts) >= 2:
+                self.msp.add_lwpolyline(
+                    pts, close=w.get("closed", False),
+                    dxfattribs={"layer": layer, "lineweight": lw, "linetype": lt})
 
     def draw_columns(self, cols, ox=0, oy=0):
         for c in cols:
@@ -416,17 +435,25 @@ class PlanViewRenderer:
     def draw_rooms(self, rooms, ox=0, oy=0):
         for r in rooms:
             pts = [(BORDER_X+ox+self._ft(p["x"]), BORDER_Y+oy+self._ft(p["y"])) for p in r["boundary"]]
+            if len(pts) < 3: continue
             self.msp.add_lwpolyline(pts, close=True, dxfattribs={"layer":"A-ROOM","lineweight":5})
             cx = sum(p[0] for p in pts)/len(pts)
             cy = sum(p[1] for p in pts)/len(pts)
-            self.msp.add_text(
-                r.get("name",""),
-                dxfattribs={"layer":"A-ROOM-IDEN","height":TEXT_SM,"style":FONT}
-            ).set_placement((cx, cy+TEXT_SM/2))
-            self.msp.add_text(
-                r.get("area",""),
-                dxfattribs={"layer":"A-ROOM-IDEN","height":TEXT_SM*0.8,"style":FONT}
-            ).set_placement((cx, cy-TEXT_SM*0.8))
+            name = r.get("name","").upper()
+            if name:
+                self.msp.add_text(name,
+                    dxfattribs={"layer":"A-ROOM-IDEN","height":TEXT_SM,"style":FONT_BOLD}
+                ).set_placement((cx, cy+TEXT_SM), align=TextEntityAlignment.MIDDLE_CENTER)
+            tag = str(r.get("tag") or r.get("room_number",""))
+            if tag:
+                self.msp.add_text(tag,
+                    dxfattribs={"layer":"A-ROOM-IDEN","height":TEXT_SM*0.85,"style":FONT}
+                ).set_placement((cx, cy), align=TextEntityAlignment.MIDDLE_CENTER)
+            area_sf = r.get("area_sf", 0)
+            if area_sf and area_sf > 0:
+                self.msp.add_text(f"{int(area_sf):,} SF",
+                    dxfattribs={"layer":"A-ROOM-IDEN","height":TEXT_SM*0.75,"style":FONT}
+                ).set_placement((cx, cy-TEXT_SM), align=TextEntityAlignment.MIDDLE_CENTER)
 
     def draw_pipes(self, pipes, ox=0, oy=0):
         """
@@ -669,6 +696,85 @@ class PlanViewRenderer:
             ry -= lh
 
     
+    def draw_grid(self, building_w_ft, building_d_ft, ox=0, oy=0):
+        """Draw structural grid with bubble callouts — column lines A,B,C... and 1,2,3..."""
+        SF = SCALE_FACTOR
+        bw = building_w_ft * SF
+        bd = building_d_ft * SF
+        bx0 = BORDER_X + ox
+        by0 = BORDER_Y + oy
+        bubble_r = 20
+        # Determine grid interval — aim for 4-8 grid lines each direction
+        x_interval = max(10.0, round(building_w_ft / 6 / 5) * 5)
+        y_interval = max(10.0, round(building_d_ft / 6 / 5) * 5)
+        import string
+        col_letters = list(string.ascii_uppercase)
+
+        # Vertical grid lines (A, B, C...)
+        xi = 0; li = 0
+        while xi <= building_w_ft + 0.1:
+            gx = bx0 + xi * SF
+            # Grid line (dashed, very light)
+            self.msp.add_line((gx, by0-bubble_r-4),(gx, by0+bd+bubble_r+4),
+                              dxfattribs={"layer":"FP-GRID","color":8})
+            # Bubbles top and bottom
+            lbl = col_letters[li % 26] if li < 26 else col_letters[li//26-1]+col_letters[li%26]
+            for gy in [by0-bubble_r-4, by0+bd+bubble_r+4]:
+                self.msp.add_circle((gx,gy), bubble_r,
+                                    dxfattribs={"layer":"FP-GRID","color":8,"lineweight":13})
+                self.msp.add_text(lbl,
+                    dxfattribs={"layer":"FP-GRID","height":TEXT_SM,"style":FONT_BOLD,"color":8}
+                ).set_placement((gx,gy-TEXT_SM*0.4), align=TextEntityAlignment.MIDDLE_CENTER)
+            xi += x_interval; li += 1
+
+        # Horizontal grid lines (1, 2, 3...)
+        yi = 0; ni = 1
+        while yi <= building_d_ft + 0.1:
+            gy = by0 + yi * SF
+            self.msp.add_line((bx0-bubble_r-4,gy),(bx0+bw+bubble_r+4,gy),
+                              dxfattribs={"layer":"FP-GRID","color":8})
+            for gx in [bx0-bubble_r-4, bx0+bw+bubble_r+4]:
+                self.msp.add_circle((gx,gy), bubble_r,
+                                    dxfattribs={"layer":"FP-GRID","color":8,"lineweight":13})
+                self.msp.add_text(str(ni),
+                    dxfattribs={"layer":"FP-GRID","height":TEXT_SM,"style":FONT_BOLD,"color":8}
+                ).set_placement((gx,gy-TEXT_SM*0.4), align=TextEntityAlignment.MIDDLE_CENTER)
+            yi += y_interval; ni += 1
+
+    def draw_sway_braces(self, braces, ox=0, oy=0):
+        """Draw seismic sway brace markers — LAT# and LNG# labels with cross symbol."""
+        for b in braces:
+            px, py = self._pt(b["x"], b["y"], ox, oy)
+            direction = b.get("direction","4-way")
+            # Cross symbol (+ shape)
+            arm = 10
+            self.msp.add_line((px-arm,py),(px+arm,py),
+                              dxfattribs={"layer":"FP-HNGR","lineweight":25,"color":colors.YELLOW})
+            self.msp.add_line((px,py-arm),(px,py+arm),
+                              dxfattribs={"layer":"FP-HNGR","lineweight":25,"color":colors.YELLOW})
+            # Brace label
+            brace_id = b.get("id","SB")
+            dia      = b.get("pipe_size",2.0)
+            lbl_type = "LAT4" if dia >= 3 else "LAT3"
+            self.msp.add_text(lbl_type,
+                dxfattribs={"layer":"FP-HNGR","height":TEXT_SM*0.75,
+                            "style":FONT,"color":colors.YELLOW}
+            ).set_placement((px+arm+3, py+2))
+
+    def draw_end_of_line_restraints(self, pipe_sections, ox=0, oy=0):
+        """Draw end-of-line restraint symbol at branch line endpoints."""
+        branches = [s for s in pipe_sections if s.get("pipe_type")=="branch"]
+        for sec in branches:
+            # End of branch = the 'to' node
+            tx, ty = self._pt(sec["to"]["x"], sec["to"]["y"], ox, oy)
+            # Small X mark
+            d = 8
+            self.msp.add_line((tx-d,ty-d),(tx+d,ty+d),
+                              dxfattribs={"layer":"FP-HNGR","lineweight":18})
+            self.msp.add_line((tx+d,ty-d),(tx-d,ty+d),
+                              dxfattribs={"layer":"FP-HNGR","lineweight":18})
+
+
     def draw_north_arrow(self, rot=0):
         nx = BORDER_X + DRAW_W - 120
         ny = BORDER_Y + DRAW_H - 120
@@ -851,6 +957,144 @@ class FireAIDrawingEngine:
         TitleblockRenderer(doc, self.project).render(msp, meta)
         return doc, msp, meta
 
+    # ── Details panel (right side of floor plan sheet) ──────────────────────
+
+    def _draw_details_panel(self, msp, p):
+        """
+        Draw the right-side details panel matching AutoSprink/Battalion One quality.
+        Includes: symbols legend, unsupported lengths table, max hanger spacing table,
+        bracing criteria table, and NFPA 13 code excerpts.
+        """
+        px  = DTL_PANEL_X
+        pw  = DTL_PANEL_W - 20
+        py  = BORDER_Y + DRAW_H - 320   # start below north arrow and symbol legend
+        lh  = 16   # line height
+        col = 8    # color (gray) for tables
+
+        def t(text, x, y, ht=TEXT_SM, bold=False, color=None):
+            att = {"layer":"FP-ANNO-NOTE","height":ht,"style":FONT_BOLD if bold else FONT}
+            if color: att["color"] = color
+            msp.add_text(str(text),dxfattribs=att).set_placement((x,y))
+
+        def hline(y, lw=13):
+            msp.add_line((px,y),(px+pw,y),dxfattribs={"layer":"FP-ANNO-NOTE","lineweight":lw})
+
+        def box(x,y,w,h,lw=13):
+            msp.add_lwpolyline([(x,y),(x+w,y),(x+w,y-h),(x,y-h),(x,y)],
+                               dxfattribs={"layer":"FP-ANNO-NOTE","lineweight":lw})
+
+        def section_title(title, y):
+            box(px, y, pw, lh+6, lw=25)
+            msp.add_solid([(px,y),(px+pw,y),(px+pw,y-lh-6),(px,y-lh-6)],
+                          dxfattribs={"layer":"FP-TBLK","color":8})
+            t(title, px+4, y-lh-1, TEXT_SM, bold=True)
+            return y - lh - 10
+
+        # ── Unsupported Armover Lengths ───────────────────────────────────────
+        py = section_title("UNSUPPORTED ARMOVER LENGTHS", py)
+        for line in [
+            "The cumulative horizontal length of an unsupported armover to a sprinkler,",
+            "drop nipple, or sprig shall not exceed 24 in. (600 mm) for steel pipe or",
+            "12 in. (300 mm) for copper tube. [NFPA 13 §9.1.3]",
+        ]:
+            t(line, px+2, py, TEXT_SM*0.8); py -= lh*0.9
+        py -= 4
+
+        py = section_title("UNSUPPORTED ARMOVER LENGTHS >100-PSI", py)
+        for line in [
+            "Where max static or flowing pressure at the sprinkler exceeds 100 psi",
+            "and a branch line above a ceiling supplies sprinklers in pendant position,",
+            "cumulative horizontal armover length shall not exceed 12 in. steel / 6 in. copper.",
+        ]:
+            t(line, px+2, py, TEXT_SM*0.8); py -= lh*0.9
+        py -= 4
+
+        py = section_title("UNSUPPORTED LENGTHS", py)
+        for line in [
+            "For steel pipe, the unsupported horizontal length between the end sprinkler and",
+            "the last hanger: 36in for 1in, 48in for 1-1/4in, 60in for 1-1/2in or larger pipe.",
+        ]:
+            t(line, px+2, py, TEXT_SM*0.8); py -= lh*0.9
+        py -= 4
+
+        # ── Max Hanger Spacing table ──────────────────────────────────────────
+        py = section_title("MAXIMUM DISTANCE BETWEEN HANGERS", py)
+        col_w = pw // 13
+        sizes = ["3/4","1","1-1/4","1-1/2","2","2-1/2","3","3-1/2","4","5","6","8"]
+        steel = ["N/A","12-0","12-0","15-0","15-0","15-0","15-0","15-0","15-0","15-0","15-0","15-0"]
+        cpvc  = ["5-6", "6-0","8-0","10-0","N/A","N/A","N/A","N/A","N/A","N/A","N/A","N/A"]
+        # Header row
+        t("NOMINAL PIPE SIZE", px+2, py, TEXT_SM*0.75, bold=True); py -= lh
+        hline(py)
+        t("STEEL PIPE", px+2, py-lh+2, TEXT_SM*0.75, bold=True)
+        for i, (s, v) in enumerate(zip(sizes, steel)):
+            cx2 = px + (i+1)*col_w
+            t(s, cx2, py, TEXT_SM*0.7)
+            t(v, cx2, py-lh, TEXT_SM*0.7)
+        py -= lh*2; hline(py)
+        t("CPVC", px+2, py-lh+2, TEXT_SM*0.75, bold=True)
+        for i, v in enumerate(cpvc):
+            t(v, px+(i+1)*col_w, py-lh, TEXT_SM*0.7)
+        py -= lh*2; hline(py); py -= 8
+
+        # ── Bracing Criteria ─────────────────────────────────────────────────
+        py = section_title("BRACING CRITERIA", py)
+        brace_rows = [
+            ("LAT4",   "LATERALS: 12-0 MAX."),
+            ("LAT4-A", "LATERALS: 12-0 MAX."),
+            ("LAT4-B", "LATERALS: 25-0 MAX."),
+            ("LAT3-A", "LATERALS: 12-0 MAX."),
+            ("LNG4",   "LONGITUDINAL: 60-0 MAX."),
+            ("LNG4-A", "LONGITUDINAL: 30-0 MAX."),
+            ("LNG4-B", "LONGITUDINAL: 40-0 MAX."),
+            ("LNG3-A", "LONGITUDINAL: 30-0 MAX."),
+        ]
+        for code, desc in brace_rows:
+            t(code, px+2, py, TEXT_SM*0.8, bold=True)
+            t("—  "+desc, px+60, py, TEXT_SM*0.8)
+            py -= lh
+        py -= 4
+
+        # ── Symbols Legend ────────────────────────────────────────────────────
+        py = section_title("SYMBOLS LEGEND", py)
+        legends = [
+            ("★ 0'-0 FF↑", "PIPE ELEVATION"),
+            ("——",          "GROOVED COUPLING"),
+            ("—⊣—",         "FLEXIBLE COUPLING"),
+            ("⊠",           "GATE VALVE"),
+            ("⊡",           "BUTTERFLY VALVE"),
+            ("◁",           "CHECK VALVE"),
+            ("⊢⊣",          "END OF LINE RESTRAINT"),
+            ("LAT/LNG→",    "SWAY BRACE"),
+            ("+",           "4-WAY BRACE"),
+        ]
+        for sym, desc in legends:
+            t(sym,  px+2,  py, TEXT_SM*0.85, bold=True, color=colors.GREEN)
+            t(desc, px+70, py, TEXT_SM*0.85)
+            py -= lh
+        py -= 8
+
+        # ── NFPA 13 Code Notes ────────────────────────────────────────────────
+        py = section_title("NFPA 13 CODE NOTES", py)
+        notes = [
+            "1. All work per NFPA 13 current edition.",
+            "2. Contractor shall field-verify all dimensions prior to fabrication.",
+            "3. All pipe shall be schedule 40/10 steel unless noted.",
+            "4. All hangers and braces shall be FM/UL listed.",
+            "5. Provide inspector's test per §8.17 at most remote location.",
+            "6. Hydraulic design information sign required per §27.2.",
+            "7. Seismic bracing per §9.3 — zone "+str(p.get("seismic_zone","D1"))+".",
+            "8. All penetrations through fire-rated assemblies shall be fire-stopped.",
+        ]
+        for n in notes:
+            if py < BORDER_Y + 40: break
+            t(n, px+2, py, TEXT_SM*0.78); py -= lh*0.9
+
+        # Vertical separator line between floor plan and details panel
+        msp.add_line((DTL_PANEL_X-10, BORDER_Y), (DTL_PANEL_X-10, BORDER_Y+DRAW_H),
+                     dxfattribs={"layer":"FP-TBLK","lineweight":18})
+
+
     # ── FP0.0 Cover ───────────────────────────────────────────────────────────
 
     def _build_cover(self):
@@ -899,24 +1143,48 @@ class FireAIDrawingEngine:
 
     def _build_floor_plan(self, floor_num=1):
         doc, msp, meta = self._new_sheet(f"Floor Plan — Level {floor_num}", f"FP1.{floor_num}")
-        r = PlanViewRenderer(msp, self.project)
+        meta_dm = self.cad.get("design_metadata", {})
+        bw_ft   = float(meta_dm.get("building_w_ft") or
+                        (self.project.get("total_area",10000) / 0.65) ** 0.5)
+        bd_ft   = float(meta_dm.get("building_d_ft") or bw_ft * 0.65)
+
+        # Dynamic scale: fit building within floor plan panel with margins
+        margin_du = 100
+        scale_x   = (FP_PANEL_W - margin_du*2) / max(bw_ft, 1)
+        scale_y   = (DRAW_H     - margin_du*2) / max(bd_ft, 1)
+        fp_scale  = min(scale_x, scale_y)
+        # Snap to nearest standard below computed value
+        STD_SCALES = [4,6,8,12,16,20,24,32,48,64,96,128,192]
+        fp_scale   = max((s for s in STD_SCALES if s <= fp_scale), default=4)
+        scale_str  = _scale_annotation(fp_scale)
+
+        r = PlanViewRenderer(msp, self.project, scale=fp_scale)
 
         # Identify hydraulic remote heads for HR marker
-        ra_calcs = self.hydraulics.get("remote_area_calcs", {})
+        ra_calcs   = self.hydraulics.get("remote_area_calcs", {})
         node_calcs = ra_calcs.get("node_calculations", [])
         remote_ids = {n.get("node","") for n in node_calcs}
 
+        # 1. Grid bubbles (architectural background layer)
+        r.draw_grid(bw_ft, bd_ft)
+
+        # 2. Architectural background: walls, columns, rooms
         if self.cad.get("walls"):   r.draw_walls(self.cad["walls"])
         if self.cad.get("columns"): r.draw_columns(self.cad["columns"])
         if self.cad.get("rooms"):   r.draw_rooms(self.cad["rooms"])
 
-        # Draw pipes first (behind heads)
+        # 3. Fire protection: pipes (with size + elevation labels)
         r.draw_pipes(self.cad.get("pipe_sections", []))
 
-        # Draw dimension strings between heads
+        # 4. Arm-over dimension strings
         r.draw_head_dimensions(self.cad.get("sprinkler_placements", []))
 
-        # Sprinklers — NO coverage circles (AutoSprink default)
+        # 5. Sway braces + end-of-line restraints
+        r.draw_sway_braces(self.cad.get("sway_braces") or
+                           self.bracing.get("sway_braces", []))
+        r.draw_end_of_line_restraints(self.cad.get("pipe_sections", []))
+
+        # 6. Sprinkler heads — NO coverage circles
         r.draw_sprinklers(
             self.cad.get("sprinkler_placements", []),
             show_coverage=False,
@@ -924,13 +1192,26 @@ class FireAIDrawingEngine:
         )
         r.draw_valves(self.cad.get("valves", []))
         r.draw_equipment(self.cad.get("equipment", []))
-        r.draw_north_arrow(self.project.get("north_rotation", 0))
-        r.draw_scale_bar(meta.scale)
-        r.draw_general_notes(self.notes)
-        r.draw_legend()
 
-        # Design parameters block (top-left corner)
+        # 7. Annotations
+        r.draw_north_arrow(self.project.get("north_rotation", 0))
+        r.draw_scale_bar(scale_str)
         r.draw_design_params_block(self.hydraulics, self.project)
+
+        # 8. Sheet title at bottom of floor plan area
+        msp.add_text(
+            "FIRE SPRINKLER PIPING PLAN",
+            dxfattribs={"layer":"FP-ANNO-NOTE","height":TEXT_LG,"style":FONT_BOLD}
+        ).set_placement((BORDER_X + FP_PANEL_W//2, BORDER_Y + 30),
+                        align=TextEntityAlignment.MIDDLE_CENTER)
+        msp.add_text(
+            meta.scale,
+            dxfattribs={"layer":"FP-ANNO-NOTE","height":TEXT_SM,"style":FONT}
+        ).set_placement((BORDER_X + FP_PANEL_W//2, BORDER_Y + 16),
+                        align=TextEntityAlignment.MIDDLE_CENTER)
+
+        # 9. Details panel (right 28% of sheet)
+        self._draw_details_panel(msp, self.project)
 
         return doc
 
