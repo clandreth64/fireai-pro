@@ -293,6 +293,40 @@ def _synthetic(ctx: dict) -> dict:
             "floor_area_sf":af,"ceiling_height_ft":ch,"_synthetic":True}
 
 
+
+# ── Structural framing → hanger type lookup ──────────────────────────────────
+# Maps (framing_type, pipe_size) → TOLCO figure designation number
+# These match the Battalion One / AutoSprink hanger designation convention
+FRAMING_HANGER_MAP = {
+    # (framing_type, pipe_dia_threshold) -> (hanger_type_str, designation_num, tolco_fig)
+    "steel_beam":         ("clevis",   12, "TOLCO Fig. 130 Beam Clamp"),
+    "open_web_truss":     ("trapeze",   9, "TOLCO Fig. 78 Ceiling Flange"),
+    "i_joist":            ("u_hook",   19, "U-Hook Through Joist"),
+    "wood_joist":         ("wood",     24, "Hanger: Pipe on Wood Support"),
+    "concrete_deck":      ("insert",    1, "TOLCO Fig. 78 Concrete Insert"),
+    "metal_deck":         ("clevis",   12, "TOLCO Fig. 130 Beam Clamp"),
+    "glulam":             ("rod",       1, "TOLCO Fig. 78 Rod Hanger"),
+    "clt":                ("rod",       1, "TOLCO Fig. 78 Rod Hanger"),
+    "default":            ("rod",       1, "TOLCO Fig. 78 Standard Rod"),
+}
+
+# Cross-mains on open-web trusses use trapeze; branch lines use rod or U-hook
+BRANCH_HANGER_OVERRIDE = {
+    "open_web_truss": ("trapeze", 9, "TOLCO Fig. 78 Trapeze"),
+    "i_joist":        ("u_hook", 19, "U-Hook Through I-Joist"),
+    "wood_joist":     ("wood",   24, "Pipe on Wood Support"),
+}
+
+def _hanger_type_for(pipe_type: str, framing: str, pipe_dia: float) -> tuple:
+    """Returns (type_str, designation_num, description) for a hanger."""
+    framing_key = framing.lower().replace(" ","_").replace("-","_") if framing else "default"
+    # Branch lines and armovers get a potentially different type than mains
+    if pipe_type in ("branch","armover") and framing_key in BRANCH_HANGER_OVERRIDE:
+        return BRANCH_HANGER_OVERRIDE[framing_key]
+    info = FRAMING_HANGER_MAP.get(framing_key, FRAMING_HANGER_MAP["default"])
+    return info
+
+
 # ─── Main Design Engine ───────────────────────────────────────────────────────
 
 class NFPA13DesignEngine:
@@ -313,6 +347,10 @@ class NFPA13DesignEngine:
         self.seismic = ctx.get("seismic_zone","D1")
         occ          = ctx.get("occupancy","").lower()
         self.def_hz  = next((v for k,v in ZONE_MAP.items() if k in occ), "light")
+        # Structural framing type drives hanger selection
+        self.framing = ctx.get("structural_framing", ctx.get("framing_type", "default"))
+        # Sprinkler manufacturer preference (can be overridden per project)
+        self.sprinkler_mfr = ctx.get("sprinkler_manufacturer", "Viking")
         self.bw, self.bd = self._building_footprint()
         self.fa      = self.bw * self.bd or float(ctx.get("total_area", 10000))
 
@@ -579,6 +617,8 @@ class NFPA13DesignEngine:
         return sp
 
     def _head(self, sid, x, y, elev, st, k, temp, mp, z, is_e, in_rack, cr, ca, ref):
+        # Size: 1" for dry/ESFR, 1/2" for standard wet heads
+        size = "1" if (is_e or temp >= 200) and st in ("upright","esfr") else "1/2"
         return {
             "id": f"S{sid:05d}", "x": round(x,2), "y": round(y,2),
             "elevation": elev, "type": st,
@@ -588,6 +628,8 @@ class NFPA13DesignEngine:
             "hazard": z["hazard"].replace("_"," ").title(),
             "room": z["name"], "nfpa_ref": ref,
             "is_esfr": is_e, "in_rack": in_rack,
+            "size": size,
+            "manufacturer": self.sprinkler_mfr,
         }
 
     def _grid_pts(self, start: float, end: float, offset: float, spacing: float) -> list:
@@ -656,12 +698,17 @@ class NFPA13DesignEngine:
         # ── Supply main: riser → first cross-main junction ────────────────────
         first_jx = rx + 4   # just inside building
         first_jy = ry
+        # Pipe elevation = ceiling height minus clearance (mains 6-8" below structure)
+        main_elev   = round(self.ch - 0.67, 2)   # 8" below ceiling
+        branch_elev = round(self.ch - 0.17, 2)   # 2" below ceiling (branches run higher)
+
         secs.append({
             "id": next_id("M"), "pipe_type": "main",
             "from": {"x": rx,       "y": ry},
             "to":   {"x": first_jx, "y": first_jy},
             "diameter": main_d, "schedule": "Sch 40", "material": mat,
             "length": round(first_jx - rx, 1),
+            "elevation_ft": main_elev,
             "fittings": ["gate_valve","alarm_check","check_valve"],
             "nfpa_ref": "§6",
         })
@@ -729,6 +776,7 @@ class NFPA13DesignEngine:
                     "to":   {"x": bx1, "y": cross_jy},
                     "diameter": branch_d, "schedule": "Sch 40", "material": mat,
                     "length": round(bx1 - bx0, 1),
+                    "elevation_ft": branch_elev,
                     "fittings": ["tee_branch"] * n_row,
                     "nfpa_ref": "§6",
                 })
@@ -1031,20 +1079,26 @@ class NFPA13DesignEngine:
             tx, ty = s["to"]["x"],   s["to"]["y"]
             ms = MAX_HANG.get(d, 15)
             n  = max(1, math.ceil(L / ms))
+            # Determine hanger type from structural framing (project-specific)
+            h_type, h_num, h_desc = _hanger_type_for(pt, self.framing, d)
             for i in range(n):
                 fr = (i + 0.5) / n
                 hangers.append({
-                    "id":          f"H-{hi:04d}",
-                    "x":           round(fx + (tx-fx)*fr, 1),
-                    "y":           round(fy + (ty-fy)*fr, 1),
-                    "location":    f"({fx+(tx-fx)*fr:.0f}', {fy+(ty-fy)*fr:.0f}')",
-                    "type":        "clevis" if pt == "main" else "rod",
-                    "pipe_size":   d,
-                    "rod_diameter":0.5 if d >= 3.0 else 0.375,
-                    "load":        round(d * 12 * ms, 0),
-                    "listed":      True,
-                    "pipe_section":s["id"],
-                    "nfpa_ref":    "§9.1",
+                    "id":           f"H-{hi:04d}",
+                    "x":            round(fx + (tx-fx)*fr, 1),
+                    "y":            round(fy + (ty-fy)*fr, 1),
+                    "location":     f"({fx+(tx-fx)*fr:.0f}\', {fy+(ty-fy)*fr:.0f}\')",
+                    "type":         h_type,
+                    "designation":  h_num,   # TOLCO/hanger designation number for plans
+                    "description":  h_desc,
+                    "pipe_size":    d,
+                    "pipe_type":    pt,
+                    "rod_diameter": 0.5 if d >= 3.0 else 0.375,
+                    "load":         round(d * 12 * ms, 0),
+                    "listed":       True,
+                    "pipe_section": s["id"],
+                    "framing":      self.framing,
+                    "nfpa_ref":     "§9.1",
                 })
                 hi += 1
             if seis and pt in ("main","cross") and L > MAX_SWAY:
