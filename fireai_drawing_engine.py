@@ -414,17 +414,64 @@ class PlanViewRenderer:
         return (BORDER_X + ox + self._ft(x), BORDER_Y + oy + self._ft(y))
 
     def draw_walls(self, walls, ox=0, oy=0):
+        """
+        Draw walls as double-line segments with gray fill, matching AutoSprink style.
+        Exterior walls: thick (8" = 0.67ft), filled gray.
+        Interior walls: thinner (4" = 0.33ft).
+        """
+        WALL_THICK_EXT = self._ft(0.67)   # 8 inches in DXF units
+        WALL_THICK_INT = self._ft(0.33)   # 4 inches
+        import math
+
         for w in walls:
-            pts = [(BORDER_X+ox+self._ft(p["x"]), BORDER_Y+oy+self._ft(p["y"])) for p in w["points"]]
+            pts_ft = w["points"]
+            if len(pts_ft) < 2: continue
             is_ext  = w.get("exterior", False)
             is_part = w.get("partial", False)
+            half    = (WALL_THICK_EXT if is_ext else WALL_THICK_INT) / 2
             layer   = "A-WALL-PART" if is_part else "A-WALL-FULL"
             lw      = 50 if is_ext else 25
-            lt      = "DASHED" if is_part else "CONTINUOUS"
-            if len(pts) >= 2:
-                self.msp.add_lwpolyline(
-                    pts, close=w.get("closed", False),
-                    dxfattribs={"layer": layer, "lineweight": lw, "linetype": lt})
+
+            # Convert points to DXF coords
+            pts = [(BORDER_X+ox+self._ft(p["x"]), BORDER_Y+oy+self._ft(p["y"])) for p in pts_ft]
+
+            if len(pts) == 2:
+                # Single wall segment: draw two parallel lines with fill between them
+                dx = pts[1][0]-pts[0][0]; dy = pts[1][1]-pts[0][1]
+                length = math.hypot(dx, dy)
+                if length < 0.1: continue
+                # Perpendicular direction
+                px_n = -dy/length * half; py_n = dx/length * half
+                # Four corners of the wall band
+                c1=(pts[0][0]+px_n, pts[0][1]+py_n); c2=(pts[1][0]+px_n, pts[1][1]+py_n)
+                c3=(pts[1][0]-px_n, pts[1][1]-py_n); c4=(pts[0][0]-px_n, pts[0][1]-py_n)
+                # Fill with gray
+                self.msp.add_solid([c1,c2,c3,c4],
+                                   dxfattribs={"layer":layer,"color":9 if is_ext else 8})
+                # Outlines
+                self.msp.add_lwpolyline([c1,c2,c3,c4,c1],
+                                        dxfattribs={"layer":layer,"lineweight":lw})
+            else:
+                # Polygon/closed wall outline — draw as thick boundary
+                # Use high lineweight so it renders visibly at print scale
+                wall_lw = 100 if is_ext else 50
+                if len(pts) >= 3:
+                    self.msp.add_lwpolyline(pts, close=True,
+                                            dxfattribs={"layer":layer,"lineweight":wall_lw})
+                    # Draw inset boundary for double-wall appearance
+                    if is_ext and len(pts) == 4:
+                        inset = half
+                        # Simple axis-aligned inset (works for rectangular buildings)
+                        xs_p=[p[0] for p in pts]; ys_p=[p[1] for p in pts]
+                        x0i,x1i = min(xs_p)+inset, max(xs_p)-inset
+                        y0i,y1i = min(ys_p)+inset, max(ys_p)-inset
+                        if x1i>x0i and y1i>y0i:
+                            self.msp.add_lwpolyline(
+                                [(x0i,y0i),(x1i,y0i),(x1i,y1i),(x0i,y1i),(x0i,y0i)],
+                                close=True, dxfattribs={"layer":layer,"lineweight":25})
+                else:
+                    self.msp.add_lwpolyline(pts,
+                                            dxfattribs={"layer":layer,"lineweight":lw})
 
     def draw_columns(self, cols, ox=0, oy=0):
         for c in cols:
@@ -440,21 +487,23 @@ class PlanViewRenderer:
             self.msp.add_lwpolyline(pts, close=True, dxfattribs={"layer":"A-ROOM","lineweight":5})
             cx = sum(p[0] for p in pts)/len(pts)
             cy = sum(p[1] for p in pts)/len(pts)
+            # Scale text to room size (larger rooms get larger labels)
+            xs2 = [p[0] for p in pts]; ys2 = [p[1] for p in pts]
+            room_w_du = max(xs2)-min(xs2); room_h_du = max(ys2)-min(ys2)
+            room_min_du = min(room_w_du, room_h_du)
+            # Label height: 3% of smallest room dimension, clamped to TEXT_SM–TEXT_LG
+            ht_room = max(TEXT_SM, min(TEXT_LG, room_min_du * 0.07))
+
             name = r.get("name","").upper()
             if name:
                 self.msp.add_text(name,
-                    dxfattribs={"layer":"A-ROOM-IDEN","height":TEXT_SM,"style":FONT_BOLD}
-                ).set_placement((cx, cy+TEXT_SM), align=TextEntityAlignment.MIDDLE_CENTER)
+                    dxfattribs={"layer":"A-ROOM-IDEN","height":ht_room,"style":FONT_BOLD}
+                ).set_placement((cx, cy+ht_room*0.5), align=TextEntityAlignment.MIDDLE_CENTER)
             tag = str(r.get("tag") or r.get("room_number",""))
             if tag:
                 self.msp.add_text(tag,
-                    dxfattribs={"layer":"A-ROOM-IDEN","height":TEXT_SM*0.85,"style":FONT}
-                ).set_placement((cx, cy), align=TextEntityAlignment.MIDDLE_CENTER)
-            area_sf = r.get("area_sf", 0)
-            if area_sf and area_sf > 0:
-                self.msp.add_text(f"{int(area_sf):,} SF",
-                    dxfattribs={"layer":"A-ROOM-IDEN","height":TEXT_SM*0.75,"style":FONT}
-                ).set_placement((cx, cy-TEXT_SM), align=TextEntityAlignment.MIDDLE_CENTER)
+                    dxfattribs={"layer":"A-ROOM-IDEN","height":ht_room*0.75,"style":FONT}
+                ).set_placement((cx, cy-ht_room*0.3), align=TextEntityAlignment.MIDDLE_CENTER)
 
     def draw_pipes(self, pipes, ox=0, oy=0):
         """
@@ -1830,8 +1879,10 @@ class FireAIDrawingEngine:
         cx     = BORDER_X + int(DRAW_W * 0.40)   # riser CL
         y_grd  = BORDER_Y + 80                    # grade/floor level
         ch     = float(p.get("ceiling_height", 12))
-        # Scale: 1/2" = 1'-0" → 36 DXF units per foot
-        RIS_SCALE = 36
+        # Auto-scale riser to fill ~80% of available sheet height
+        # Riser spans from 0 (floor) to ch+2 ft (just above ceiling)
+        avail_h  = DRAW_H - 200   # leave margin top + bottom
+        RIS_SCALE = max(36, int(avail_h / (ch + 3)))
         def ry(ft_aff): return y_grd + int(ft_aff * RIS_SCALE)
 
         riser_w = 22    # riser pipe half-width
@@ -2496,10 +2547,20 @@ class FireAIDrawingEngine:
             ax.set_facecolor("white")                   # white for AHJ print submittals
             fig.patch.set_facecolor("white")
 
-            ctx      = RenderContext(doc2)
-            backend  = MatplotlibBackend(ax)
-            frontend = Frontend(ctx, backend)
-            frontend.draw_layout(msp2, finalize=True)
+            ctx     = RenderContext(doc2)
+            backend = MatplotlibBackend(ax)
+
+            # White-background rendering: LayoutProperties maps color 7 → black
+            try:
+                from ezdxf.addons.drawing.properties import LayoutProperties
+                lp = LayoutProperties.from_layout(msp2)
+                lp.set_colors("#ffffff")
+                frontend = Frontend(ctx, backend)
+                frontend.draw_layout(msp2, finalize=True, layout_properties=lp)
+            except Exception:
+                frontend = Frontend(ctx, backend)
+                frontend.draw_layout(msp2, finalize=True)
+
 
             # Force axes limits to match the full sheet
             ax.set_xlim(0, SHEET_W)
