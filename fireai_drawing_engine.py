@@ -166,12 +166,12 @@ class TitleblockRenderer:
 
         c1w = int(bw * 0.18); cx = bx + c1w // 2
         self._line(layout, bx+c1w, by, bx+c1w, by+bh)
-        self._t(layout, p.get("company_name","FireAI Pro"), cx, by+bh-22, TEXT_LG, bold=True, align=TextEntityAlignment.MIDDLE_CENTER)
-        self._t(layout, p.get("company_address",""),        cx, by+bh-40, TEXT_SM, align=TextEntityAlignment.MIDDLE_CENTER)
-        self._t(layout, p.get("company_phone",""),          cx, by+bh-54, TEXT_SM, align=TextEntityAlignment.MIDDLE_CENTER)
-        self._t(layout, p.get("company_email",""),          cx, by+bh-68, TEXT_SM, align=TextEntityAlignment.MIDDLE_CENTER)
-        self._t(layout, "FIRE PROTECTION",                  cx, by+bh-88, TEXT_MD, bold=True, align=TextEntityAlignment.MIDDLE_CENTER)
-        self._t(layout, "NFPA 13 — Current Edition",        cx, by+bh-104, TEXT_SM, align=TextEntityAlignment.MIDDLE_CENTER)
+        self._t(layout, p.get("company_name","FireAI Pro"), cx, by+bh-22, TEXT_LG, bold=True)
+        self._t(layout, p.get("company_address",""),        cx, by+bh-40, TEXT_SM)
+        self._t(layout, p.get("company_phone",""),          cx, by+bh-54, TEXT_SM)
+        self._t(layout, p.get("company_email",""),          cx, by+bh-68, TEXT_SM)
+        self._t(layout, "FIRE PROTECTION",                  cx, by+bh-88, TEXT_MD, bold=True)
+        self._t(layout, "NFPA 13 — Current Edition",        cx, by+bh-104, TEXT_SM)
         self._line(layout, bx, by+80, bx+c1w, by+80)
         self._t(layout, "DESIGNED BY:", bx+6, by+72, TEXT_SM, bold=True)
         d = p.get("designer", {})
@@ -347,20 +347,20 @@ class SymbolLibrary:
     def _rpz(cls, doc, name):
         b = cls._b(doc, name); R = cls.R
         b.add_lwpolyline([(-R*1.5,-R),(R*1.5,-R),(R*1.5,R),(-R*1.5,R),(-R*1.5,-R)], dxfattribs={"layer":"FP-VALV","lineweight":25})
-        b.add_text("RPZ", dxfattribs={"layer":"FP-ANNO-LABL","height":5,"style":FONT_BOLD}).set_placement((0,-3), align=TextEntityAlignment.MIDDLE_CENTER)
+        b.add_text("RPZ", dxfattribs={"layer":"FP-ANNO-LABL","height":5,"style":FONT_BOLD}).set_placement((0,-3))
 
     @classmethod
     def _riser(cls, doc, name):
         b = cls._b(doc, name)
         b.add_circle((0,0), 14, dxfattribs={"layer":"FP-RISR","lineweight":50})
         b.add_circle((0,0), 10, dxfattribs={"layer":"FP-RISR"})
-        b.add_text("RISER", dxfattribs={"layer":"FP-ANNO-LABL","height":6,"style":FONT_BOLD}).set_placement((0,-3), align=TextEntityAlignment.MIDDLE_CENTER)
+        b.add_text("RISER", dxfattribs={"layer":"FP-ANNO-LABL","height":6,"style":FONT_BOLD}).set_placement((0,-3))
 
     @classmethod
     def _fdc(cls, doc, name):
         b = cls._b(doc, name); R = 10
         b.add_lwpolyline([(-R,-R),(R,-R),(R,R),(-R,R),(-R,-R)], dxfattribs={"layer":"FP-FDC","lineweight":50})
-        b.add_text("FDC", dxfattribs={"layer":"FP-ANNO-LABL","height":7,"style":FONT_BOLD}).set_placement((0,-4), align=TextEntityAlignment.MIDDLE_CENTER)
+        b.add_text("FDC", dxfattribs={"layer":"FP-ANNO-LABL","height":7,"style":FONT_BOLD}).set_placement((0,-4))
 
     @classmethod
     def _north(cls, doc, name):
@@ -368,7 +368,7 @@ class SymbolLibrary:
         b.add_line((0,0),(0,60), dxfattribs={"layer":"FP-ANNO-SYMB","lineweight":35})
         b.add_solid([(0,60),(-8,40),(8,40)], dxfattribs={"layer":"FP-ANNO-SYMB"})
         b.add_circle((0,0), 24, dxfattribs={"layer":"FP-ANNO-SYMB"})
-        b.add_text("N", dxfattribs={"layer":"FP-ANNO-LABL","height":16,"style":FONT_BOLD}).set_placement((0,66), align=TextEntityAlignment.BOTTOM_CENTER)
+        b.add_text("N", dxfattribs={"layer":"FP-ANNO-LABL","height":16,"style":FONT_BOLD}).set_placement((0,66))
 
     @classmethod
     def _flow_switch(cls, doc, name):
@@ -422,61 +422,117 @@ class PlanViewRenderer:
             self.msp.add_text(
                 r.get("name",""),
                 dxfattribs={"layer":"A-ROOM-IDEN","height":TEXT_SM,"style":FONT}
-            ).set_placement((cx, cy+TEXT_SM/2), align=TextEntityAlignment.MIDDLE_CENTER)
+            ).set_placement((cx, cy+TEXT_SM/2))
             self.msp.add_text(
                 r.get("area",""),
                 dxfattribs={"layer":"A-ROOM-IDEN","height":TEXT_SM*0.8,"style":FONT}
-            ).set_placement((cx, cy-TEXT_SM*0.8), align=TextEntityAlignment.MIDDLE_CENTER)
+            ).set_placement((cx, cy-TEXT_SM*0.8))
 
     def draw_pipes(self, pipes, ox=0, oy=0):
+        """
+        Draw pipes with professional annotations matching AutoSprink output:
+        - Proper lineweights by pipe type
+        - Pipe size labels in "2-1/2\" SCH 40" format
+        - Flow direction arrows on supply mains
+        - Filled tee marker at branch junctions
+        """
         for s in pipes:
             fx, fy = self._pt(s["from"]["x"], s["from"]["y"], ox, oy)
             tx, ty = self._pt(s["to"]["x"],   s["to"]["y"],   ox, oy)
-            pt = s.get("pipe_type", "branch")
-            layer = {"main":"FP-PIPE-MAIN","cross":"FP-PIPE-XMAIN","branch":"FP-PIPE-BRNCH",
-                     "armover":"FP-PIPE-ARMOV","drain":"FP-PIPE-DRAIN"}.get(pt, "FP-PIPE-BRNCH")
-            lw = 50 if pt == "main" else (35 if pt in("cross","xmain") else 18)
+            pt     = s.get("pipe_type","branch")
+            layer  = {"main":"FP-PIPE-MAIN","cross":"FP-PIPE-XMAIN","branch":"FP-PIPE-BRNCH",
+                      "armover":"FP-PIPE-ARMOV","drain":"FP-PIPE-DRAIN"}.get(pt,"FP-PIPE-BRNCH")
+            lw     = 50 if pt=="main" else (35 if pt in("cross","xmain") else 18)
             self.msp.add_line((fx,fy),(tx,ty), dxfattribs={"layer":layer,"lineweight":lw})
 
-            # Pipe size label — offset perpendicular to pipe so it doesn't overlap
-            mx, my = (fx+tx)/2, (fy+ty)/2
-            ang = math.degrees(math.atan2(ty-fy, tx-fx))
-            dia  = s.get("diameter","")
+            # Flow direction arrow on supply mains (small filled triangle at midpoint)
+            if pt == "main":
+                mx, my = (fx+tx)/2, (fy+ty)/2
+                ang_r  = math.atan2(ty-fy, tx-fx)
+                aw     = 10   # arrow wing half-width
+                al     = 18   # arrow length
+                tip_x  = mx + al/2 * math.cos(ang_r)
+                tip_y  = my + al/2 * math.sin(ang_r)
+                w1x    = mx - al/2*math.cos(ang_r) + aw*math.sin(ang_r)
+                w1y    = my - al/2*math.sin(ang_r) - aw*math.cos(ang_r)
+                w2x    = mx - al/2*math.cos(ang_r) - aw*math.sin(ang_r)
+                w2y    = my - al/2*math.sin(ang_r) + aw*math.cos(ang_r)
+                self.msp.add_solid([(tip_x,tip_y),(w1x,w1y),(w2x,w2y)],
+                                   dxfattribs={"layer":layer})
+
+            # Tee marker at branch start (small filled circle)
+            if pt == "branch":
+                self.msp.add_circle((fx,fy), 5,
+                                    dxfattribs={"layer":"FP-PIPE-BRNCH"})
+
+            # Pipe size label in engineering format: "2-1/2\" SCH 40"
+            dia   = s.get("diameter","")
             sched = s.get("schedule","")
-            lbl  = f'{dia}" {sched}'.strip() if dia else ""
-            if lbl:
-                # Offset perpendicular
-                perp_ang = ang + 90
-                off = 14
-                ox2 = mx + off * math.cos(math.radians(perp_ang))
-                oy2 = my + off * math.sin(math.radians(perp_ang))
-                rot = ang if -90 < ang <= 90 else ang + 180
+            if dia:
+                dia_str = self._format_dia(dia)
+                lbl     = f'{dia_str}" {sched}'.strip() if sched else f'{dia_str}"'
+                mx, my  = (fx+tx)/2, (fy+ty)/2
+                ang_deg = math.degrees(math.atan2(ty-fy, tx-fx))
+                perp    = ang_deg + 90
+                off     = 16
+                lx      = mx + off*math.cos(math.radians(perp))
+                ly      = my + off*math.sin(math.radians(perp))
+                rot     = ang_deg if -90 < ang_deg <= 90 else ang_deg+180
                 self.msp.add_text(
                     lbl,
                     dxfattribs={"layer":"FP-ANNO-LABL","height":TEXT_SM,"style":FONT,"rotation":rot}
-                ).set_placement((ox2, oy2), align=TextEntityAlignment.MIDDLE_CENTER)
+                ).set_placement((lx,ly))
 
-    def draw_sprinklers(self, spkrs, ox=0, oy=0, show_coverage=True):
+    @staticmethod
+    def _format_dia(d) -> str:
+        """Format pipe diameter as engineering fraction: 2.5 → 2-1/2, 1.25 → 1-1/4"""
+        frac = {0.75:"3/4",1.0:"1",1.25:"1-1/4",1.5:"1-1/2",2.0:"2",
+                2.5:"2-1/2",3.0:"3",3.5:"3-1/2",4.0:"4",5.0:"5",6.0:"6",8.0:"8"}
+        try:
+            return frac.get(float(d), str(d))
+        except Exception:
+            return str(d)
+
+    def draw_sprinklers(self, spkrs, ox=0, oy=0, show_coverage=False,
+                        hydraulic_remote_ids=None):
+        """
+        Draw sprinkler heads. Coverage circles OFF by default (matches AutoSprink default).
+        hydraulic_remote_ids: set of head IDs marked as hydraulic reference (tagged HR).
+        """
         bmap = {"upright":"SPKR_UPRT","pendant":"SPKR_PEND","sidewall":"SPKR_SIDE",
                 "concealed":"SPKR_CONC","esfr":"SPKR_ESFR","cmsa":"SPKR_CMSA"}
+        remote_ids = set(hydraulic_remote_ids or [])
+
         for i, s in enumerate(spkrs):
             px, py = self._pt(s["x"], s["y"], ox, oy)
-            st = s.get("type","pendant").lower()
-            self.msp.add_blockref(bmap.get(st,"SPKR_PEND"), (px,py), dxfattribs={"layer":"FP-SPKR-PEND"})
+            st     = s.get("type","pendant").lower()
+            is_esfr = s.get("is_esfr") or st == "esfr"
+            layer  = "FP-SPKR-ESFR" if is_esfr else "FP-SPKR-PEND"
+            self.msp.add_blockref(bmap.get(st,"SPKR_PEND"), (px,py),
+                                  dxfattribs={"layer":layer})
 
-            # Coverage circle — dashed, lighter color so it doesn't overwhelm the drawing
+            # Coverage circle only when explicitly requested
             if show_coverage and s.get("coverage_radius"):
                 self.msp.add_circle(
                     (px,py), self._ft(s["coverage_radius"]),
                     dxfattribs={"layer":"FP-SPKR-COVR","linetype":"DASHED","color":251})
 
-            # Head label: sequential number + K-factor
+            # Head tag: number + K-factor
             parts = [str(i+1)]
             if s.get("k_factor"): parts.append(f'K{s["k_factor"]}')
             self.msp.add_text(
                 "/".join(parts),
                 dxfattribs={"layer":"FP-ANNO-LABL","height":TEXT_SM*0.75,"style":FONT}
             ).set_placement((px+SymbolLibrary.R+4, py+SymbolLibrary.R+2))
+
+            # Hydraulic reference marker on remote area heads (HR tag in red)
+            if s.get("id","") in remote_ids:
+                r = SymbolLibrary.R
+                self.msp.add_circle((px,py), r+4, dxfattribs={"layer":"FP-ANNO-LABL","color":colors.RED})
+                self.msp.add_text(
+                    "HR",
+                    dxfattribs={"layer":"FP-ANNO-LABL","height":TEXT_SM,"style":FONT_BOLD,"color":colors.RED}
+                ).set_placement((px+r+18, py-r-10))
 
     def draw_valves(self, valves, ox=0, oy=0):
         bmap = {"osy":"VALV_OSY","butterfly":"VALV_BFV","check":"VALV_CV",
@@ -501,8 +557,118 @@ class PlanViewRenderer:
             self.msp.add_text(
                 e.get("label",""),
                 dxfattribs={"layer":"FP-ANNO-LABL","height":TEXT_SM,"style":FONT_BOLD}
-            ).set_placement((px, py-20), align=TextEntityAlignment.TOP_CENTER)
+            ).set_placement((px, py-20))
 
+
+    def draw_head_dimensions(self, spkrs, ox=0, oy=0):
+        """
+        Draw dimension strings between adjacent sprinkler heads and from heads to zone walls.
+        Shows head-to-head spacing (e.g. "10'-0"") and wall offset (e.g. "5'-0"").
+        Only labels the first few rows for clarity — avoids over-cluttering.
+        """
+        if not spkrs: return
+        from collections import defaultdict
+
+        SF = SCALE_FACTOR
+
+        # Group ceiling heads by Y coordinate (rows)
+        ceiling = [s for s in spkrs if not s.get("in_rack")]
+        if not ceiling: return
+
+        rows: dict = defaultdict(list)
+        for s in ceiling:
+            ry = round(s["y"] / 2) * 2   # snap to 2ft grid
+            rows[ry].append(s)
+
+        row_keys = sorted(rows.keys())
+        # Only annotate first 3 rows to avoid clutter on large buildings
+        for ri, ry in enumerate(row_keys[:3]):
+            row_sp = sorted(rows[ry], key=lambda s: s["x"])
+            if len(row_sp) < 2: continue
+
+            dim_y_offset = -20 - ri * 0   # dimension line Y offset (below heads)
+
+            # Head-to-head dimensions
+            for i in range(len(row_sp)-1):
+                s1, s2 = row_sp[i], row_sp[i+1]
+                dx = abs(s2["x"] - s1["x"])
+                px1, py1 = self._pt(s1["x"], s1["y"], ox, oy)
+                px2, py2 = self._pt(s2["x"], s2["y"], ox, oy)
+                mid_x = (px1+px2)/2
+                dim_y = min(py1,py2) - 22
+
+                # Dimension line
+                self.msp.add_line((px1,dim_y),(px2,dim_y),
+                                  dxfattribs={"layer":"FP-ANNO-DIMS","lineweight":13})
+                # Extension lines
+                self.msp.add_line((px1,py1-SymbolLibrary.R-2),(px1,dim_y+2),
+                                  dxfattribs={"layer":"FP-ANNO-DIMS","lineweight":9})
+                self.msp.add_line((px2,py2-SymbolLibrary.R-2),(px2,dim_y+2),
+                                  dxfattribs={"layer":"FP-ANNO-DIMS","lineweight":9})
+                # Arrow ticks
+                for px in [px1, px2]:
+                    sign = 1 if px == px1 else -1
+                    self.msp.add_solid(
+                        [(px,dim_y),(px+sign*10,dim_y+4),(px+sign*10,dim_y-4)],
+                        dxfattribs={"layer":"FP-ANNO-DIMS"})
+
+                # Label: feet and inches
+                ft  = int(dx)
+                ins = int(round((dx - ft) * 12))
+                lbl = f"{ft}'-{ins:02d}\"" if ins > 0 else f"{ft}'-0\""
+                self.msp.add_text(
+                    lbl,
+                    dxfattribs={"layer":"FP-ANNO-DIMS","height":TEXT_SM*0.85,"style":FONT}
+                ).set_placement((mid_x, dim_y+4))
+
+    def draw_design_params_block(self, hydraulics: dict, project: dict):
+        """
+        Draw design parameters summary block in the top-left corner of the floor plan.
+        Shows key design criteria: hazard, density, area, K-factor, pipe material.
+        """
+        bx = BORDER_X + 30
+        by = BORDER_Y + DRAW_H - 30
+        bw = 280; lh = 16
+
+        ra    = hydraulics.get("remote_area_calcs",{})
+        da    = hydraulics.get("density_area",{})
+        p     = project
+
+        self.msp.add_lwpolyline(
+            [(bx,by),(bx+bw,by),(bx+bw,by-14*lh-10),(bx,by-14*lh-10),(bx,by)],
+            dxfattribs={"layer":"FP-TBLK","lineweight":25})
+
+        self.msp.add_text(
+            "DESIGN INFORMATION",
+            dxfattribs={"layer":"FP-ANNO-NOTE","height":TEXT_SM,"style":FONT_BOLD}
+        ).set_placement((bx+4, by-TEXT_SM-2))
+
+        rows = [
+            ("Occupancy",  p.get("occupancy","")[:25]),
+            ("System",     p.get("system_type","Wet Pipe")),
+            ("Hazard",     ra.get("hazard","").replace("_"," ").title()),
+            ("Density",    f'{da.get("density","—")} gpm/ft²'),
+            ("Rem. Area",  f'{da.get("area","—")} ft²'),
+            ("K-Factor",   str(ra.get("k_factor","5.6"))),
+            ("Min. Psi",   f'{ra.get("min_sprinkler_psi","7")} psi'),
+            ("Pipe",       p.get("pipe_material","Steel")[:20]),
+            ("HW C",       str(ra.get("hw_c_factor",120))),
+            ("Static",     f'{hydraulics.get("static_pressure","—")} psi'),
+            ("Residual",   f'{hydraulics.get("residual_pressure","—")} psi'),
+            ("Required",   f'{hydraulics.get("required_pressure","—")} psi'),
+            ("Demand",     f'{hydraulics.get("flow_demand","—")} gpm'),
+        ]
+        ry = by - TEXT_SM - 18
+        for lbl, val in rows:
+            self.msp.add_text(
+                lbl+":", dxfattribs={"layer":"FP-ANNO-NOTE","height":TEXT_SM*0.85,"style":FONT_BOLD}
+            ).set_placement((bx+4, ry))
+            self.msp.add_text(
+                str(val), dxfattribs={"layer":"FP-ANNO-NOTE","height":TEXT_SM*0.85,"style":FONT}
+            ).set_placement((bx+100, ry))
+            ry -= lh
+
+    
     def draw_north_arrow(self, rot=0):
         nx = BORDER_X + DRAW_W - 120
         ny = BORDER_Y + DRAW_H - 120
@@ -510,7 +676,7 @@ class PlanViewRenderer:
         self.msp.add_text(
             f"PROJ NORTH = {rot}° FROM TRUE",
             dxfattribs={"layer":"FP-ANNO-SYMB","height":TEXT_SM*0.8,"style":FONT}
-        ).set_placement((nx, ny-44), align=TextEntityAlignment.TOP_CENTER)
+        ).set_placement((nx, ny-44))
 
     def draw_scale_bar(self, scale_str):
         sx = BORDER_X + 60; sy = BORDER_Y + 30; bl = SCALE_FACTOR * 10
@@ -522,7 +688,7 @@ class PlanViewRenderer:
                 self.msp.add_text(
                     f"{i}'",
                     dxfattribs={"layer":"FP-ANNO-SYMB","height":TEXT_SM*0.8,"style":FONT}
-                ).set_placement((tx, sy-14), align=TextEntityAlignment.TOP_CENTER)
+                ).set_placement((tx, sy-14))
         self.msp.add_text(
             f"SCALE: {scale_str}",
             dxfattribs={"layer":"FP-ANNO-SYMB","height":TEXT_SM,"style":FONT_BOLD}
@@ -698,7 +864,7 @@ class FireAIDrawingEngine:
         ]:
             msp.add_text(str(txt), dxfattribs={"layer":"FP-ANNO-NOTE","height":sz,
                 "style":FONT_BOLD if b else FONT}
-            ).set_placement((cx, y), align=TextEntityAlignment.MIDDLE_CENTER)
+            ).set_placement((cx, y))
 
         ix = BORDER_X + 40; iy = BORDER_Y + DRAW_H - 60
         msp.add_text("SHEET INDEX", dxfattribs={"layer":"FP-ANNO-NOTE","height":TEXT_MD,"style":FONT_BOLD}
@@ -734,17 +900,38 @@ class FireAIDrawingEngine:
     def _build_floor_plan(self, floor_num=1):
         doc, msp, meta = self._new_sheet(f"Floor Plan — Level {floor_num}", f"FP1.{floor_num}")
         r = PlanViewRenderer(msp, self.project)
-        if self.cad.get("walls"):     r.draw_walls(self.cad["walls"])
-        if self.cad.get("columns"):   r.draw_columns(self.cad["columns"])
-        if self.cad.get("rooms"):     r.draw_rooms(self.cad["rooms"])
+
+        # Identify hydraulic remote heads for HR marker
+        ra_calcs = self.hydraulics.get("remote_area_calcs", {})
+        node_calcs = ra_calcs.get("node_calculations", [])
+        remote_ids = {n.get("node","") for n in node_calcs}
+
+        if self.cad.get("walls"):   r.draw_walls(self.cad["walls"])
+        if self.cad.get("columns"): r.draw_columns(self.cad["columns"])
+        if self.cad.get("rooms"):   r.draw_rooms(self.cad["rooms"])
+
+        # Draw pipes first (behind heads)
         r.draw_pipes(self.cad.get("pipe_sections", []))
-        r.draw_sprinklers(self.cad.get("sprinkler_placements", []), show_coverage=True)
+
+        # Draw dimension strings between heads
+        r.draw_head_dimensions(self.cad.get("sprinkler_placements", []))
+
+        # Sprinklers — NO coverage circles (AutoSprink default)
+        r.draw_sprinklers(
+            self.cad.get("sprinkler_placements", []),
+            show_coverage=False,
+            hydraulic_remote_ids=remote_ids,
+        )
         r.draw_valves(self.cad.get("valves", []))
         r.draw_equipment(self.cad.get("equipment", []))
         r.draw_north_arrow(self.project.get("north_rotation", 0))
         r.draw_scale_bar(meta.scale)
         r.draw_general_notes(self.notes)
         r.draw_legend()
+
+        # Design parameters block (top-left corner)
+        r.draw_design_params_block(self.hydraulics, self.project)
+
         return doc
 
     # ── FP2.0 Riser diagram — COMPLETE REWRITE ────────────────────────────────
@@ -773,7 +960,7 @@ class FireAIDrawingEngine:
         msp.add_text(
             f'{riser_dia}" {riser_mat}',
             dxfattribs={"layer":"FP-ANNO-LABL","height":TEXT_SM,"style":FONT,"rotation":90}
-        ).set_placement((cx - riser_w//2 - 16, (y_bot+y_top)//2), align=TextEntityAlignment.MIDDLE_CENTER)
+        ).set_placement((cx - riser_w//2 - 16, (y_bot+y_top)//2))
 
         # ── Water supply from city — bottom of riser ─────────────────────────
         y = y_bot
@@ -917,51 +1104,285 @@ class FireAIDrawingEngine:
         msp.add_text(
             "RISER DIAGRAM — NOT TO SCALE",
             dxfattribs={"layer":"FP-ANNO-NOTE","height":TEXT_LG,"style":FONT_BOLD}
-        ).set_placement((cx, BORDER_Y + DRAW_H - 40), align=TextEntityAlignment.BOTTOM_CENTER)
+        ).set_placement((cx, BORDER_Y + DRAW_H - 40))
 
         msp.add_text(
             f"PROJECT: {p.get('project_name','')}   ADDRESS: {p.get('location','')}",
             dxfattribs={"layer":"FP-ANNO-NOTE","height":TEXT_SM,"style":FONT}
-        ).set_placement((cx, BORDER_Y + DRAW_H - 58), align=TextEntityAlignment.BOTTOM_CENTER)
+        ).set_placement((cx, BORDER_Y + DRAW_H - 58))
 
         return doc
 
     # ── FP3.0 Hydraulic calculations ─────────────────────────────────────────
 
     def _build_hydraulics(self):
-        doc, msp, meta = self._new_sheet("Hydraulic Calculations","FP3.0", scale="N/A")
-        h = self.hydraulics; ox = BORDER_X + 40; oy = BORDER_Y + DRAW_H - 40
-        msp.add_text("HYDRAULIC CALCULATION SUMMARY",
-            dxfattribs={"layer":"FP-ANNO-NOTE","height":TEXT_LG,"style":FONT_BOLD}
-        ).set_placement((ox, oy))
-        rows = [
-            ("Design method",   "Density/Area — NFPA 13 §22"),
-            ("Static pressure",  f'{h.get("static_pressure","—")} psi'),
-            ("Residual pressure",f'{h.get("residual_pressure","—")} psi'),
-            ("Required pressure",f'{h.get("required_pressure","—")} psi'),
-            ("Pressure delta",   f'{h.get("pressure_delta","—")} psi'),
-            ("Flow demand",      f'{h.get("flow_demand","—")} gpm'),
-            ("Design density",   f'{h.get("density_area",{}).get("density","—")} gpm/ft²'),
-            ("Design area",      f'{h.get("density_area",{}).get("area","—")} ft²'),
-            ("System type",      self.project.get("system_type","Wet").upper()),
-            ("Pipe material",    self.project.get("pipe_material","Steel")),
-            ("Seismic zone",     self.project.get("seismic_zone","—")),
-            ("NFPA 13 compliant","YES" if getattr(self.compliance,"compliant",False) else "PENDING"),
+        """
+        FP3.0 — Full NFPA 13 Hydraulic Calculation Worksheet.
+        Includes: system info header, node-by-node table, supply vs demand curve.
+        Matches AutoSprink/HydraCALC output format.
+        """
+        from hydraulic_worksheet import build_hydraulic_worksheet
+        doc, msp, meta = self._new_sheet("Hydraulic Calculations — NFPA 13 §28",
+                                         "FP3.0", scale="N/A")
+        p   = self.project
+        h   = self.hydraulics
+        ox  = BORDER_X + 30
+        oy  = BORDER_Y + DRAW_H - 20
+
+        def txt(text, x, y, ht=TEXT_SM, bold=False, color=None):
+            att = {"layer":"FP-ANNO-NOTE","height":ht,"style":FONT_BOLD if bold else FONT}
+            if color: att["color"] = color
+            msp.add_text(str(text), dxfattribs=att).set_placement((x,y))
+
+        def hline(x0, x1, y, lw=13):
+            msp.add_line((x0,y),(x1,y), dxfattribs={"layer":"FP-ANNO-NOTE","lineweight":lw})
+
+        def vline(x, y0, y1, lw=13):
+            msp.add_line((x,y0),(x,y1), dxfattribs={"layer":"FP-ANNO-NOTE","lineweight":lw})
+
+        # ── Title ──────────────────────────────────────────────────────────────
+        txt("HYDRAULIC CALCULATION WORKSHEET", ox, oy, TEXT_LG, bold=True)
+        txt("NFPA 13 — Current Edition  |  §28", ox+800, oy, TEXT_SM)
+        oy -= TEXT_LG + 6
+
+        # ── Header blocks: project info, system info, water supply ─────────────
+        BW = int(DRAW_W * 0.32)   # block width
+
+        def info_block(x, y, title, rows_kv):
+            txt(title, x+4, y-2, TEXT_SM, bold=True)
+            by = y - TEXT_SM - 8
+            msp.add_lwpolyline(
+                [(x,y),(x+BW,y),(x+BW,y-len(rows_kv)*18-20),(x,y-len(rows_kv)*18-20),(x,y)],
+                dxfattribs={"layer":"FP-TBLK","lineweight":25})
+            for lbl, val in rows_kv:
+                txt(lbl+":", x+4,  by-2, TEXT_SM, bold=True)
+                txt(val,     x+130, by-2, TEXT_SM)
+                by -= 18
+            return y - len(rows_kv)*18 - 24
+
+        ra  = h.get("remote_area_calcs", {})
+        da  = h.get("density_area", {})
+        compliant = ra.get("pressure_delta", h.get("pressure_delta", 0)) >= 0 or h.get("compliant")
+
+        project_rows = [
+            ("Project",   p.get("project_name","")),
+            ("Address",   p.get("location","")),
+            ("Owner",     p.get("owner","")),
+            ("Designer",  (p.get("designer",{}) or {}).get("name","") if isinstance(p.get("designer"),dict) else str(p.get("designer",""))),
+            ("Cert.",     (p.get("designer",{}) or {}).get("cert","") if isinstance(p.get("designer"),dict) else ""),
+            ("AHJ",       p.get("ahj_jurisdiction","")),
+            ("Date",      p.get("issue_date", datetime.utcnow().strftime("%m/%d/%Y"))),
         ]
-        for i, (lbl, val) in enumerate(rows):
-            y = oy - 30 - i*22
-            msp.add_text(f"{lbl}:", dxfattribs={"layer":"FP-ANNO-NOTE","height":TEXT_SM,"style":FONT_BOLD}).set_placement((ox, y))
-            msp.add_text(str(val), dxfattribs={"layer":"FP-ANNO-NOTE","height":TEXT_SM,"style":FONT}).set_placement((ox+260, y))
-        curve = h.get("demand_curve", [])
+        system_rows = [
+            ("Occupancy",    p.get("occupancy","")),
+            ("System type",  p.get("system_type","Wet Pipe")),
+            ("Pipe material",p.get("pipe_material","")),
+            ("Seismic zone", str(p.get("seismic_zone",""))),
+            ("Constr. type", str(p.get("construction_type",""))),
+            ("NFPA edition", "NFPA 13 — Current"),
+            ("Compliant",    "YES ✓" if compliant else "PENDING — Fire Pump Required"),
+        ]
+        design_rows = [
+            ("Design method", ra.get("design_method","Density/Area §22")),
+            ("Hazard class",  ra.get("hazard","").replace("_"," ").title()),
+            ("K-factor",      str(ra.get("k_factor","5.6"))),
+            ("Min head psi",  f'{ra.get("min_sprinkler_psi","7.0")} psi'),
+            ("Design density",f'{da.get("density","—")} gpm/ft²'),
+            ("Design area",   f'{da.get("area","—")} ft²'),
+            ("Remote heads",  str(ra.get("remote_sprinkler_count","—"))),
+            ("Hose stream",   f'{ra.get("hose_stream_gpm","—")} gpm'),
+            ("HW C-factor",   str(ra.get("hw_c_factor",120))),
+        ]
+        ws_data_rows = [
+            ("Static",    f'{h.get("static_pressure","—")} psi'),
+            ("Residual",  f'{h.get("residual_pressure","—")} psi @ {p.get("water_supply_flow","—")} gpm'),
+            ("Required",  f'{h.get("required_pressure","—")} psi'),
+            ("Available", f'{h.get("pressure_delta","—"):+} psi margin'),
+            ("Total flow",f'{h.get("flow_demand","—")} gpm'),
+        ]
+
+        bottom1 = info_block(ox,           oy, "PROJECT INFORMATION", project_rows)
+        bottom2 = info_block(ox+BW+10,     oy, "SYSTEM & CODE",       system_rows)
+        bottom3 = info_block(ox+2*(BW+10), oy, "DESIGN CRITERIA",     design_rows)
+        oy      = min(bottom1, bottom2, bottom3) - 20
+
+        # ── Worksheet table ────────────────────────────────────────────────────
+        try:
+            ws     = build_hydraulic_worksheet(
+                {
+                    "sprinkler_placements": self.cad.get("sprinkler_placements",[]),
+                    "pipe_sections":        self.cad.get("pipe_sections",[]),
+                    "remote_area_calcs":    ra,
+                    "static_pressure":      h.get("static_pressure",72),
+                    "residual_pressure":    h.get("residual_pressure",60),
+                    "pressure_delta":       h.get("pressure_delta",0),
+                    "flow_demand":          h.get("flow_demand",0),
+                    "density_area":         da,
+                },
+                p
+            )
+            ws_rows = ws["rows"]
+            summary = ws["summary"]
+            curve   = ws["supply_curve"]
+            demand_pt = ws["demand_point"]
+        except Exception as e:
+            txt(f"Worksheet generation error: {e}", ox, oy-20, TEXT_SM, color=colors.RED)
+            ws_rows = []; summary = {}; curve = []; demand_pt = {}
+
+        # Table column layout: (header, width, attr_name, format_str)
+        cols = [
+            ("From",     65,  "node_from",   "{}"),
+            ("To",       75,  "node_to",     "{}"),
+            ("Elev\nFrom", 40, "elev_from", "{:.0f}'"),
+            ("Elev\nTo",   40, "elev_to",   "{:.0f}'"),
+            ("K",        36,  "k_factor",    "{:.1f}"),
+            ("Q dis\n(gpm)", 50,"q_discharge","{:.2f}"),
+            ("Q total\n(gpm)",55,"q_total",  "{:.2f}"),
+            ("Hose\n(gpm)", 45,"q_hose",    "{:.0f}"),
+            ("Pipe\nType",  52,"pipe_type",  "{}"),
+            ("Nom\nDia(in)",  38,"nom_dia",    "{:.2f}"),
+            ("Int\nDia(in)",  42,"int_dia",    "{:.3f}"),
+            ("Fittings\n(ft)",52,"fit_ft",  "{:.1f}"),
+            ("Pipe\n(ft)",  48,"pipe_ft",   "{:.1f}"),
+            ("C",        30,  "c_factor",    "{:.0f}"),
+            ("hf/ft\n(psi)",52,"hf_per_ft", "{:.4f}"),
+            ("P_start\n(psi)",52,"p_start", "{:.2f}"),
+            ("P_elev\n(psi)",52,"p_elev",   "{:.3f}"),
+            ("P_fric\n(psi)",52,"p_fric",   "{:.2f}"),
+            ("P_end\n(psi)", 52,"p_end",    "{:.2f}"),
+        ]
+        TOTAL_W   = sum(c[1] for c in cols)
+        ROW_H     = 20
+        HDR_H     = 24
+        tbl_x     = ox
+        tbl_y     = oy
+
+        # Table title
+        txt("HYDRAULIC CALCULATION TABLE — NODE BY NODE", tbl_x, tbl_y, TEXT_MD, bold=True)
+        txt("Per NFPA 13 §28.2 | Hazen-Williams: hf = 4.52 × Q¹·⁸⁵ / (C¹·⁸⁵ × d⁴·⁸⁷)",
+            tbl_x, tbl_y-TEXT_MD-2, TEXT_SM)
+        tbl_y -= TEXT_MD + TEXT_SM + 12
+
+        # Header row
+        cx2 = tbl_x
+        hdr_top = tbl_y; hdr_bot = tbl_y - HDR_H
+        msp.add_solid([(tbl_x,hdr_top),(tbl_x+TOTAL_W,hdr_top),
+                       (tbl_x+TOTAL_W,hdr_bot),(tbl_x,hdr_bot)],
+                      dxfattribs={"layer":"FP-TBLK","color":8})
+        for hdr, cw, _, _ in cols:
+            txt(hdr.replace("\n","\n"), cx2+2, hdr_bot+14, TEXT_SM*0.8, bold=True)
+            vline(cx2, hdr_bot, tbl_y+6, lw=25)
+            cx2 += cw
+        vline(cx2, hdr_bot, tbl_y+6, lw=25)
+        hline(tbl_x, tbl_x+TOTAL_W, hdr_top, lw=35)
+        hline(tbl_x, tbl_x+TOTAL_W, hdr_bot, lw=25)
+        tbl_y = hdr_bot
+
+        # Data rows
+        for ri, row in enumerate(ws_rows):
+            row_y    = tbl_y - (ri+1)*ROW_H
+            bg_color = 250 if ri%2==0 else 251  # alternating row shading
+            # Alternate row background
+            if ri%2==0:
+                msp.add_solid([(tbl_x,tbl_y-ri*ROW_H),(tbl_x+TOTAL_W,tbl_y-ri*ROW_H),
+                               (tbl_x+TOTAL_W,row_y),(tbl_x,row_y)],
+                              dxfattribs={"layer":"FP-TBLK","color":250})
+            cx2 = tbl_x
+            for hdr, cw, attr, fmt in cols:
+                val = getattr(row, attr, "")
+                try:
+                    cell_txt = fmt.format(val) if val != "" else ""
+                except Exception:
+                    cell_txt = str(val)
+                # Highlight P_end column in last row
+                bold_cell = (attr == "p_end" and ri == len(ws_rows)-1)
+                txt(cell_txt, cx2+2, row_y+6, TEXT_SM*0.85, bold=bold_cell)
+                vline(cx2, row_y, tbl_y-ri*ROW_H, lw=13)
+                cx2 += cw
+            vline(cx2, row_y, tbl_y-ri*ROW_H, lw=13)
+            hline(tbl_x, tbl_x+TOTAL_W, row_y, lw=13)
+
+        tbl_y = tbl_y - (len(ws_rows)+1)*ROW_H - 20
+
+        # ── Summary row ────────────────────────────────────────────────────────
+        if summary:
+            compliant_str = "YES — NO FIRE PUMP REQUIRED" if summary.get("compliant") else "NO — FIRE PUMP REQUIRED"
+            comp_color    = colors.GREEN if summary.get("compliant") else colors.RED
+            smry_rows = [
+                ("Total system demand:",   f'{summary.get("total_flow_gpm","—")} gpm  (sprinklers {summary.get("sprinkler_flow_gpm","—")} gpm + hose {summary.get("hose_stream_gpm","—")} gpm)'),
+                ("Required pressure (source):", f'{summary.get("required_pressure_psi","—")} psi'),
+                ("Available pressure (source):",f'{summary.get("available_pressure_psi","—")} psi'),
+                ("Pressure margin:",         f'{summary.get("pressure_margin_psi","—"):+.1f} psi'),
+                ("NFPA 13 compliant:",       compliant_str),
+            ]
+            txt("CALCULATION SUMMARY", ox, tbl_y, TEXT_MD, bold=True)
+            tbl_y -= TEXT_MD + 6
+            for lbl, val in smry_rows:
+                is_comp = "compliant" in lbl.lower()
+                txt(lbl, ox, tbl_y, TEXT_SM, bold=True)
+                txt(val,  ox+330, tbl_y, TEXT_SM, color=comp_color if is_comp else None)
+                tbl_y -= 18
+
+        # ── Supply vs Demand Curve ─────────────────────────────────────────────
         if curve:
-            px0=ox+500; py0=oy-420; pw=600; ph=300
-            msp.add_lwpolyline([(px0,py0),(px0+pw,py0),(px0+pw,py0+ph),(px0,py0+ph),(px0,py0)], dxfattribs={"layer":"FP-ANNO-NOTE"})
-            msp.add_text("DEMAND CURVE", dxfattribs={"layer":"FP-ANNO-NOTE","height":TEXT_SM,"style":FONT_BOLD}).set_placement((px0+pw//2, py0+ph+10), align=TextEntityAlignment.BOTTOM_CENTER)
-            mf = max(pt.get("flow",1) for pt in curve) or 1
-            mp = max(pt.get("pressure",1) for pt in curve) or 1
-            pts = [(px0+pt.get("flow",0)/mf*pw, py0+pt.get("pressure",0)/mp*ph) for pt in curve]
-            if len(pts) >= 2:
-                msp.add_lwpolyline(pts, dxfattribs={"layer":"FP-PIPE-MAIN","lineweight":25})
+            tbl_y -= 20
+            gx = ox; gy = tbl_y
+            gw = min(600, TOTAL_W//2); gh = 280
+
+            # Axis box
+            msp.add_lwpolyline([(gx,gy),(gx+gw,gy),(gx+gw,gy-gh),(gx,gy-gh),(gx,gy)],
+                               dxfattribs={"layer":"FP-ANNO-NOTE","lineweight":25})
+
+            # Axis labels
+            txt("SUPPLY vs DEMAND CURVE", gx+gw//2, gy+16, TEXT_MD, bold=True)
+            txt("FLOW (GPM)", gx+gw//2, gy-gh-20, TEXT_SM)
+            txt("PRESSURE (PSI)", gx-40, gy-gh//2, TEXT_SM)
+
+            max_q = max(pt["flow"]     for pt in curve if pt["flow"]     > 0) * 1.1
+            max_p = max(pt["pressure"] for pt in curve if pt["pressure"] > 0) * 1.2
+            if max_q <= 0: max_q = 1000
+            if max_p <= 0: max_p = 100
+
+            def to_graph(q, pr):
+                return (gx + q/max_q*gw, gy - pr/max_p*gh)
+
+            # Grid lines
+            for qi in range(0, int(max_q), max(50, int(max_q//8))):
+                gpt = to_graph(qi, 0)
+                msp.add_line((gpt[0],gy),(gpt[0],gy-gh),
+                             dxfattribs={"layer":"FP-GRID","linetype":"DASHED"})
+                txt(str(qi), gpt[0], gy-gh-12, TEXT_SM*0.75)
+            for pi2 in range(0, int(max_p), max(10, int(max_p//8))):
+                gpt = to_graph(0, pi2)
+                msp.add_line((gx,gpt[1]),(gx+gw,gpt[1]),
+                             dxfattribs={"layer":"FP-GRID","linetype":"DASHED"})
+                txt(str(pi2), gx-6, gpt[1]-4, TEXT_SM*0.75)
+
+            # Supply curve (green)
+            supply_pts = [to_graph(pt["flow"], pt["pressure"]) for pt in curve if pt["flow"] >= 0]
+            if len(supply_pts) >= 2:
+                msp.add_lwpolyline(supply_pts, dxfattribs={"layer":"FP-VALV","lineweight":25})
+                txt("SUPPLY", supply_pts[-2][0]+10, supply_pts[-2][1]+10, TEXT_SM, color=colors.GREEN)
+
+            # Demand point (red circle + label)
+            if demand_pt:
+                dq, dp = demand_pt["flow"], demand_pt["pressure"]
+                dpx, dpy = to_graph(dq, dp)
+                msp.add_circle((dpx,dpy), 8, dxfattribs={"layer":"FP-PIPE-MAIN"})
+                msp.add_solid([(dpx-6,dpy),(dpx+6,dpy),(dpx,dpy-10)],
+                              dxfattribs={"layer":"FP-PIPE-MAIN"})
+                txt(f"DEMAND POINT\n{dq:.0f} gpm @ {dp:.1f} psi",
+                    dpx+12, dpy-4, TEXT_SM, bold=True, color=colors.RED)
+
+                # Demand line (vertical dashed from x-axis to demand point)
+                msp.add_line((dpx,gy),(dpx,dpy),
+                             dxfattribs={"layer":"FP-ANNO-DIMS","linetype":"DASHED"})
+                msp.add_line((gx,dpy),(dpx,dpy),
+                             dxfattribs={"layer":"FP-ANNO-DIMS","linetype":"DASHED"})
+
+            txt("Graph: Supply curve vs system demand — operating point shown",
+                gx, gy-gh-32, TEXT_SM*0.8)
+
         return doc
 
     # ── FP4.0 Schedules ───────────────────────────────────────────────────────
@@ -1017,7 +1438,7 @@ class FireAIDrawingEngine:
         msp.add_text(f"{ch}'-0\"", dxfattribs={"layer":"FP-ANNO-DIMS","height":TEXT_SM,"style":FONT}).set_placement((dim_x+8,(fy+cy)//2))
         msp.add_text("SECTION A-A — TYPICAL PENDANT INSTALLATION",
             dxfattribs={"layer":"FP-ANNO-NOTE","height":TEXT_MD,"style":FONT_BOLD}
-        ).set_placement((cx, BORDER_Y+DRAW_H-40), align=TextEntityAlignment.BOTTOM_CENTER)
+        ).set_placement((cx, BORDER_Y+DRAW_H-40))
         return doc
 
     # ── FP6.0 BOM ─────────────────────────────────────────────────────────────
@@ -1070,7 +1491,7 @@ class FireAIDrawingEngine:
         msp.add_text("ESTIMATED MATERIAL TOTAL (LABOR NOT INCLUDED):",
             dxfattribs={"layer":"FP-ANNO-NOTE","height":TEXT_SM,"style":FONT_BOLD}).set_placement((ox, ry+4))
         msp.add_text(f"${grand:,.2f}", dxfattribs={"layer":"FP-ANNO-NOTE","height":TEXT_MD,"style":FONT_BOLD}
-        ).set_placement((ox+total, ry+4), align=TextEntityAlignment.RIGHT)
+        ).set_placement((ox+total, ry+4))
         return doc
 
     # ── PDF export — FIXED: proper axes limits from DXF extents ──────────────
