@@ -81,7 +81,7 @@ def _scale_annotation(scale_du_per_ft: float) -> str:
     return STD.get(best, f'{scale_du_per_ft:.0f}u/ft')
 
 LAYER_DEFS = {
-    "A-WALL-FULL":  {"color": 8,            "desc": "Full-height walls"},
+    "A-WALL-FULL":  {"color": 8,            "lineweight": 100, "desc": "Full-height walls"},
     "A-WALL-PART":  {"color": 8,            "desc": "Partial-height walls"},
     "A-COLS":       {"color": 8,            "desc": "Structural columns"},
     "A-BEAM":       {"color": 8,            "desc": "Beams"},
@@ -415,63 +415,53 @@ class PlanViewRenderer:
 
     def draw_walls(self, walls, ox=0, oy=0):
         """
-        Draw walls as double-line segments with gray fill, matching AutoSprink style.
-        Exterior walls: thick (8" = 0.67ft), filled gray.
-        Interior walls: thinner (4" = 0.33ft).
+        Draw wall geometry. Two modes:
+        - Detailed (from document intelligence): renders each wall segment as filled tile
+        - Synthetic: renders building outline as thick closed polygon
+        Walls must be visually prominent — thick lines that clearly bound the building.
         """
-        WALL_THICK_EXT = self._ft(0.67)   # 8 inches in DXF units
-        WALL_THICK_INT = self._ft(0.33)   # 4 inches
         import math
-
+        if not walls:
+            return
         for w in walls:
-            pts_ft = w["points"]
-            if len(pts_ft) < 2: continue
-            is_ext  = w.get("exterior", False)
-            is_part = w.get("partial", False)
-            half    = (WALL_THICK_EXT if is_ext else WALL_THICK_INT) / 2
-            layer   = "A-WALL-PART" if is_part else "A-WALL-FULL"
-            lw      = 50 if is_ext else 25
-
-            # Convert points to DXF coords
+            pts_ft = w.get("points", [])
+            if len(pts_ft) < 2:
+                continue
+            is_ext = w.get("exterior", False)
             pts = [(BORDER_X+ox+self._ft(p["x"]), BORDER_Y+oy+self._ft(p["y"])) for p in pts_ft]
 
             if len(pts) == 2:
-                # Single wall segment: draw two parallel lines with fill between them
+                # Wall segment: filled rectangle with thickness
+                half_ft = 0.67 if is_ext else 0.33
+                half_du = self._ft(half_ft) / 2
                 dx = pts[1][0]-pts[0][0]; dy = pts[1][1]-pts[0][1]
                 length = math.hypot(dx, dy)
                 if length < 0.1: continue
-                # Perpendicular direction
-                px_n = -dy/length * half; py_n = dx/length * half
-                # Four corners of the wall band
-                c1=(pts[0][0]+px_n, pts[0][1]+py_n); c2=(pts[1][0]+px_n, pts[1][1]+py_n)
-                c3=(pts[1][0]-px_n, pts[1][1]-py_n); c4=(pts[0][0]-px_n, pts[0][1]-py_n)
-                # Fill with gray
-                self.msp.add_solid([c1,c2,c3,c4],
-                                   dxfattribs={"layer":layer,"color":9 if is_ext else 8})
-                # Outlines
-                self.msp.add_lwpolyline([c1,c2,c3,c4,c1],
-                                        dxfattribs={"layer":layer,"lineweight":lw})
+                px_n = -dy/length * half_du; py_n = dx/length * half_du
+                corners = [
+                    (pts[0][0]+px_n, pts[0][1]+py_n),
+                    (pts[1][0]+px_n, pts[1][1]+py_n),
+                    (pts[1][0]-px_n, pts[1][1]-py_n),
+                    (pts[0][0]-px_n, pts[0][1]-py_n),
+                ]
+                self.msp.add_solid(corners, dxfattribs={"layer":"A-WALL-FULL","color":8})
+                self.msp.add_lwpolyline(corners+[corners[0]],
+                    dxfattribs={"layer":"A-WALL-FULL","lineweight":50 if is_ext else 25})
             else:
-                # Polygon/closed wall outline — draw as thick boundary
-                # Use high lineweight so it renders visibly at print scale
-                wall_lw = 100 if is_ext else 50
-                if len(pts) >= 3:
-                    self.msp.add_lwpolyline(pts, close=True,
-                                            dxfattribs={"layer":layer,"lineweight":wall_lw})
-                    # Draw inset boundary for double-wall appearance
-                    if is_ext and len(pts) == 4:
-                        inset = half
-                        # Simple axis-aligned inset (works for rectangular buildings)
-                        xs_p=[p[0] for p in pts]; ys_p=[p[1] for p in pts]
-                        x0i,x1i = min(xs_p)+inset, max(xs_p)-inset
-                        y0i,y1i = min(ys_p)+inset, max(ys_p)-inset
-                        if x1i>x0i and y1i>y0i:
-                            self.msp.add_lwpolyline(
-                                [(x0i,y0i),(x1i,y0i),(x1i,y1i),(x0i,y1i),(x0i,y0i)],
-                                close=True, dxfattribs={"layer":layer,"lineweight":25})
-                else:
-                    self.msp.add_lwpolyline(pts,
-                                            dxfattribs={"layer":layer,"lineweight":lw})
+                # Polygon outline: thick closed boundary
+                lw = 100 if is_ext else 50
+                self.msp.add_lwpolyline(pts, close=True,
+                    dxfattribs={"layer":"A-WALL-FULL","lineweight":lw})
+                # Inset line for double-wall look on rectangular buildings
+                if is_ext and len(pts) == 4:
+                    wall_t = self._ft(0.67)
+                    xs2=[p[0] for p in pts]; ys2=[p[1] for p in pts]
+                    x0i,x1i = min(xs2)+wall_t, max(xs2)-wall_t
+                    y0i,y1i = min(ys2)+wall_t, max(ys2)-wall_t
+                    if x1i>x0i and y1i>y0i:
+                        self.msp.add_lwpolyline(
+                            [(x0i,y0i),(x1i,y0i),(x1i,y1i),(x0i,y1i),(x0i,y0i)],
+                            close=True, dxfattribs={"layer":"A-WALL-FULL","lineweight":25})
 
     def draw_columns(self, cols, ox=0, oy=0):
         for c in cols:
@@ -542,37 +532,42 @@ class PlanViewRenderer:
                 self.msp.add_circle((fx,fy), 5,
                                     dxfattribs={"layer":"FP-PIPE-BRNCH"})
 
-            # Pipe size label in engineering format: "2-1/2\" SCH 40"
+            # Pipe SIZE label (FP-ANNO-LABL, ht=9, ROMANS, bylayer color)
+            # Pipe LENGTH label (FP-ANNO-DIMS, ht=7.65, ROMANS, color=5/blue)
+            # Only label spans longer than 2ft to match AutoSprink annotation density
             dia   = s.get("diameter","")
             sched = s.get("schedule","")
-            if dia:
+            seg_len = s.get("length", 0) or math.hypot(tx-fx, ty-fy) / self.scale
+
+            if seg_len > 2.0 and dia:
                 dia_str = self._format_dia(dia)
-                lbl     = f'{dia_str}" {sched}'.strip() if sched else f'{dia_str}"'
+                lbl     = dia_str + '" ' + (sched or "")
                 mx, my  = (fx+tx)/2, (fy+ty)/2
                 ang_deg = math.degrees(math.atan2(ty-fy, tx-fx))
-                perp    = ang_deg + 90
-                off     = 16
-                lx      = mx + off*math.cos(math.radians(perp))
-                ly      = my + off*math.sin(math.radians(perp))
-                rot     = ang_deg if -90 < ang_deg <= 90 else ang_deg+180
-                self.msp.add_text(
-                    lbl,
-                    dxfattribs={"layer":"FP-ANNO-LABL","height":TEXT_SM,"style":FONT,"rotation":rot}
-                ).set_placement((lx,ly))
+                rot     = ang_deg if -90 < ang_deg <= 90 else ang_deg + 180
+                # Size above (perpendicular +)
+                perp_ang = ang_deg + 90
+                off = 15
+                sx = mx + off*math.cos(math.radians(perp_ang))
+                sy = my + off*math.sin(math.radians(perp_ang))
+                self.msp.add_text(lbl.strip(),
+                    dxfattribs={"layer":"FP-ANNO-LABL","height":9,"style":"ROMANS","rotation":rot}
+                ).set_placement((sx, sy))
 
-            # Pipe LENGTH label (blue, on opposite side from size label)
-            length_ft = s.get("length", 0) or 0
-            if length_ft > 0:
-                ft_l  = int(length_ft); in_l = int(round((length_ft-ft_l)*12))
-                len_lbl = f"{ft_l}-{in_l}" if in_l else f"{ft_l}-0"
+            if seg_len > 2.0:
+                ft_l = int(seg_len); in_l = int(round((seg_len-ft_l)*12))
+                len_lbl = "%d-%02d" % (ft_l, in_l) if in_l else "%d-0" % ft_l
+                if not hasattr(self,'_ang_deg_cache'): self._ang_deg_cache={}
                 mx2,my2 = (fx+tx)/2,(fy+ty)/2
-                perp_opp = ang_deg-90; off2=16
-                lx2 = mx2+off2*math.cos(math.radians(perp_opp))
-                ly2 = my2+off2*math.sin(math.radians(perp_opp))
-                rot2 = ang_deg if -90<ang_deg<=90 else ang_deg+180
-                self.msp.add_text(len_lbl,dxfattribs={"layer":"FP-ANNO-DIMS",
-                    "height":TEXT_SM*0.85,"style":FONT,"rotation":rot2,"color":colors.BLUE}
-                ).set_placement((lx2,ly2))
+                if dia and seg_len > 2.0:
+                    perp_opp = ang_deg - 90
+                    lx2 = mx2 + 15*math.cos(math.radians(perp_opp))
+                    ly2 = my2 + 15*math.sin(math.radians(perp_opp))
+                    rot2 = ang_deg if -90<ang_deg<=90 else ang_deg+180
+                    self.msp.add_text(len_lbl,
+                        dxfattribs={"layer":"FP-ANNO-DIMS","height":7.65,
+                                    "style":"ROMANS","rotation":rot2,"color":5}
+                    ).set_placement((lx2, ly2))
 
     @staticmethod
     def _format_dia(d) -> str:
@@ -608,13 +603,7 @@ class PlanViewRenderer:
                     (px,py), self._ft(s["coverage_radius"]),
                     dxfattribs={"layer":"FP-SPKR-COVR","linetype":"DASHED","color":251})
 
-            # Head tag: number + K-factor
-            parts = [str(i+1)]
-            if s.get("k_factor"): parts.append(f'K{s["k_factor"]}')
-            self.msp.add_text(
-                "/".join(parts),
-                dxfattribs={"layer":"FP-ANNO-LABL","height":TEXT_SM*0.75,"style":FONT}
-            ).set_placement((px+SymbolLibrary.R+4, py+SymbolLibrary.R+2))
+            # Head labels suppressed in floor plan (per AutoSprink — shown in schedule only)
 
             # Hydraulic reference marker on remote area heads (HR tag in red)
             if s.get("id","") in remote_ids:
@@ -804,7 +793,7 @@ class PlanViewRenderer:
         for lbl, x_ft in cols:
             gx = bx0 + x_ft * self.scale
             self.msp.add_line((gx, by0-r_bub-4),(gx, by0+bd+r_bub+4),
-                              dxfattribs={"layer":"FP-GRID","color":8,"linetype":"DASHED"})
+                              dxfattribs={"layer":"FP-GRID","color":9})
             for gy in [by0-r_bub-4, by0+bd+r_bub+4]:
                 self.msp.add_circle((gx,gy), r_bub,
                     dxfattribs={"layer":"FP-GRID","color":8,"lineweight":13})
@@ -817,7 +806,7 @@ class PlanViewRenderer:
         for lbl, y_ft in rows:
             gy = by0 + y_ft * self.scale
             self.msp.add_line((bx0-r_bub-4,gy),(bx0+bw+r_bub+4,gy),
-                              dxfattribs={"layer":"FP-GRID","color":8,"linetype":"DASHED"})
+                              dxfattribs={"layer":"FP-GRID","color":9})
             for gx in [bx0-r_bub-4, bx0+bw+r_bub+4]:
                 self.msp.add_circle((gx,gy), r_bub,
                     dxfattribs={"layer":"FP-GRID","color":8,"lineweight":13})
