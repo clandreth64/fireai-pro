@@ -8,11 +8,13 @@ Full enterprise version with:
   - Construction drawing generation
   - Job status polling + file download
   - Professional project intake UI at /
+  - /api/analyze — fast form auto-population from drawing set
 
-CHANGES FROM ORIGINAL:
-  Layer 1 — SQLite job persistence (job_store) replaces in-memory _jobs dict
-  Layer 2 — Context bus wired via updated fireai_orchestrator_v2.py (no change here)
-  Layer 3 — Improvement loop starts at boot; performance logged after each job
+LAYERS:
+  Layer 1 — SQLite job persistence + autonomous dispatcher
+  Layer 2 — Context bus wired via updated fireai_orchestrator_v2.py
+  Layer 3 — Nightly self-improvement loop
+  Layer 4 — Document auto-analysis for UI form population
 """
 
 import asyncio
@@ -40,19 +42,20 @@ from fireai_document_intelligence import handle_document_set
 from fireai_nfpa13_design_engine import NFPA13DesignEngine
 from fireai_schemas.job_models   import GenerateRequest, JobStatus, JobResult
 
-# Layer 1 — persistent job store
-from job_store import init_db, _set_job, _get_job, _list_jobs
-
-# Layer 1 — autonomous dispatcher
-from dispatcher import start_dispatcher, stop_dispatcher
+# Layer 1 — persistent job store + dispatcher
+from job_store   import init_db, _set_job, _get_job, _list_jobs
+from dispatcher  import start_dispatcher, stop_dispatcher
 
 # Layer 3 — self-improvement loop
 from agent_config_store import init_config_db
-from improvement_loop import (
+from improvement_loop   import (
     start_improvement_loop,
     stop_improvement_loop,
     record_job_performance,
 )
+
+# Layer 4 — fast document analysis for UI form auto-population
+from document_analyzer import analyze_document_set
 
 log = logging.getLogger("fireai.api")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s [%(name)s] %(message)s")
@@ -64,18 +67,16 @@ OUTPUTS_DIR.mkdir(exist_ok=True)
 UPLOADS_DIR.mkdir(exist_ok=True)
 
 
-# ── Lifespan: start all background services ───────────────────────────────────
+# ── Lifespan: init databases + start all background services ──────────────────
 
 @asynccontextmanager
 async def lifespan(app):
-    # Startup — init databases, start dispatcher + improvement loop
     init_db()
     init_config_db()
     dispatcher_task = asyncio.create_task(start_dispatcher())
     improve_task    = asyncio.create_task(start_improvement_loop())
     log.info("FireAI Pro started — dispatcher + nightly improvement loop active")
     yield
-    # Shutdown — clean stop
     stop_dispatcher()
     stop_improvement_loop()
     dispatcher_task.cancel()
@@ -105,8 +106,8 @@ async def _run_job(job_id: str, project_context: dict,
                    geometry: dict | None = None):
     """
     Full pipeline:
-      1. NFPA 13 design engine  — if geometry provided, compute full design
-      2. Orchestrator           — AI agents validate and enhance the design
+      1. NFPA 13 design engine  — compute full design from geometry
+      2. Orchestrator           — AI agents validate and enhance
       3. Drawing engine         — generate DXF construction sheets
     """
     job_output_dir = OUTPUTS_DIR / job_id
@@ -135,7 +136,7 @@ async def _run_job(job_id: str, project_context: dict,
             selected_formats = set(selected_formats),
         )
 
-        # Merge — design engine always wins
+        # Merge — design engine always wins over AI agent outputs
         if design_output:
             artifacts = orch_result.setdefault("artifacts", {})
 
@@ -217,10 +218,10 @@ async def _run_job(job_id: str, project_context: dict,
         all_files = (orch_result.get("published_files", []) +
                      [m["filename"] for m in drawing_manifest if not m.get("error")])
 
-        compliant       = orch_result["metadata"]["compliant"]
-        iterations_used = orch_result["metadata"]["iterations_used"]
-        total_sprinklers= len(cad_out.get("sprinkler_placements", []))
-        total_pipe_ft   = sum(s.get("length", 0) for s in cad_out.get("pipe_sections", []))
+        compliant        = orch_result["metadata"]["compliant"]
+        iterations_used  = orch_result["metadata"]["iterations_used"]
+        total_sprinklers = len(cad_out.get("sprinkler_placements", []))
+        total_pipe_ft    = sum(s.get("length", 0) for s in cad_out.get("pipe_sections", []))
 
         _set_job(
             job_id,
@@ -241,7 +242,7 @@ async def _run_job(job_id: str, project_context: dict,
             frozen_violations     = orch_result["metadata"].get("frozen_violations", []),
         )
 
-        # ── Layer 3: log performance for tonight's improvement cycle ──────────
+        # Layer 3: log performance for tonight's improvement cycle
         try:
             record_job_performance(_get_job(job_id))
         except Exception as e:
@@ -263,7 +264,7 @@ async def serve_ui():
     ui_path = REPO_ROOT / "fireai_upload_ui.html"
     if ui_path.exists():
         return FileResponse(str(ui_path), media_type="text/html")
-    return {"service": "FireAI Pro API", "version": "3.0.0", "ui": "/"}
+    return {"service": "FireAI Pro API", "version": "3.0.0"}
 
 @app.get("/design")
 async def serve_format_selector():
@@ -275,15 +276,38 @@ async def serve_format_selector():
 @app.get("/health")
 async def health():
     return {
-        "status":     "ok",
-        "timestamp":  datetime.utcnow().isoformat(),
-        "dispatcher": True,
+        "status":           "ok",
+        "timestamp":        datetime.utcnow().isoformat(),
+        "dispatcher":       True,
         "improvement_loop": True,
     }
 
 
+# ── Form auto-population ──────────────────────────────────────────────────────
+
+@app.post("/api/analyze")
+async def analyze_documents(files: List[UploadFile] = File(...)):
+    """
+    Fast document scan — reads the first 3 pages of each file and returns
+    project parameters (name, address, occupancy, AHJ, area, seismic zone, etc.)
+    to auto-populate the UI form. Runs in ~15 seconds.
+    Full geometry extraction happens later in /api/generate/upload.
+    """
+    file_list = []
+    for f in files:
+        file_bytes = await f.read()
+        file_list.append({"bytes": file_bytes, "filename": f.filename or "upload.pdf"})
+
+    log.info("Analyzing %d file(s) for project parameters", len(file_list))
+    params = await analyze_document_set(file_list)
+    return params
+
+
+# ── Design job endpoints ──────────────────────────────────────────────────────
+
 @app.post("/api/generate", status_code=202)
 async def generate(request: GenerateRequest, background_tasks: BackgroundTasks):
+    """Queue a design job — JSON body, no file upload."""
     job_id  = str(uuid.uuid4())[:8].upper()
     ctx     = request.project_context
     sheets  = list(request.validated_sheets())
@@ -291,7 +315,7 @@ async def generate(request: GenerateRequest, background_tasks: BackgroundTasks):
     _set_job(job_id,
              status="queued", stage="queued",
              message="Job queued — starting shortly",
-             project=ctx.get("project_name","Unnamed"),
+             project=ctx.get("project_name", "Unnamed"),
              project_context=ctx,
              selected_sheets=sheets,
              selected_formats=formats,
@@ -309,6 +333,7 @@ async def generate_upload(
     selected_sheets:  str = Form("[]"),
     selected_formats: str = Form("[]"),
 ):
+    """Queue a design job from a full construction document set."""
     job_id  = str(uuid.uuid4())[:8].upper()
     ctx     = json.loads(project_context)
     sheets  = json.loads(selected_sheets)
@@ -338,10 +363,16 @@ async def generate_upload(
                          message="Analyzing construction document...")
                 geometry = await handle_upload(
                     file_list[0]["bytes"], file_list[0]["filename"], ctx)
+                log.info(f"[{job_id}] Single doc: "
+                         f"{len(geometry.get('rooms',[]))} rooms, "
+                         f"{len(geometry.get('walls',[]))} walls")
             else:
                 _set_job(job_id, stage="doc_analysis",
                          message=f"Classifying {len(file_list)} documents...")
                 geometry = await handle_document_set(file_list, ctx)
+                log.info(f"[{job_id}] Doc set ({len(file_list)} files): "
+                         f"{len(geometry.get('rooms',[]))} rooms, "
+                         f"{len(geometry.get('obstructions',[]))} obstructions")
                 ws = geometry.get("water_supply", {})
                 if ws.get("static_pressure_psi"):   ctx["static_pressure"]   = ws["static_pressure_psi"]
                 if ws.get("residual_pressure_psi"): ctx["residual_pressure"] = ws["residual_pressure_psi"]
@@ -361,6 +392,8 @@ async def generate_upload(
             "poll_url": f"/api/jobs/{job_id}",
             "document_count": len(files)}
 
+
+# ── Job status endpoints ──────────────────────────────────────────────────────
 
 @app.get("/api/jobs/{job_id}")
 async def get_job(job_id: str):
@@ -388,7 +421,7 @@ async def list_jobs(limit: int = 20):
     return {"jobs": jobs, "total": len(jobs)}
 
 
-# ── Layer 3 diagnostic endpoints ─────────────────────────────────────────────
+# ── Layer 3: improvement loop endpoints ──────────────────────────────────────
 
 @app.get("/api/improvement/status")
 async def improvement_status():
@@ -403,7 +436,7 @@ async def improvement_status():
 
 @app.post("/api/improvement/run")
 async def trigger_improvement(background_tasks: BackgroundTasks):
-    """Manually trigger the improvement cycle (don't wait for 2 AM)."""
+    """Manually trigger the improvement cycle without waiting for 2 AM."""
     from improvement_loop import run_improvement_cycle
     background_tasks.add_task(run_improvement_cycle)
     return {"status": "queued", "message": "Improvement cycle started in background"}
@@ -414,5 +447,5 @@ async def rollback_agent(agent_id: str):
     from agent_config_store import rollback_config
     ok = rollback_config(agent_id)
     if not ok:
-        raise HTTPException(400, f"No previous version to roll back to for {agent_id}")
+        raise HTTPException(400, f"No previous version for {agent_id}")
     return {"status": "rolled_back", "agent_id": agent_id}
