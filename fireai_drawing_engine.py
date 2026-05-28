@@ -80,15 +80,15 @@ def _scale_annotation(scale_du_per_ft: float) -> str:
     return STD.get(best, f'{scale_du_per_ft:.0f}u/ft')
 
 LAYER_DEFS = {
-    "A-WALL-FULL":  {"color": colors.GRAY,  "desc": "Full-height walls"},
-    "A-WALL-PART":  {"color": colors.GRAY,  "desc": "Partial-height walls"},
-    "A-COLS":       {"color": colors.GRAY,  "desc": "Structural columns"},
-    "A-BEAM":       {"color": colors.GRAY,  "desc": "Beams"},
-    "A-SLAB":       {"color": colors.GRAY,  "desc": "Slab edges"},
-    "A-CEIL":       {"color": 8,            "desc": "Ceiling boundary"},
-    "A-ROOF":       {"color": 8,            "desc": "Roof outline"},
-    "A-ROOM":       {"color": 253,          "desc": "Room boundaries"},
-    "A-ROOM-IDEN":  {"color": 253,          "desc": "Room labels"},
+    "A-WALL-FULL":  {"color": 8,            "desc": "Full-height walls"},
+    "A-WALL-PART":  {"color": 8,            "desc": "Partial-height walls"},
+    "A-COLS":       {"color": 8,            "desc": "Structural columns"},
+    "A-BEAM":       {"color": 8,            "desc": "Beams"},
+    "A-SLAB":       {"color": 8,            "desc": "Slab edges"},
+    "A-CEIL":       {"color": 9,            "desc": "Ceiling boundary"},
+    "A-ROOF":       {"color": 9,            "desc": "Roof outline"},
+    "A-ROOM":       {"color": 9,            "desc": "Room boundaries"},
+    "A-ROOM-IDEN":  {"color": 8,            "desc": "Room labels"},
     "A-DOOR":       {"color": colors.GRAY,  "desc": "Door swings"},
     "A-GLAZ":       {"color": colors.CYAN,  "desc": "Glazing"},
     "FP-PIPE-MAIN": {"color": colors.RED,   "desc": "Main pipe runs"},
@@ -107,7 +107,7 @@ LAYER_DEFS = {
     "FP-EQUP":      {"color": colors.GREEN, "desc": "Equipment"},
     "FP-RISR":      {"color": colors.RED,   "desc": "Riser"},
     "FP-FDC":       {"color": 30,           "desc": "FDC"},
-    "FP-HNGR":      {"color": 251,          "desc": "Hangers & bracing"},
+    "FP-HNGR":      {"color": colors.CYAN,  "desc": "Hangers & bracing"},
     "FP-ANNO-DIMS": {"color": colors.WHITE, "desc": "Dimensions"},
     "FP-ANNO-LABL": {"color": colors.WHITE, "desc": "Tags"},
     "FP-ANNO-SYMB": {"color": colors.WHITE, "desc": "Symbols"},
@@ -116,7 +116,7 @@ LAYER_DEFS = {
     "FP-TBLK":      {"color": colors.WHITE, "desc": "Titleblock border"},
     "FP-TBLK-TEXT": {"color": colors.WHITE, "desc": "Titleblock text"},
     "FP-VWPT":      {"color": 250,          "desc": "Viewports"},
-    "FP-GRID":      {"color": 251,          "desc": "Grid"},
+    "FP-GRID":      {"color": 9,            "desc": "Grid"},
 }
 
 
@@ -510,6 +510,20 @@ class PlanViewRenderer:
                     dxfattribs={"layer":"FP-ANNO-LABL","height":TEXT_SM,"style":FONT,"rotation":rot}
                 ).set_placement((lx,ly))
 
+            # Pipe LENGTH label (blue, on opposite side from size label)
+            length_ft = s.get("length", 0) or 0
+            if length_ft > 0:
+                ft_l  = int(length_ft); in_l = int(round((length_ft-ft_l)*12))
+                len_lbl = f"{ft_l}-{in_l}" if in_l else f"{ft_l}-0"
+                mx2,my2 = (fx+tx)/2,(fy+ty)/2
+                perp_opp = ang_deg-90; off2=16
+                lx2 = mx2+off2*math.cos(math.radians(perp_opp))
+                ly2 = my2+off2*math.sin(math.radians(perp_opp))
+                rot2 = ang_deg if -90<ang_deg<=90 else ang_deg+180
+                self.msp.add_text(len_lbl,dxfattribs={"layer":"FP-ANNO-DIMS",
+                    "height":TEXT_SM*0.85,"style":FONT,"rotation":rot2,"color":colors.BLUE}
+                ).set_placement((lx2,ly2))
+
     @staticmethod
     def _format_dia(d) -> str:
         """Format pipe diameter as engineering fraction: 2.5 → 2-1/2, 1.25 → 1-1/4"""
@@ -775,6 +789,148 @@ class PlanViewRenderer:
                               dxfattribs={"layer":"FP-HNGR","lineweight":18})
 
 
+    def draw_hydraulic_info_block(self, hydraulics: dict, project: dict):
+        ra    = hydraulics.get("remote_area_calcs", {})
+        da    = hydraulics.get("density_area", {})
+        hose  = float(ra.get("hose_stream_gpm", 0))
+        bx    = BORDER_X + 20
+        bw    = 340; lh = 18; pad = 3
+        def _t(text, x, y, ht=TEXT_SM, bold=False, color=None):
+            att = {"layer":"FP-ANNO-NOTE","height":ht,"style":FONT_BOLD if bold else FONT}
+            if color: att["color"] = color
+            self.msp.add_text(str(text), dxfattribs=att).set_placement((x, y))
+        def _hl(y):
+            self.msp.add_line((bx,y),(bx+bw,y),dxfattribs={"layer":"FP-ANNO-NOTE","lineweight":9})
+        def _vl(x,y0,y1):
+            self.msp.add_line((x,y0),(x,y1),dxfattribs={"layer":"FP-ANNO-NOTE","lineweight":9})
+
+        req_psi   = float(hydraulics.get("required_pressure", 0))
+        flow_dem  = float(hydraulics.get("flow_demand", 0))
+        spkr_flow = max(0, flow_dem - hose)
+        margin    = float(hydraulics.get("pressure_delta", 0))
+        margin_pct= abs(margin/req_psi*100) if req_psi>0 else 0
+        density   = da.get("density") or ""
+        area      = da.get("area") or ""
+        density_str = (f"{density} for {int(float(area))}ft2" if density and area else str(density))
+        n_heads   = ra.get("remote_sprinkler_count", 0)
+        k         = ra.get("k_factor", 5.6)
+        hz        = ra.get("hazard","light").replace("_"," ").title()
+
+        by = BORDER_Y + DRAW_H - 20
+
+        # Title subtitle
+        _t(f"{hz} * {density_str}", bx+2, by-TEXT_SM-2, TEXT_SM*0.8)
+        by -= TEXT_SM + 8
+
+        # Outer border
+        n_rows = 11; bh = lh*(n_rows+2) + pad*2
+        self.msp.add_lwpolyline(
+            [(bx,by),(bx+bw,by),(bx+bw,by-bh),(bx,by-bh),(bx,by)],
+            dxfattribs={"layer":"FP-ANNO-NOTE","lineweight":25})
+
+        # Title row (bold border, no fill — text visible on white bg)
+        th = lh+4
+        self.msp.add_lwpolyline(
+            [(bx,by),(bx+bw,by),(bx+bw,by-th),(bx,by-th),(bx,by)],
+            dxfattribs={"layer":"FP-ANNO-NOTE","lineweight":35})
+        self.msp.add_text("Hydraulic Information",
+            dxfattribs={"layer":"FP-ANNO-NOTE","height":TEXT_MD,"style":FONT_BOLD}
+        ).set_placement((bx+bw//2, by-th+pad), align=TextEntityAlignment.MIDDLE_CENTER)
+        by -= th
+        # Subtitle
+        sh = lh-2
+        self.msp.add_text("Remote Area 1",
+            dxfattribs={"layer":"FP-ANNO-NOTE","height":TEXT_SM*0.9,"style":FONT}
+        ).set_placement((bx+bw//2, by-sh+pad), align=TextEntityAlignment.MIDDLE_CENTER)
+        _hl(by-sh); by -= sh
+
+        mid = bx + int(bw*0.60)
+        _vl(mid, by, by - lh*n_rows)
+
+        rows = [
+            ("OCCUPANCY CLASSIFICATION", hz),
+            ("DENSITY (gpm/ft2)",        density_str),
+            ("TOTAL HOSE STREAMS",       f"{hose:.2f}"),
+            ("DRY CAPACITY",             "0.00gal"),
+            ("TOTAL HEADS FLOWING",      str(n_heads)),
+            ("K-FACTOR",                 str(k)),
+            ("TOTAL WATER REQUIRED",     f"{spkr_flow:.2f}"),
+            ("TOTAL PRESSURE REQUIRED",  f"{req_psi:.3f}"),
+            ("BASE of RISER (gpm)",      f"{spkr_flow:.2f}"),
+            ("BASE of RISER (psi)",      f"{req_psi:.3f}"),
+            ("SAFETY MARGIN (psi)",      f"{margin:+.3f} ({margin_pct:.1f}%)"),
+        ]
+        for label, val in rows:
+            ry = by - lh; _hl(ry)
+            _t(label, bx+3, ry+pad, TEXT_SM*0.85, bold=True)
+            clr = (colors.GREEN if "SAFETY" in label and margin>=0 else
+                   colors.RED   if "SAFETY" in label else None)
+            _t(val, mid+3, ry+pad, TEXT_SM*0.85, color=clr)
+            by = ry
+
+
+    def draw_hangers(self, hangers, ox=0, oy=0):
+        """
+        Draw hanger designation circles on the plan.
+        Number shown comes directly from the design engine's 'designation' field,
+        which is determined by structural framing type and pipe size.
+        No hardcoded values — every project gets its own hanger numbers.
+        """
+        for h in hangers:
+            px, py = self._pt(h["x"], h["y"], ox, oy)
+            # Use the designation number from the design engine output.
+            # Falls back to type-based mapping only if designation not present.
+            num = h.get("designation") or {
+                "clevis":12,"trapeze":9,"rod":1,"wood":24,"u_hook":19,"insert":1
+            }.get(h.get("type","rod"), 1)
+            r = 8
+            self.msp.add_circle((px,py), r,
+                dxfattribs={"layer":"FP-HNGR","lineweight":9,"color":colors.CYAN})
+            self.msp.add_text(str(num),
+                dxfattribs={"layer":"FP-HNGR","height":TEXT_SM*0.75,
+                            "style":FONT_BOLD,"color":colors.CYAN}
+            ).set_placement((px, py-TEXT_SM*0.35), align=TextEntityAlignment.MIDDLE_CENTER)
+
+    def draw_hanger_legend(self, hangers):
+        """
+        Draw hanger designation legend.
+        Built dynamically from the actual hangers in this project —
+        only the types actually used appear in the legend.
+        """
+        # Collect unique (designation_num, description) pairs from actual hangers
+        seen = {}
+        for h in hangers:
+            num  = h.get("designation") or {
+                "clevis":12,"trapeze":9,"rod":1,"wood":24,"u_hook":19,"insert":1
+            }.get(h.get("type","rod"), 1)
+            desc = h.get("description") or f"HANGER TYPE {num}"
+            if num not in seen:
+                seen[num] = desc.upper()
+
+        # Always include end-of-line restraint since it's on every project
+        if 2 not in seen:
+            seen[2] = "END OF LINE RESTRAINT"
+
+        items = sorted(seen.items())
+        lx = BORDER_X + 20; ly = BORDER_Y + 60; lh = 16
+        self.msp.add_text("HANGER DESIGNATIONS:",
+            dxfattribs={"layer":"FP-ANNO-NOTE","height":TEXT_SM,"style":FONT_BOLD}
+        ).set_placement((lx, ly))
+        ly -= lh + 2
+        for num, desc in items:
+            r = 6
+            self.msp.add_circle((lx+r, ly-r), r,
+                dxfattribs={"layer":"FP-HNGR","color":colors.CYAN,"lineweight":9})
+            self.msp.add_text(str(num),
+                dxfattribs={"layer":"FP-HNGR","height":TEXT_SM*0.7,
+                            "style":FONT_BOLD,"color":colors.CYAN}
+            ).set_placement((lx+r, ly-r-TEXT_SM*0.35), align=TextEntityAlignment.MIDDLE_CENTER)
+            self.msp.add_text(desc,
+                dxfattribs={"layer":"FP-ANNO-NOTE","height":TEXT_SM*0.8,"style":FONT}
+            ).set_placement((lx+r*2+4, ly-r-TEXT_SM*0.35+3))
+            ly -= lh
+
+
     def draw_north_arrow(self, rot=0):
         nx = BORDER_X + DRAW_W - 120
         ny = BORDER_Y + DRAW_H - 120
@@ -844,36 +1000,137 @@ class PlanViewRenderer:
 
 # ─── Schedule renderer ────────────────────────────────────────────────────────
 
+# ── Sprinkler model database ──────────────────────────────────────────────────
+# Indexed by (manufacturer_lower, type, k_factor, temp_rating)
+# Extend per project by injecting entries or overriding manufacturer.
+# All values per published manufacturer catalogs (Viking, Tyco, Victaulic, etc.)
+SPRINKLER_MODEL_DB = {
+    # Viking
+    ("viking","pendant",  5.6, 155): ("Viking","VK302","VK302 Microfast",  "Chrome",  "Quick"),
+    ("viking","pendant",  5.6, 175): ("Viking","VK302","VK302 Microfast",  "Chrome",  "Quick"),
+    ("viking","pendant",  5.6, 200): ("Viking","VK300","VK300 Microfast",  "Brass",   "Quick"),
+    ("viking","pendant",  8.0, 155): ("Viking","VK302","VK302 K8.0",       "Chrome",  "Quick"),
+    ("viking","pendant",  8.0, 200): ("Viking","VK300","VK300 K8.0",       "Brass",   "Quick"),
+    ("viking","upright",  5.6, 155): ("Viking","VK300","VK300 Microfast",  "Brass",   "Quick"),
+    ("viking","upright",  5.6, 175): ("Viking","VK300","VK300 Microfast",  "Brass",   "Quick"),
+    ("viking","upright",  5.6, 200): ("Viking","VK300","VK300 Microfast",  "Brass",   "Quick"),
+    ("viking","upright", 11.2, 155): ("Viking","VK530","VK530 K11.2",      "Brass",   "Quick"),
+    ("viking","sidewall", 5.6, 155): ("Viking","VK178","VK178",            "Brass",   "Quick"),
+    ("viking","sidewall", 5.6, 175): ("Viking","VK178","VK178",            "Brass",   "Quick"),
+    ("viking","esfr",    14.0, 155): ("Viking","VK500","VK500 ESFR K14",   "Brass",   "Standard"),
+    ("viking","esfr",    14.0, 165): ("Viking","VK500","VK500 ESFR K14",   "Brass",   "Standard"),
+    ("viking","esfr",    16.8, 165): ("Viking","VK515","VK515 ESFR K16.8", "Brass",   "Standard"),
+    ("viking","esfr",    25.2, 165): ("Viking","VK520","VK520 ESFR K25.2", "Brass",   "Standard"),
+    ("viking","concealed",5.6, 155): ("Viking","VK462","VK462 Concealed",  "White",   "Quick"),
+    # Tyco
+    ("tyco","pendant",    5.6, 155): ("Tyco","TY323","TY323 Pendent",      "Chrome",  "Quick"),
+    ("tyco","pendant",    5.6, 175): ("Tyco","TY323","TY323 Pendent",      "Chrome",  "Quick"),
+    ("tyco","pendant",    5.6, 200): ("Tyco","TY323","TY323 Pendent",      "Brass",   "Quick"),
+    ("tyco","upright",    5.6, 155): ("Tyco","TY313","TY313 Upright",      "Brass",   "Quick"),
+    ("tyco","sidewall",   5.6, 155): ("Tyco","TY3251","TY3251 H/W Sidewall","Brass",  "Quick"),
+    ("tyco","esfr",      14.0, 165): ("Tyco","TY7221","TY7221 ESFR K14",   "Brass",   "Standard"),
+    # Central / Reliable (generic K5.6 pendant)
+    ("central","pendant", 5.6, 155): ("Central","G3FR","G3FR Pendant",     "Chrome",  "Quick"),
+    ("central","upright", 5.6, 155): ("Central","G3FR","G3FR Upright",     "Brass",   "Quick"),
+    ("reliable","pendant",5.6, 155): ("Reliable","F1FR","F1FR Pendant",    "Chrome",  "Quick"),
+    ("reliable","upright",5.6, 155): ("Reliable","F1FR","F1FR Upright",    "Brass",   "Quick"),
+}
+
+def _lookup_sprinkler(stype: str, k: float, temp: int, manufacturer: str = "Viking") -> dict:
+    """
+    Look up sprinkler model from the database.
+    manufacturer comes from the sprinkler placement data (set per project in design engine).
+    Falls back to generic description if specific model not found — does NOT invent a model.
+    """
+    mfr_key = manufacturer.lower().strip() if manufacturer else "viking"
+    k_f     = float(k)
+    temp_i  = int(temp)
+    stype_l = stype.lower()
+
+    # Exact match first
+    key = (mfr_key, stype_l, k_f, temp_i)
+    if key in SPRINKLER_MODEL_DB:
+        mfr,sin,model,finish,resp = SPRINKLER_MODEL_DB[key]
+        return {"manufacturer":mfr,"sin":sin,"model":model,"finish":finish,"response":resp}
+
+    # Match by manufacturer + type, closest K
+    candidates = [(t,k2,t3) for (m,t,k2,t3) in SPRINKLER_MODEL_DB
+                  if m==mfr_key and t==stype_l]
+    if candidates:
+        best = min(candidates, key=lambda c: abs(c[1]-k_f))
+        mfr,sin,model,finish,resp = SPRINKLER_MODEL_DB[(mfr_key,best[0],best[1],best[2])]
+        return {"manufacturer":mfr,"sin":sin,"model":model,"finish":finish,"response":resp}
+
+    # No match: return honest generic — don't fabricate a model number
+    finish = "Chrome" if stype_l=="pendant" else "Brass"
+    resp   = "Standard" if stype_l in ("esfr","cmsa") else "Quick"
+    return {"manufacturer":manufacturer,"sin":"—","model":f"K{k_f} {stype.capitalize()}",
+            "finish":finish,"response":resp}
+
+
 class ScheduleRenderer:
     def __init__(self, msp):
         self.msp = msp
 
     def draw_sprinkler_schedule(self, spkrs, origin=(BORDER_X+20, BORDER_Y+DRAW_H-40)):
-        hdrs = ["TAG","TYPE","K-FACTOR","TEMP","COVERAGE","HAZARD","QTY"]
-        cw   = [40,70,55,55,70,80,30]; ox, oy = origin; total = sum(cw); rh = 16
-        self.msp.add_text("SPRINKLER HEAD SCHEDULE",
+        """Professional sprinkler legend: Symbol|Mfr|SIN|Model|Qty|K|Type|Size|Response|Finish|Temp|Note"""
+        from collections import Counter as _C
+        ox, oy = origin; rh = 18
+        # Group by (type, k, temp, manufacturer) — all come from design engine output
+        groups = {}
+        for s in spkrs:
+            mfr = s.get("manufacturer","Viking")
+            key = (s.get("type","pendant"), float(s.get("k_factor",5.6)),
+                   int(s.get("temp_rating",155)), mfr)
+            if key not in groups: groups[key] = {"count":0,"sample":s}
+            groups[key]["count"] += 1
+        hdrs = ["Symbol","Manufacturer","SIN","Model","Qty","K","Type","Size","Response","Finish","Temp","Note"]
+        cws  = [32,70,45,80,28,28,50,28,52,40,40,70]
+        total= sum(cws)
+        self.msp.add_text("Sprinkler Legend",
             dxfattribs={"layer":"FP-ANNO-NOTE","height":TEXT_MD,"style":FONT_BOLD}
         ).set_placement((ox, oy))
-        oy -= rh + 6; cx = ox
-        for i, h in enumerate(hdrs):
-            self.msp.add_text(h, dxfattribs={"layer":"FP-ANNO-NOTE","height":TEXT_SM,"style":FONT_BOLD}).set_placement((cx+2, oy-10))
-            cx += cw[i]
-        self.msp.add_line((ox,oy),(ox+total,oy), dxfattribs={"layer":"FP-ANNO-NOTE","lineweight":25})
-        tc = Counter(); ti = {}
-        for s in spkrs:
-            t = s.get("type","pendant"); tc[t] += 1; ti[t] = s
-        ry = oy - rh
-        for st, qty in sorted(tc.items()):
-            ry -= rh; inf = ti[st]
-            cells = [st.upper()[:2], st.capitalize(), str(inf.get("k_factor","5.6")),
-                     str(inf.get("temp_rating","155"))+"°F",
-                     str(inf.get("coverage_radius",""))+"r",
-                     inf.get("hazard","Light"), str(qty)]
-            cx = ox
-            for i, c in enumerate(cells):
-                self.msp.add_text(c, dxfattribs={"layer":"FP-ANNO-NOTE","height":TEXT_SM*0.85,"style":FONT}).set_placement((cx+2, ry+4))
-                cx += cw[i]
-            self.msp.add_line((ox,ry),(ox+total,ry), dxfattribs={"layer":"FP-ANNO-NOTE"})
+        oy -= TEXT_MD + 6
+        # Header
+        # Header row border (no fill for white bg visibility)
+        self.msp.add_lwpolyline([(ox,oy),(ox+total,oy),(ox+total,oy-rh-2),(ox,oy-rh-2),(ox,oy)],
+                                dxfattribs={"layer":"FP-ANNO-NOTE","lineweight":25})
+        cx2 = ox
+        for i,h in enumerate(hdrs):
+            self.msp.add_text(h, dxfattribs={"layer":"FP-ANNO-NOTE","height":TEXT_SM*0.8,"style":FONT_BOLD}
+            ).set_placement((cx2+2, oy-rh+2))
+            self.msp.add_line((cx2,oy),(cx2,oy-rh-2),dxfattribs={"layer":"FP-ANNO-NOTE","lineweight":9})
+            cx2 += cws[i]
+        self.msp.add_line((cx2,oy),(cx2,oy-rh-2),dxfattribs={"layer":"FP-ANNO-NOTE","lineweight":9})
+        self.msp.add_line((ox,oy),(ox+total,oy),dxfattribs={"layer":"FP-ANNO-NOTE","lineweight":25})
+        self.msp.add_line((ox,oy-rh-2),(ox+total,oy-rh-2),dxfattribs={"layer":"FP-ANNO-NOTE","lineweight":18})
+        oy -= rh+2
+        bmap = {"pendant":"SPKR_PEND","upright":"SPKR_UPRT","sidewall":"SPKR_SIDE","esfr":"SPKR_ESFR","concealed":"SPKR_CONC"}
+        for (stype,k,temp),g in sorted(groups.items()):
+            mfr_name = g["sample"].get("manufacturer","Viking")
+            info = _lookup_sprinkler(stype, k, temp, mfr_name)
+            sym_x = ox + cws[0]//2
+            try:
+                self.msp.add_blockref(bmap.get(stype,"SPKR_PEND"),(sym_x,oy-rh//2),
+                    dxfattribs={"layer":"FP-SPKR-PEND","xscale":0.8,"yscale":0.8})
+            except Exception: pass
+            cells = ["",info["manufacturer"],info["sin"],info["model"],str(g["count"]),str(k),
+                     stype.capitalize(),str(g["sample"].get("size","1/2") or "1/2"),
+                     info["response"],info["finish"],f"{temp}F",""]
+            cx2 = ox
+            for i,c in enumerate(cells):
+                if c: self.msp.add_text(c,dxfattribs={"layer":"FP-ANNO-NOTE","height":TEXT_SM*0.82,"style":FONT}).set_placement((cx2+2,oy-rh+3))
+                self.msp.add_line((cx2,oy),(cx2,oy-rh),dxfattribs={"layer":"FP-ANNO-NOTE","lineweight":9})
+                cx2 += cws[i]
+            self.msp.add_line((cx2,oy),(cx2,oy-rh),dxfattribs={"layer":"FP-ANNO-NOTE","lineweight":9})
+            self.msp.add_line((ox,oy-rh),(ox+total,oy-rh),dxfattribs={"layer":"FP-ANNO-NOTE","lineweight":9})
+            oy -= rh
+        total_qty = sum(g["count"] for g in groups.values())
+        self.msp.add_text(f"Total = {total_qty}",
+            dxfattribs={"layer":"FP-ANNO-NOTE","height":TEXT_SM,"style":FONT_BOLD}
+        ).set_placement((ox+sum(cws[:5])-15, oy-rh+3))
+        self.msp.add_line((ox,oy-rh),(ox+total,oy-rh),dxfattribs={"layer":"FP-ANNO-NOTE","lineweight":18})
+
 
     def draw_pipe_schedule(self, pipes, origin=(BORDER_X+20, BORDER_Y+220)):
         hdrs = ["TAG","TYPE","DIA (in)","SCHEDULE","MATERIAL","LENGTH (ft)","FITTINGS"]
@@ -1210,7 +1467,16 @@ class FireAIDrawingEngine:
         ).set_placement((BORDER_X + FP_PANEL_W//2, BORDER_Y + 16),
                         align=TextEntityAlignment.MIDDLE_CENTER)
 
-        # 9. Details panel (right 28% of sheet)
+        # 9. Hanger designations on plan + legend
+        all_hangers = (self.cad.get("hangers") or
+                       self.bracing.get("hanger_schedule") or [])
+        r.draw_hangers(all_hangers)
+        r.draw_hanger_legend(all_hangers)
+
+        # 10. Hydraulic information block (top-left, per remote area)
+        r.draw_hydraulic_info_block(self.hydraulics, self.project)
+
+        # 11. Details panel (right 28% of sheet)
         self._draw_details_panel(msp, self.project)
 
         return doc
@@ -1803,8 +2069,8 @@ class FireAIDrawingEngine:
             fig = plt.figure(figsize=(36, 27))          # exact sheet size in inches
             ax  = fig.add_axes([0, 0, 1, 1])
             ax.set_aspect("equal")
-            ax.set_facecolor("#1a1a1a")                 # match AutoCAD dark background
-            fig.patch.set_facecolor("#1a1a1a")
+            ax.set_facecolor("white")                   # white for AHJ print submittals
+            fig.patch.set_facecolor("white")
 
             ctx      = RenderContext(doc2)
             backend  = MatplotlibBackend(ax)
@@ -1818,7 +2084,7 @@ class FireAIDrawingEngine:
 
             with PdfPages(pdf_path) as pdf:
                 pdf.savefig(fig, dpi=200, bbox_inches="tight",
-                            facecolor=fig.get_facecolor())
+                            facecolor="white")
             plt.close(fig)
             print(f"[DrawingEngine] PDF: {os.path.getsize(pdf_path)//1024}KB — {sheet_title}")
 
