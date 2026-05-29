@@ -201,6 +201,16 @@ def _synthetic(ctx: dict) -> dict:
     """Generate occupancy-appropriate building layout from project specs."""
     area   = float(ctx.get("total_area", 10000))
     floors = int(ctx.get("floors", 1))
+    # Defensive guard: synthetic layout requires a positive floor area and
+    # at least one floor. If we got here with area=0 (or floors=0), the
+    # project context is incomplete — fail with a CLEAR message instead of
+    # crashing later on a ZeroDivisionError when w = sqrt(0) and d = 0/0.
+    if area <= 0 or floors <= 0:
+        raise ValueError(
+            f"Cannot generate building layout: total_area={area}, floors={floors}. "
+            f"Project data is incomplete — verify the document extraction populated "
+            f"area and floors, or enter them manually in the intake form."
+        )
     af     = area / floors
     occ    = ctx.get("occupancy","").lower()
     ch     = float(ctx.get("ceiling_height", 10))
