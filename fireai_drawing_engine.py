@@ -499,10 +499,25 @@ class PlanViewRenderer:
         """
         Draw pipes with professional annotations matching AutoSprink output:
         - Proper lineweights by pipe type
-        - Pipe size labels in "2-1/2\" SCH 40" format
+        - Pipe size labels in "2-1/2\" SCH 40" format — labeled ONCE per
+          distinct (pipe_type, diameter, schedule) run, not every segment.
+          Real drafters don't repeat the size label on every joint; convention
+          carries it along the run until something changes.
+        - Length labels only on MAINS and CROSS-MAINS (not branches), because
+          stamping a length on every 1-2 ft branch segment produces unreadable
+          clutter. Branch geometry is conveyed by the grid + sprinkler spacing.
         - Flow direction arrows on supply mains
         - Filled tee marker at branch junctions
         """
+        # Track which (pipe_type, diameter, schedule) tuples we've already
+        # labeled. The first long-enough segment of a new run gets a label;
+        # subsequent same-run segments do not. Reset every call so labels
+        # appear once per sheet, not once per session.
+        labeled_runs: set = set()
+        # Minimum displayed-length for any annotation (in feet). 6 ft on a
+        # 1/8" = 1'-0" sheet is roughly 3/4" of paper — readable label space.
+        MIN_ANNOTATED_FT = 6.0
+
         for s in pipes:
             fx, fy = self._pt(s["from"]["x"], s["from"]["y"], ox, oy)
             tx, ty = self._pt(s["to"]["x"],   s["to"]["y"],   ox, oy)
@@ -534,12 +549,30 @@ class PlanViewRenderer:
 
             # Pipe SIZE label (FP-ANNO-LABL, ht=9, ROMANS, bylayer color)
             # Pipe LENGTH label (FP-ANNO-DIMS, ht=7.65, ROMANS, color=5/blue)
-            # Only label spans longer than 2ft to match AutoSprink annotation density
+            #
+            # Real drafters label ONCE per run, not every segment:
+            #   - SIZE: only the first long-enough segment of each distinct
+            #           (pipe_type, diameter, schedule) combination.
+            #   - LENGTH: only on mains and cross-mains. Branch lines carry
+            #             too many short segments to label cleanly; their
+            #             lengths come from the grid + sprinkler spacing.
             dia   = s.get("diameter","")
             sched = s.get("schedule","")
             seg_len = s.get("length", 0) or math.hypot(tx-fx, ty-fy) / self.scale
 
-            if seg_len > 2.0 and dia:
+            run_key = (pt, str(dia), str(sched))
+            label_this_size = (
+                dia
+                and seg_len > MIN_ANNOTATED_FT
+                and run_key not in labeled_runs
+            )
+            label_this_length = (
+                pt in ("main", "cross", "xmain")
+                and seg_len > MIN_ANNOTATED_FT
+            )
+
+            if label_this_size:
+                labeled_runs.add(run_key)
                 dia_str = self._format_dia(dia)
                 lbl     = dia_str + '" ' + (sched or "")
                 mx, my  = (fx+tx)/2, (fy+ty)/2
@@ -554,20 +587,19 @@ class PlanViewRenderer:
                     dxfattribs={"layer":"FP-ANNO-LABL","height":9,"style":"ROMANS","rotation":rot}
                 ).set_placement((sx, sy))
 
-            if seg_len > 2.0:
+            if label_this_length:
+                ang_deg = math.degrees(math.atan2(ty-fy, tx-fx))
                 ft_l = int(seg_len); in_l = int(round((seg_len-ft_l)*12))
                 len_lbl = "%d-%02d" % (ft_l, in_l) if in_l else "%d-0" % ft_l
-                if not hasattr(self,'_ang_deg_cache'): self._ang_deg_cache={}
                 mx2,my2 = (fx+tx)/2,(fy+ty)/2
-                if dia and seg_len > 2.0:
-                    perp_opp = ang_deg - 90
-                    lx2 = mx2 + 15*math.cos(math.radians(perp_opp))
-                    ly2 = my2 + 15*math.sin(math.radians(perp_opp))
-                    rot2 = ang_deg if -90<ang_deg<=90 else ang_deg+180
-                    self.msp.add_text(len_lbl,
-                        dxfattribs={"layer":"FP-ANNO-DIMS","height":7.65,
-                                    "style":"ROMANS","rotation":rot2,"color":5}
-                    ).set_placement((lx2, ly2))
+                perp_opp = ang_deg - 90
+                lx2 = mx2 + 15*math.cos(math.radians(perp_opp))
+                ly2 = my2 + 15*math.sin(math.radians(perp_opp))
+                rot2 = ang_deg if -90<ang_deg<=90 else ang_deg+180
+                self.msp.add_text(len_lbl,
+                    dxfattribs={"layer":"FP-ANNO-DIMS","height":7.65,
+                                "style":"ROMANS","rotation":rot2,"color":5}
+                ).set_placement((lx2, ly2))
 
     @staticmethod
     def _format_dia(d) -> str:
@@ -935,21 +967,19 @@ class PlanViewRenderer:
         Number shown comes directly from the design engine's 'designation' field,
         which is determined by structural framing type and pipe size.
         No hardcoded values — every project gets its own hanger numbers.
+
+        Annotation density note: only the SYMBOL is drawn per hanger.
+        The per-hanger numeric designation was previously stamped at every
+        location, producing 1700+ text entities on a Costco-scale plan that
+        rendered the sheet unreadable. The hanger LEGEND (draw_hanger_legend)
+        already explains the designation→type mapping; following standard
+        drafting convention, the symbol on the sheet is enough.
         """
         for h in hangers:
             px, py = self._pt(h["x"], h["y"], ox, oy)
-            # Use the designation number from the design engine output.
-            # Falls back to type-based mapping only if designation not present.
-            num = h.get("designation") or {
-                "clevis":12,"trapeze":9,"rod":1,"wood":24,"u_hook":19,"insert":1
-            }.get(h.get("type","rod"), 1)
             r = 8
             self.msp.add_circle((px,py), r,
                 dxfattribs={"layer":"FP-HNGR","lineweight":9,"color":colors.CYAN})
-            self.msp.add_text(str(num),
-                dxfattribs={"layer":"FP-HNGR","height":TEXT_SM*0.75,
-                            "style":FONT_BOLD,"color":colors.CYAN}
-            ).set_placement((px, py-TEXT_SM*0.35), align=TextEntityAlignment.MIDDLE_CENTER)
 
     def draw_hanger_legend(self, hangers):
         """
