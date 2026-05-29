@@ -94,15 +94,22 @@ class DocumentProcessor:
         try:
             import pdfplumber
             from pdf_building_extractor import find_floor_plan_page
+            from pdf_page_isolator import single_page_pdf
             fp_page_idx = find_floor_plan_page(file_path)
             bw = float(geometry.get("building_dimensions", {}).get("width_ft", 0))
             bh = float(geometry.get("building_dimensions", {}).get("depth_ft", 0))
 
             if bw > 10 and bh > 10:
-                with pdfplumber.open(file_path) as pdf:
-                    page  = pdf.pages[min(fp_page_idx, len(pdf.pages)-1)]
-                    lines = page.lines or []
-                    words = page.extract_words() or []
+                # Isolate the floor-plan page into a tiny temp PDF before
+                # handing it to pdfplumber. Opening the full 156 MB / 192-page
+                # original spikes memory hard enough that Railway SIGKILLs the
+                # container before any Python-level guard can catch it. With
+                # the isolator, pdfplumber only ever sees a single page.
+                with single_page_pdf(file_path, fp_page_idx) as small_pdf:
+                    with pdfplumber.open(small_pdf) as pdf:
+                        page  = pdf.pages[0]   # always page 0 of mini-PDF
+                        lines = page.lines or []
+                        words = page.extract_words() or []
 
                 scale = self._detect_scale(words, lines, project_context)
                 def ft(v): return round(float(v) / scale, 2)
@@ -550,6 +557,7 @@ async def _file_to_image(file_path, file_type, page_index: int = None):
         try:
             import pdfplumber
             from PIL import Image as PILImage
+            from pdf_page_isolator import single_page_pdf
             # Auto-detect the floor plan page if not specified
             if page_index is None:
                 try:
@@ -557,25 +565,30 @@ async def _file_to_image(file_path, file_type, page_index: int = None):
                     page_index = find_floor_plan_page(file_path)
                 except Exception:
                     page_index = 0
-            with pdfplumber.open(file_path) as pdf:
-                if pdf.pages:
-                    pg_idx = min(page_index, len(pdf.pages)-1)
-                    img = pdf.pages[pg_idx].to_image(resolution=100)
-                    buf = io.BytesIO()
-                    img.save(buf, format="PNG")
-                    buf.seek(0)
-                    pil_img = PILImage.open(buf)
-                    w, h = pil_img.size
-                    if w > MAX_PX or h > MAX_PX:
-                        scale = MAX_PX / max(w, h)
-                        pil_img = pil_img.resize(
-                            (int(w*scale), int(h*scale)), PILImage.LANCZOS)
-                        log.info(f"[DocProcessor] PDF image: {w}x{h} → {int(w*scale)}x{int(h*scale)}px")
-                    else:
-                        log.info(f"[DocProcessor] PDF image: {w}x{h}px")
-                    out = io.BytesIO()
-                    pil_img.save(out, format="PNG", optimize=True)
-                    return base64.b64encode(out.getvalue()).decode(), "image/png"
+            # Isolate just the floor-plan page into a tiny temp PDF before
+            # handing it to pdfplumber. On large architectural sets
+            # (e.g. 156 MB / 192-page Costco IFC drawing package), opening
+            # the full PDF spikes memory enough that Railway SIGKILLs the
+            # container before Python can react.
+            with single_page_pdf(file_path, page_index) as small_pdf:
+                with pdfplumber.open(small_pdf) as pdf:
+                    if pdf.pages:
+                        img = pdf.pages[0].to_image(resolution=100)
+                        buf = io.BytesIO()
+                        img.save(buf, format="PNG")
+                        buf.seek(0)
+                        pil_img = PILImage.open(buf)
+                        w, h = pil_img.size
+                        if w > MAX_PX or h > MAX_PX:
+                            scale = MAX_PX / max(w, h)
+                            pil_img = pil_img.resize(
+                                (int(w*scale), int(h*scale)), PILImage.LANCZOS)
+                            log.info(f"[DocProcessor] PDF image: {w}x{h} → {int(w*scale)}x{int(h*scale)}px")
+                        else:
+                            log.info(f"[DocProcessor] PDF image: {w}x{h}px")
+                        out = io.BytesIO()
+                        pil_img.save(out, format="PNG", optimize=True)
+                        return base64.b64encode(out.getvalue()).decode(), "image/png"
         except ImportError:
             log.warning("[DocProcessor] PIL not available — sending raw PDF")
         except Exception as e:
