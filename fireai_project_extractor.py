@@ -163,13 +163,46 @@ class TextExtractor:
         ) or "").strip()
 
     def extract_occupancy(self) -> str:
-        # IBC occupancy group
-        occ = self._first(
-            r'OCCUPANCY\s*(?:GROUP|CLASS(?:IFICATION)?):\s*([^\n]{2,80})',
-            r'(?:USE\s*&?\s*OCCUPANCY|OCCUPANCY TYPE):\s*([^\n]{2,80})',
-            r'GROUP\s*([A-Z]-?\d?[^\n]{0,30})',
+        # IBC occupancy group. The previous regexes were too permissive:
+        # "OCCUPANCY ... JULY 30, 2019" matched and stamped "JULY 30, 2019"
+        # as the occupancy because (a) the patterns ran across line breaks
+        # and (b) there was no validation of the captured value.
+        #
+        # Fix: anchor patterns to a single line (no \n in the value capture),
+        # then validate that the result actually looks like an IBC occupancy
+        # group ('A', 'B', 'S-1', 'Mercantile (Group M)', etc.).
+        raw = self._first(
+            r'OCCUPANCY\s*(?:GROUP|CLASS(?:IFICATION)?)\s*[:=]\s*([^\n\r]{2,80})',
+            r'(?:USE\s*&?\s*OCCUPANCY|OCCUPANCY\s+TYPE)\s*[:=]\s*([^\n\r]{2,80})',
+            r'\bGROUP\s+((?:[A-HRS]-?\d?)\b[^\n\r]{0,30})',
         )
-        return (occ or "").strip()
+        if not raw:
+            return ""
+        candidate = raw.strip().strip(",.;").strip()
+
+        # Reject obvious false positives: a date, a year, a state name,
+        # a code reference, or anything that doesn't contain an occupancy
+        # signal (a single IBC group letter A-H/I/M/R/S/U or a known word).
+        if re.search(r'\b(?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)\w*\s+\d',
+                     candidate, re.I):
+            return ""
+        if re.fullmatch(r'\d{4}|\d{1,2}[/-]\d{1,2}[/-]\d{2,4}', candidate):
+            return ""
+        if re.search(r'\b(IBC|CBC|CFC|NFPA|TABLE|CHAPTER|SECTION)\b', candidate, re.I):
+            return ""
+
+        # Must contain at least one IBC occupancy letter or known word.
+        # Single-letter groups: A, B, E, F, H, I, M, R, S, U
+        OCCUPANCY_WORDS = (
+            "MERCANTILE", "BUSINESS", "ASSEMBLY", "EDUCATIONAL", "FACTORY",
+            "HAZARD", "INSTITUTIONAL", "RESIDENTIAL", "STORAGE", "UTILITY",
+            "OFFICE", "RETAIL", "WAREHOUSE", "INDUSTRIAL", "GROUP",
+        )
+        has_letter = bool(re.search(r'\b(GROUP\s+)?([ABEFHIMRSU])(?:-\d)?\b', candidate))
+        has_word   = any(w in candidate.upper() for w in OCCUPANCY_WORDS)
+        if not (has_letter or has_word):
+            return ""
+        return candidate
 
     def extract_construction_type(self) -> str:
         ct = self._first(
@@ -770,14 +803,11 @@ def synthesize_context(text_data: dict, cover_data: dict, floor_data: dict) -> d
     if not ctx.get("warehouse_hazard"):
         ctx["warehouse_hazard"] = ctx.get("default_hazard", "ordinary_1")
 
-    # Ensure required fields have defaults
-    defaults = {
+    # Designer-decision defaults — these are reasonable starting points the
+    # designer will confirm; they're labeled clearly downstream as defaults.
+    designer_defaults = {
         "system_type":         "Wet Pipe",
         "floors":              ctx.get("number_of_stories", 1),
-        "static_pressure":     72,
-        "residual_pressure":   60,
-        "water_supply_flow":   1500,
-        "seismic_zone":        "D1",
         "spare_heads":         12,
         "sprinkler_manufacturer": "Viking",
         "pipe_material":       "Schedule 40 Steel",
@@ -785,9 +815,52 @@ def synthesize_context(text_data: dict, cover_data: dict, floor_data: dict) -> d
         "nfpa_edition":        "Current Edition",
         "ibc_year":            "2021",
     }
-    for k, v in defaults.items():
+    for k, v in designer_defaults.items():
         if not ctx.get(k):
             ctx[k] = v
+
+    # CRITICAL — water supply values must NEVER be auto-populated.
+    # The previous version stamped static_pressure=72, residual_pressure=60,
+    # water_supply_flow=1500 on every project regardless of source data.
+    # These numbers come from a hydrant flow-test report, which is a separate
+    # document the contractor commissions on site. Inventing them is the
+    # single most dangerous default in a fire-sprinkler design: a downstream
+    # hydraulic calc fed with fake supply pressure produces a system that
+    # looks compliant on paper but fails on the real water main.
+    # If they're not extracted, leave them missing and flag for PE review.
+    needs_review = ctx.setdefault("_needs_review", [])
+    for key in ("static_pressure", "residual_pressure", "water_supply_flow"):
+        if not ctx.get(key) and key not in needs_review:
+            needs_review.append(key)
+
+    # Seismic zone — derive from address state if not in the drawings,
+    # don't fabricate "D1" on a North Dakota project.
+    if not ctx.get("seismic_zone"):
+        loc = (ctx.get("location") or "") + " " + (ctx.get("address") or "")
+        state_zones = {
+            "CA":"D1","OR":"D1","WA":"D1","NV":"D1","AK":"D2",
+            "UT":"C","AZ":"C","MT":"B","ID":"C",
+            "ND":"B","SD":"B","MN":"B","WI":"B","MI":"B",
+            "IL":"B","OH":"B","IN":"B","IA":"B","NE":"B",
+            "TX":"B","OK":"C","KS":"B","MO":"C",
+            "SC":"D1","TN":"C","AL":"B","GA":"B","FL":"B",
+        }
+        for state, zone in state_zones.items():
+            if re.search(r'\b' + state + r'\b', loc):
+                ctx["seismic_zone"] = zone
+                ctx["_seismic_source"] = f"derived from state ({state})"
+                break
+
+    # AHJ — derive from address city if not extracted.
+    # Was hardcoded to 'Sacramento'-style fallback elsewhere; here we
+    # produce a city-based AHJ from the location field, or flag for review.
+    if not ctx.get("ahj_jurisdiction"):
+        loc = (ctx.get("location") or ctx.get("address") or "").strip()
+        # Try "City, ST" pattern
+        m = re.search(r'\b([A-Z][A-Za-z]+(?:\s+[A-Z][A-Za-z]+){0,2}),\s*([A-Z]{2})\b', loc)
+        if m:
+            ctx["ahj_jurisdiction"] = f"{m.group(1).strip()} Fire Department"
+            ctx["_ahj_source"] = "derived from address"
 
     return ctx
 
