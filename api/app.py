@@ -413,55 +413,73 @@ async def generate_upload(
             # Extract room boundaries, walls, structural grid from the floor plan.
             # This produces the geometry dict used by NFPA13DesignEngine.
             #
-            # Hardened with a timeout + fallback: the heavy DocProcessor opens the
-            # full PDF with pdfplumber and renders the floor-plan page, which on
-            # large architectural sets (156 MB / 192-page Costco) has been known
-            # to hang or be killed by the platform. If it does, we DO NOT fail the
-            # job — we fall through to the design engine using the rooms already
-            # extracted by project_extractor (which ran successfully earlier).
+            # SKIP DocProcessor for large PDFs:
+            # On a 150+ MB / 100+ page architectural set, fireai_document_processor's
+            # full-PDF pdfplumber.open() spikes memory enough that the Linux kernel
+            # SIGKILLs the container before any Python-level timeout or try/except
+            # can catch it (confirmed repeatedly in Railway logs: 8 minutes silence
+            # then "Starting Container" restart, with no exception ever raised).
+            # In that case, we bypass DocProcessor entirely and let the design
+            # engine use the rooms already extracted by project_extractor's text
+            # + Claude-vision pass (which has been completing reliably in ~2 min
+            # with correct area, hazard, and room count).
             _set_job(job_id, stage="doc_analysis",
                      message="Extracting building geometry...")
 
-            DOC_PROCESSOR_TIMEOUT_S = 240   # 4 minutes hard cap
+            # Threshold chosen well below the smallest known crash size (~156 MB).
+            # Files below this run DocProcessor normally; above, we skip it.
+            LARGE_FILE_BYTES = 50 * 1024 * 1024   # 50 MB
+            DOC_PROCESSOR_TIMEOUT_S = 240         # 4 min hard cap for the small-file path
+            total_bytes = sum(len(f["bytes"]) for f in file_list)
+            skip_doc_processor = total_bytes > LARGE_FILE_BYTES
+
             geometry = {}
-            try:
-                if len(file_list) == 1:
-                    geometry = await asyncio.wait_for(
-                        handle_upload(file_list[0]["bytes"],
-                                      file_list[0]["filename"], ctx),
-                        timeout=DOC_PROCESSOR_TIMEOUT_S)
-                    log.info(f"[{job_id}] Single doc: "
-                             f"{len(geometry.get('rooms',[]))} rooms, "
-                             f"{len(geometry.get('walls',[]))} walls")
-                else:
-                    geometry = await asyncio.wait_for(
-                        handle_document_set(file_list, ctx),
-                        timeout=DOC_PROCESSOR_TIMEOUT_S)
-                    log.info(f"[{job_id}] Doc set ({len(file_list)} files): "
-                             f"{len(geometry.get('rooms',[]))} rooms")
-                    ws = geometry.get("water_supply", {})
-                    if ws.get("static_pressure_psi"):   ctx["static_pressure"]   = ws["static_pressure_psi"]
-                    if ws.get("residual_pressure_psi"): ctx["residual_pressure"] = ws["residual_pressure_psi"]
-                    if ws.get("flow_gpm"):              ctx["water_supply_flow"] = ws["flow_gpm"]
-                    if geometry.get("spec", {}).get("pipe_material"): ctx.setdefault("pipe_material", geometry["spec"]["pipe_material"])
-                    if geometry.get("spec", {}).get("seismic_zone"):  ctx.setdefault("seismic_zone",  geometry["spec"]["seismic_zone"])
-            except asyncio.TimeoutError:
-                log.warning(f"[{job_id}] DocProcessor exceeded "
-                            f"{DOC_PROCESSOR_TIMEOUT_S}s — proceeding with "
-                            f"project_extractor rooms only "
-                            f"({len(ctx.get('rooms', []))} rooms from text+vision)")
-                geometry = {}
-            except Exception as e:
-                log.warning(f"[{job_id}] DocProcessor failed ({type(e).__name__}: {e}) "
-                            f"— proceeding with project_extractor rooms only "
-                            f"({len(ctx.get('rooms', []))} rooms)",
-                            exc_info=True)
-                geometry = {}
+            if skip_doc_processor:
+                log.warning(
+                    f"[{job_id}] Skipping DocProcessor — upload is {total_bytes/1e6:.1f} MB "
+                    f"(> {LARGE_FILE_BYTES/1e6:.0f} MB threshold). "
+                    f"Using project_extractor rooms only "
+                    f"({len(ctx.get('rooms', []))} rooms, {ctx.get('total_area', 0)} SF)."
+                )
+            else:
+                try:
+                    if len(file_list) == 1:
+                        geometry = await asyncio.wait_for(
+                            handle_upload(file_list[0]["bytes"],
+                                          file_list[0]["filename"], ctx),
+                            timeout=DOC_PROCESSOR_TIMEOUT_S)
+                        log.info(f"[{job_id}] Single doc: "
+                                 f"{len(geometry.get('rooms',[]))} rooms, "
+                                 f"{len(geometry.get('walls',[]))} walls")
+                    else:
+                        geometry = await asyncio.wait_for(
+                            handle_document_set(file_list, ctx),
+                            timeout=DOC_PROCESSOR_TIMEOUT_S)
+                        log.info(f"[{job_id}] Doc set ({len(file_list)} files): "
+                                 f"{len(geometry.get('rooms',[]))} rooms")
+                        ws = geometry.get("water_supply", {})
+                        if ws.get("static_pressure_psi"):   ctx["static_pressure"]   = ws["static_pressure_psi"]
+                        if ws.get("residual_pressure_psi"): ctx["residual_pressure"] = ws["residual_pressure_psi"]
+                        if ws.get("flow_gpm"):              ctx["water_supply_flow"] = ws["flow_gpm"]
+                        if geometry.get("spec", {}).get("pipe_material"): ctx.setdefault("pipe_material", geometry["spec"]["pipe_material"])
+                        if geometry.get("spec", {}).get("seismic_zone"):  ctx.setdefault("seismic_zone",  geometry["spec"]["seismic_zone"])
+                except asyncio.TimeoutError:
+                    log.warning(f"[{job_id}] DocProcessor exceeded "
+                                f"{DOC_PROCESSOR_TIMEOUT_S}s — proceeding with "
+                                f"project_extractor rooms only "
+                                f"({len(ctx.get('rooms', []))} rooms from text+vision)")
+                    geometry = {}
+                except Exception as e:
+                    log.warning(f"[{job_id}] DocProcessor failed ({type(e).__name__}: {e}) "
+                                f"— proceeding with project_extractor rooms only "
+                                f"({len(ctx.get('rooms', []))} rooms)",
+                                exc_info=True)
+                    geometry = {}
 
             # Rooms from geometry extractor override rooms from project extractor
             # (geometry extractor has actual floor plan coordinates).
-            # If geometry is empty (fallback path), ctx["rooms"] from
-            # project_extractor remains, so the design engine still has data.
+            # If geometry is empty (skip path or fallback path), ctx["rooms"]
+            # from project_extractor remains, so the design engine still has data.
             if geometry.get("rooms") and not ctx.get("_rooms_from_user"):
                 ctx["rooms"] = geometry["rooms"]
 
