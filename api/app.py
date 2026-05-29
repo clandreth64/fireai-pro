@@ -343,8 +343,14 @@ async def generate_upload(
     file_names = [f.filename for f in files]
     log.info(f"[{job_id}] Received {len(files)} document(s): {', '.join(file_names)}")
 
+    # IMPORTANT: status is "processing" (NOT "queued") so the autonomous
+    # dispatcher in dispatcher.py — which polls for status='queued' — cannot
+    # grab this job mid-extraction. The upload handler below runs extraction
+    # to completion and then calls _run_job() directly with full geometry.
+    # Changing this single value back to "queued" reintroduces a race that
+    # crashes the design engine with empty inputs.
     _set_job(job_id,
-             status="queued", stage="queued",
+             status="processing", stage="doc_analysis",
              message=f"Received {len(files)} document(s) — analyzing...",
              project=ctx.get("project_name", "Unnamed"),
              project_context=ctx,
@@ -385,12 +391,15 @@ async def generate_upload(
                              message=f"Extracting project data from {doc['filename']}...")
                     extracted = await extract_project_context(tmp_path, run_vision=True)
 
-                    # Merge into ctx — extracted values fill in only what's missing
+                    # Merge into ctx — extracted values fill in only what's missing.
+                    # Numeric 0 / 0.0 are also treated as "empty" so that frontend
+                    # placeholder zeros (e.g. total_area=0) get correctly overwritten
+                    # by real extracted values from the drawings.
                     filled = 0
                     for k, v in extracted.items():
                         if v is None or v == "" or v == [] or v == {}:
                             continue
-                        if k not in ctx or ctx[k] in (None, "", [], {}):
+                        if k not in ctx or ctx[k] in (None, "", [], {}, 0, 0.0):
                             ctx[k] = v
                             filled += 1
                     log.info(f"[{job_id}] Extracted {filled} fields from {doc['filename']}")
