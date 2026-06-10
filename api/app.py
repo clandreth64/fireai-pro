@@ -358,14 +358,36 @@ async def generate_upload(
              selected_formats=formats,
              document_count=len(files))
 
+    # ── Stream uploads to disk — do NOT read into RAM ────────────────────────
+    # `await f.read()` materializes the entire upload (e.g. a 156 MB scanned
+    # set) as one bytes object in memory. On a memory-constrained container the
+    # kernel OOM-kills the process mid-request before any 202 is returned, and
+    # the client sees ERR_HTTP2_PROTOCOL_ERROR (connection reset, no response).
+    # Copying each spooled upload to a temp file in fixed-size chunks keeps peak
+    # memory at the chunk size regardless of how large the file is. The copy is
+    # offloaded to a thread so it never blocks the event loop.
+    import tempfile, shutil
+    _CHUNK = 1024 * 1024  # 1 MB
+
+    def _stream_to_temp(upload, suffix):
+        fd, path = tempfile.mkstemp(suffix=suffix)
+        with os.fdopen(fd, "wb") as out:
+            shutil.copyfileobj(upload.file, out, _CHUNK)
+        return path
+
     file_list = []
     for f in files:
-        file_bytes = await f.read()
-        file_list.append({"bytes": file_bytes, "filename": f.filename or "upload.pdf"})
+        suffix   = os.path.splitext(f.filename or "upload.pdf")[1] or ".pdf"
+        tmp_path = await asyncio.to_thread(_stream_to_temp, f, suffix)
+        await f.close()
+        file_list.append({"path":     tmp_path,
+                          "filename": f.filename or "upload.pdf",
+                          "size":     os.path.getsize(tmp_path)})
+    log.info(f"[{job_id}] Streamed {len(file_list)} file(s) to disk — "
+             f"{sum(d['size'] for d in file_list)/1e6:.1f} MB total")
 
     async def run_with_documents():
         try:
-            import tempfile, os
 
             # ── STAGE 1: PROJECT CONTEXT EXTRACTION ──────────────────────────
             # For every uploaded PDF, run the project extractor to fill in all
@@ -382,14 +404,12 @@ async def generate_upload(
                 # Only extract from PDFs (DXFs/IFCs go straight to geometry)
                 if not fname.endswith(".pdf"):
                     continue
-                # Write to temp file so extractor can read it
-                with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
-                    tmp.write(doc["bytes"])
-                    tmp_path = tmp.name
+                # File is already on disk from the streaming step — use it directly
+                # (no second in-memory copy). One bad file must not kill the job.
                 try:
                     _set_job(job_id, stage="doc_analysis",
                              message=f"Extracting project data from {doc['filename']}...")
-                    extracted = await extract_project_context(tmp_path, run_vision=True)
+                    extracted = await extract_project_context(doc["path"], run_vision=True)
 
                     # Merge into ctx — extracted values fill in only what's missing.
                     # Numeric 0 / 0.0 are also treated as "empty" so that frontend
@@ -403,9 +423,10 @@ async def generate_upload(
                             ctx[k] = v
                             filled += 1
                     log.info(f"[{job_id}] Extracted {filled} fields from {doc['filename']}")
-                finally:
-                    try: os.unlink(tmp_path)
-                    except: pass
+                except Exception as e:
+                    log.warning(f"[{job_id}] Project extraction failed on "
+                                f"{doc['filename']} ({type(e).__name__}: {e}) "
+                                f"— continuing with what we have", exc_info=True)
 
             log.info(f"[{job_id}] Context after extraction: "                     f"project='{ctx.get('project_name','?')}' "                     f"area={ctx.get('total_area','?')} "                     f"hazard={ctx.get('warehouse_hazard','?')}")
 
@@ -430,7 +451,7 @@ async def generate_upload(
             # Files below this run DocProcessor normally; above, we skip it.
             LARGE_FILE_BYTES = 50 * 1024 * 1024   # 50 MB
             DOC_PROCESSOR_TIMEOUT_S = 240         # 4 min hard cap for the small-file path
-            total_bytes = sum(len(f["bytes"]) for f in file_list)
+            total_bytes = sum(f["size"] for f in file_list)
             skip_doc_processor = total_bytes > LARGE_FILE_BYTES
 
             geometry = {}
@@ -442,18 +463,28 @@ async def generate_upload(
                     f"({len(ctx.get('rooms', []))} rooms, {ctx.get('total_area', 0)} SF)."
                 )
             else:
+                # Small set (< 50 MB): safe to read bytes from disk for the
+                # bytes-based DocProcessor APIs without risking an OOM.
+                def _read_bytes(path):
+                    with open(path, "rb") as fh:
+                        return fh.read()
                 try:
                     if len(file_list) == 1:
+                        _fb = await asyncio.to_thread(_read_bytes, file_list[0]["path"])
                         geometry = await asyncio.wait_for(
-                            handle_upload(file_list[0]["bytes"],
-                                          file_list[0]["filename"], ctx),
+                            handle_upload(_fb, file_list[0]["filename"], ctx),
                             timeout=DOC_PROCESSOR_TIMEOUT_S)
                         log.info(f"[{job_id}] Single doc: "
                                  f"{len(geometry.get('rooms',[]))} rooms, "
                                  f"{len(geometry.get('walls',[]))} walls")
                     else:
+                        _byte_list = [
+                            {"bytes": await asyncio.to_thread(_read_bytes, d["path"]),
+                             "filename": d["filename"]}
+                            for d in file_list
+                        ]
                         geometry = await asyncio.wait_for(
-                            handle_document_set(file_list, ctx),
+                            handle_document_set(_byte_list, ctx),
                             timeout=DOC_PROCESSOR_TIMEOUT_S)
                         log.info(f"[{job_id}] Doc set ({len(file_list)} files): "
                                  f"{len(geometry.get('rooms',[]))} rooms")
@@ -489,6 +520,13 @@ async def generate_upload(
             log.exception(f"[{job_id}] Document processing failed: {e}")
             _set_job(job_id, status="failed", stage="error", message=str(e),
                      completed_at=datetime.utcnow().isoformat())
+        finally:
+            # Remove the temp files we streamed to disk, whatever happened.
+            for doc in file_list:
+                try:
+                    os.unlink(doc["path"])
+                except OSError:
+                    pass
 
     background_tasks.add_task(run_with_documents)
     return {"job_id": job_id, "status": "queued",
