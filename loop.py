@@ -1,75 +1,71 @@
-# FireAI Pro — Agentic Runtime (stage 2: verify-repair loop)
+"""
+Demo: the extraction self-check sub-agent on two extractions —
 
-The first closed loop in the system. A design is never emitted until it either
-passes NFPA 13 or is escalated to a human PE with a clear reason.
+  1. a clean vector set (everything found, plausible)        -> confident
+  2. a Costco-like scanned set (sparse, supply missing)      -> needs human
 
-```
-design  ->  audit  ->  compliant?  --yes-->  done
-                          |  no
-                          v
-                       repair the specific violations
-                          |
-                          +--> re-design (capped at MAX_ITERATIONS)
-                          |
-                       no safe fix?  --> escalate to human PE
-```
+For the confident case we chain straight into the stage-2 verify-repair loop,
+showing the full runtime plane: extract-check -> design-with-repair.
 
-## Files
+Uses grade_extraction (pure, no API) so it runs anywhere.
 
-```
-auditor.py   reads compliance flags off a design -> classified Violations
-repair.py    maps a Violation to a real engineering fix (or None -> escalate)
-loop.py      the loop: design -> audit -> repair -> re-design, with full trace
-demo.py      runnable example on a starved supply
-```
+    python -m agentic.demo_extraction
+"""
+from __future__ import annotations
+from .extraction_check import grade_extraction
+from .loop import run_design_with_repair
 
-`loop.py` calls your real `NFPA13DesignEngine` directly. No network, no API key.
 
-## Run the demo
+def _show(title, extracted):
+    print(f"\n=== {title} ===")
+    report = grade_extraction(extracted)
+    print(f"verdict: {report.summary()}\n")
+    for fr in report.fields.values():
+        flag = {"ok": " ", "repaired": "~", "needs_human": "!"}[fr.status]
+        print(f"  [{flag}] {fr.name:<18} {str(fr.value):<14} "
+              f"{fr.confidence:<7} {fr.reason}")
+    if report.needs_human:
+        print("\n  A person must confirm before designing:")
+        for fr in report.needs_human:
+            print(f"    - {fr.human_label}: {fr.reason}")
+    return report
 
-```bash
-python -m agentic.demo
-```
 
-You'll see a starved ESFR warehouse hit a §22 supply deficit, the loop size a
-fire pump to cover it (deficit + 10 psi margin), and the re-design come back
-compliant — with the pump recorded as an explicit decision for the PE.
+# 1. Clean vector set — full, plausible
+clean = {
+    "occupancy": "warehouse storage",
+    "total_area": 60000,
+    "ceiling_height": 30,
+    "static_pressure": 95,
+    "residual_pressure": 82,
+    "water_supply_flow": 2500,
+    "seismic_zone": "D1",
+}
 
-## Use it
+# 2. Costco-like scanned set — occupancy + a guess at area survived OCR,
+#    but ceiling and the whole flow-test trio never came through.
+costco_like = {
+    "occupancy": "warehouse",
+    "total_area": 0,
+    "ceiling_height": None,
+    "static_pressure": None,
+    "residual_pressure": None,
+    "water_supply_flow": None,
+    "seismic_zone": None,
+}
 
-```python
-from agentic.loop import run_design_with_repair
 
-result = run_design_with_repair(ctx, geo=None, max_iterations=4)
+if __name__ == "__main__":
+    r1 = _show("clean vector set", clean)
+    if r1.confident:
+        print("\n  -> confident: handing ctx to the verify-repair loop...")
+        loop = run_design_with_repair(r1.ctx)
+        d = loop.design
+        print(f"     design loop: {loop.status} | "
+              f"sprinklers={d.get('design_metadata',{}).get('total_sprinklers')} | "
+              f"compliant={d.get('compliant')}")
 
-result.status      # "compliant" | "escalated" | "max_iterations"
-result.design      # the final design dict (engine output)
-result.decisions   # engineering decisions the loop made (e.g. fire pump)
-result.trace       # per-iteration record of violations + repairs
-result.escalation  # why a human is needed (when status != compliant)
-```
-
-Drop this in front of the bare `NFPA13DesignEngine(...).design()` call in
-`api/app.py`'s `_run_job` and every generated design now self-corrects before
-it reaches output.
-
-## The two rules that keep this safe
-
-1. **Repairs are real engineering, never checker-gaming.** A §22 repair sizes a
-   fire pump to the computed deficit — the actual real-world fix — and records
-   it for the PE. It never just inflates a number to silence the flag.
-
-2. **When there's no safe fix, it escalates — it does not guess.** Head-spacing
-   (§8.5.2) and unknown violations have no tunable input in this engine, so the
-   loop hands them to a human rather than fabricating a repair. Better a clear
-   "PE required" than a confident wrong design.
-
-## How this connects to the rest
-
-- The **eval harness** (`evals/`) is how you prove a change to this loop didn't
-  regress anything: the `insufficient_pressure` project is already a test that
-  the loop's pump logic stays correct.
-- **Stage 3** adds repair strategies for more violation kinds and turns
-  extraction into a self-checking sub-agent (the Costco scanned-PDF path).
-- **Stage 4** (the meta-loop) watches these traces — escalations and repeated
-  repairs are exactly the telemetry the analyst agent mines for what to improve.
+    r2 = _show("Costco-like scanned set", costco_like)
+    if not r2.confident:
+        print("\n  -> NOT confident: design loop is blocked until the fields "
+              "above are confirmed. No guessed design ships.")
