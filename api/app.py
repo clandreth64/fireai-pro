@@ -58,6 +58,21 @@ from improvement_loop   import (
 # Layer 4 — fast document analysis for UI form auto-population
 from document_analyzer import analyze_document_set
 
+# ── Agentic runtime (stages 2–4) ──────────────────────────────────────────────
+# Verify-repair loop, extraction self-check, and telemetry. Imported defensively:
+# if the agentic/ package isn't deployed yet, the app still runs with its
+# original behavior instead of failing to start.
+try:
+    from agentic.loop import run_design_with_repair
+    from agentic.extraction_check import grade_extraction
+    from agentic.meta import telemetry as agent_telemetry
+    _AGENTIC = True
+except Exception as _agentic_err:  # pragma: no cover
+    _AGENTIC = False
+    logging.getLogger("fireai.api").warning(
+        "Agentic modules unavailable (%s) — running without verify-repair/self-check",
+        _agentic_err)
+
 log = logging.getLogger("fireai.api")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s [%(name)s] %(message)s")
 
@@ -115,13 +130,44 @@ async def _run_job(job_id: str, project_context: dict,
     job_output_dir.mkdir(parents=True, exist_ok=True)
 
     try:
-        # ── Step 1: NFPA 13 design engine ────────────────────────────────────
+        # ── Step 1: NFPA 13 design engine (verify-repair loop) ───────────────
         _set_job(job_id, status="running", stage="design",
                  message="Running NFPA 13 design engine...")
         log.info(f"[{job_id}] Running NFPA 13 design engine")
 
-        design_engine = NFPA13DesignEngine(geometry or {}, project_context)
-        design_output = design_engine.design()
+        # Defaults so the later _set_job has these in scope regardless of path.
+        repair_decisions: list = []
+        design_loop_status: str = "compliant"
+        design_escalation: str = ""
+
+        if _AGENTIC:
+            # Stage 2: design -> audit -> repair -> re-design, capped, with
+            # escalation to a human when there's no safe automated fix.
+            loop_result = run_design_with_repair(project_context, geometry or {})
+            design_output      = loop_result.design
+            repair_decisions   = loop_result.decisions
+            design_loop_status = loop_result.status
+            design_escalation  = loop_result.escalation
+
+            # Stage 4: feed the meta-loop. Record each repair and any escalation.
+            try:
+                _proj = project_context.get("project_name")
+                for _d in loop_result.decisions:
+                    agent_telemetry.record_repair(
+                        next(iter(_d.keys()), "repair"), project=_proj)
+                if loop_result.status != "compliant":
+                    agent_telemetry.record_escalation(
+                        loop_result.escalation or "design", project=_proj)
+            except Exception as _te:
+                log.warning(f"[{job_id}] telemetry record failed (non-fatal): {_te}")
+
+            log.info(f"[{job_id}] Verify-repair loop: {loop_result.status} "
+                     f"({loop_result.iterations} iteration(s), "
+                     f"{len(repair_decisions)} engineering decision(s))")
+        else:
+            design_engine = NFPA13DesignEngine(geometry or {}, project_context)
+            design_output = design_engine.design()
+
         log.info(f"[{job_id}] Design engine complete — "
                  f"{len(design_output.get('sprinkler_placements',[]))} sprinklers | "
                  f"{design_output.get('flow_demand',0):.0f} gpm @ "
@@ -241,6 +287,10 @@ async def _run_job(job_id: str, project_context: dict,
             completed_at      = datetime.utcnow().isoformat(),
             requires_human_review = orch_result.get("requires_human_review", False),
             frozen_violations     = orch_result["metadata"].get("frozen_violations", []),
+            # Verify-repair loop outcome (stage 2)
+            repair_decisions      = repair_decisions,
+            design_loop_status    = design_loop_status,
+            design_escalation     = design_escalation,
         )
 
         # Layer 3: log performance for tonight's improvement cycle
@@ -388,6 +438,10 @@ async def generate_upload(
 
     async def run_with_documents():
         try:
+            # Snapshot user-entered values (from the form) before extraction fills
+            # gaps — the self-check trusts these over anything pulled from the PDF.
+            user_ctx = {k: v for k, v in ctx.items()
+                        if v not in (None, "", 0, 0.0, [], {})}
 
             # ── STAGE 1: PROJECT CONTEXT EXTRACTION ──────────────────────────
             # For every uploaded PDF, run the project extractor to fill in all
@@ -429,6 +483,36 @@ async def generate_upload(
                                 f"— continuing with what we have", exc_info=True)
 
             log.info(f"[{job_id}] Context after extraction: "                     f"project='{ctx.get('project_name','?')}' "                     f"area={ctx.get('total_area','?')} "                     f"hazard={ctx.get('warehouse_hazard','?')}")
+
+            # ── Extraction self-check (stage 3) ───────────────────────────────
+            # Grade the assembled context. Fields that came back missing or
+            # implausible (especially the flow-test supply trio on a scanned set)
+            # get flagged for the user to confirm, and recorded as telemetry for
+            # the meta-loop. Safe defaults (e.g. seismic D1) are applied. We still
+            # proceed to design — the verify-repair loop will escalate on §22 if
+            # supply is truly absent — but the user is told exactly what to check.
+            if _AGENTIC:
+                try:
+                    report = grade_extraction(ctx, prior_ctx=user_ctx)
+                    if not report.confident:
+                        needs = [{"field": fr.name, "label": fr.human_label,
+                                  "reason": fr.reason} for fr in report.needs_human]
+                        _set_job(job_id, needs_confirmation=needs)
+                        for fr in report.needs_human:
+                            agent_telemetry.record_extraction_gap(
+                                fr.name, doc_type="upload",
+                                project=ctx.get("project_name"))
+                        log.warning(
+                            f"[{job_id}] Extraction self-check: "
+                            f"{len(needs)} field(s) need confirmation: "
+                            + ", ".join(fr.name for fr in report.needs_human))
+                    # Apply safe defaults the grader added, without clobbering.
+                    for k, v in report.ctx.items():
+                        if v not in (None, "", [], {}) and ctx.get(k) in (None, "", 0, 0.0):
+                            ctx[k] = v
+                except Exception as _se:
+                    log.warning(f"[{job_id}] Extraction self-check skipped "
+                                f"({type(_se).__name__}: {_se})")
 
             # ── STAGE 2: BUILDING GEOMETRY EXTRACTION ─────────────────────────
             # Extract room boundaries, walls, structural grid from the floor plan.
