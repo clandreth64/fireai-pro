@@ -1,0 +1,20 @@
+{
+  "id": "ordinary2_kitchen",
+  "description": "Ordinary-2 commercial kitchen / receiving",
+  "ctx": {
+    "occupancy": "kitchen receiving",
+    "total_area": 16000,
+    "ceiling_height": 16,
+    "static_pressure": 90,
+    "residual_pressure": 76,
+    "water_supply_flow": 2200,
+    "seismic_zone": "D2",
+    "pipe_material": "Schedule 40 Steel"
+  },
+  "expect": {
+    "compliant": true,
+    "max_critical_flags": 0,
+    "must_pass_sections": ["§8.5.2", "§22"],
+    "metrics": { "total_sprinklers": { "min": 1 } }
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "id": "light_office",
+  "description": "Light-hazard office, ample supply",
+  "ctx": {
+    "occupancy": "office",
+    "total_area": 12000,
+    "ceiling_height": 10,
+    "static_pressure": 75,
+    "residual_pressure": 64,
+    "water_supply_flow": 1500,
+    "seismic_zone": "D1",
+    "pipe_material": "Schedule 40 Steel"
+  },
+  "expect": {
+    "compliant": true,
+    "max_critical_flags": 0,
+    "must_pass_sections": ["§8.5.2", "§22"],
+    "metrics": { "total_sprinklers": { "min": 1 } }
+  }
+}

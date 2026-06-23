@@ -1,0 +1,81 @@
+"""
+Compare a suite report's metrics to a saved baseline.
+
+This is the fitness function the self-improvement meta-loop calls. After an
+agent proposes a change, the loop runs the suite and asks this module one
+question: did the change REGRESS, IMPROVE, or merely shift the suite?
+
+  * Regression (hard, blocks merge): a project that was compliant becomes
+    non-compliant, or its critical-flag count rises. These are correctness
+    losses and the gate must fail on them.
+
+  * Change (informational): a metric moved beyond tolerance but isn't a
+    correctness loss — surfaced for human review, not an automatic block.
+"""
+from __future__ import annotations
+import json
+
+# Per-metric tolerance as (absolute, relative). A value has "moved" only if
+# it changes by more than BOTH thresholds — this suppresses float noise while
+# still catching real shifts. Counts use exact comparison (0, 0.0).
+TOL = {
+    "total_sprinklers":    (0, 0.0),
+    "bom_items":           (0, 0.0),
+    "flow_demand":         (1.0, 0.02),
+    "required_pressure":   (0.5, 0.02),
+    "pressure_delta":      (0.5, 0.02),
+    "total_material_cost": (50.0, 0.02),
+    "flags_total":         (0, 0.0),
+    "critical_flags":      (0, 0.0),
+}
+
+
+def _moved(name: str, a, b) -> bool:
+    if isinstance(a, bool) or isinstance(b, bool):
+        return a != b
+    abs_t, rel_t = TOL.get(name, (0, 0.0))
+    delta = abs((b or 0) - (a or 0))
+    return delta > abs_t and delta > rel_t * abs(a or 1)
+
+
+def metrics_map(report: dict) -> dict:
+    return {r["id"]: r["metrics"] for r in report["results"] if r.get("metrics")}
+
+
+def diff(baseline: dict, current: dict) -> dict:
+    """baseline / current are {project_id: metrics}."""
+    regressions: list[tuple[str, str]] = []
+    changes: list[tuple[str, str]] = []
+
+    for pid, cur in current.items():
+        base = baseline.get(pid)
+        if base is None:
+            changes.append((pid, "new project — no baseline yet"))
+            continue
+
+        # Hard regressions: correctness losses.
+        if base.get("compliant") and not cur.get("compliant"):
+            regressions.append((pid, "compliant: true → false"))
+        if cur.get("critical_flags", 0) > base.get("critical_flags", 0):
+            regressions.append(
+                (pid, f"critical flags: {base.get('critical_flags')} "
+                      f"→ {cur.get('critical_flags')}"))
+
+        # Informational drift on everything else.
+        for m, cval in cur.items():
+            if m in ("compliant", "critical_flags"):
+                continue
+            if _moved(m, base.get(m), cval):
+                changes.append((pid, f"{m}: {base.get(m)} → {cval}"))
+
+    return {"regressions": regressions, "changes": changes}
+
+
+def load(path: str) -> dict:
+    with open(path) as fh:
+        return json.load(fh)
+
+
+def save(path: str, report: dict) -> None:
+    with open(path, "w") as fh:
+        json.dump(metrics_map(report), fh, indent=2, sort_keys=True)

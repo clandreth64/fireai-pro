@@ -1,0 +1,20 @@
+{
+  "id": "insufficient_pressure",
+  "description": "Negative test: ESFR warehouse on a starved supply must flag §22",
+  "ctx": {
+    "occupancy": "warehouse storage",
+    "total_area": 80000,
+    "ceiling_height": 35,
+    "static_pressure": 38,
+    "residual_pressure": 28,
+    "water_supply_flow": 450,
+    "seismic_zone": "D1",
+    "pipe_material": "Schedule 40 Steel"
+  },
+  "expect": {
+    "compliant": false,
+    "max_critical_flags": 5,
+    "must_flag_sections": ["§22"],
+    "metrics": { "total_sprinklers": { "min": 1 } }
+  }
+}
