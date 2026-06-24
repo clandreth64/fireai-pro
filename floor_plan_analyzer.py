@@ -382,7 +382,7 @@ def analyze_with_anthropic(images: List[str], media_type: str = "image/png") -> 
                 "anthropic-version": "2023-06-01"
             },
             json={
-                "model": "claude-sonnet-4-20250514",
+                "model": os.getenv("FIREAI_MODEL", "claude-sonnet-4-6"),
                 "max_tokens": 4096,
                 "messages": [
                     {"role": "user", "content": content}
