@@ -181,6 +181,7 @@ async def _run_job(job_id: str, project_context: dict,
         orch_result  = await orchestrator.run(
             project_context  = project_context,
             selected_formats = set(selected_formats),
+            design_output    = design_output,
         )
 
         # Merge — design engine always wins over AI agent outputs
