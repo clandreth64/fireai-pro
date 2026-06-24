@@ -31,6 +31,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Optional
@@ -54,9 +55,30 @@ log = logging.getLogger("fireai.orchestrator")
 MAX_ITERATIONS    = int(os.getenv("FIREAI_MAX_ITERATIONS", "10"))
 STRICT_MODE_ITER  = int(os.getenv("FIREAI_STRICT_ITER",   "4"))
 MIN_IMPROVEMENT   = int(os.getenv("FIREAI_MIN_IMPROVEMENT","1"))
-CLAUDE_MODEL      = os.getenv("FIREAI_MODEL", "claude-sonnet-4-20250514")
+CLAUDE_MODEL      = os.getenv("FIREAI_MODEL", "claude-sonnet-4-6")
 ESCALATION_EMAIL  = os.getenv("FIREAI_ESCALATION_EMAIL", "")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
+
+
+def _extract_json(raw: str) -> str:
+    """Pull a JSON object/array out of a model reply robustly.
+
+    Handles ```json fences and any prose before/after the JSON. The previous
+    `lstrip("```json")` stripped *characters* (any of ` j s o n), not the
+    prefix, which could silently corrupt payloads — this replaces it.
+    Note: this cannot rescue a reply truncated by max_tokens; that's why the
+    token limits below are generous.
+    """
+    s = (raw or "").strip()
+    # Strip a leading ```json / ``` fence and a trailing ``` fence.
+    s = re.sub(r"^```[a-zA-Z0-9]*\s*", "", s)
+    s = re.sub(r"\s*```$", "", s).strip()
+    # If prose surrounds it, take from the first { or [ to the last } or ].
+    starts = [i for i in (s.find("{"), s.find("[")) if i != -1]
+    ends   = [i for i in (s.rfind("}"), s.rfind("]")) if i != -1]
+    if starts and ends:
+        s = s[min(starts): max(ends) + 1]
+    return s
 
 client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
@@ -189,12 +211,12 @@ class FireAIAgent:
             response = await asyncio.to_thread(
                 client.messages.create,
                 model=CLAUDE_MODEL,
-                max_tokens=4096,
+                max_tokens=16384,
                 system=self.system_prompt() + "\n\n" + self.schema_prompt(),
                 messages=[{"role": "user", "content": user_message}],
             )
             raw     = next((b.text for b in response.content if b.type == "text"), "{}")
-            cleaned = raw.strip().lstrip("```json").lstrip("```").rstrip("```").strip()
+            cleaned = _extract_json(raw)
             output  = json.loads(cleaned)
             self.last_output = output
             return AgentResult(agent_id=self.agent_id, output=output, run_count=self.run_count, success=True)
@@ -329,11 +351,11 @@ class NFPA13Agent:
             response = await asyncio.to_thread(
                 client.messages.create,
                 model=CLAUDE_MODEL,
-                max_tokens=2048,
+                max_tokens=8192,
                 messages=[{"role": "user", "content": prompt}],
             )
             raw     = next((b.text for b in response.content if b.type == "text"), "{}")
-            cleaned = raw.strip().lstrip("```json").lstrip("```").rstrip("```").strip()
+            cleaned = _extract_json(raw)
             data    = json.loads(cleaned)
             violations = [
                 Violation(
