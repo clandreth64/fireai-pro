@@ -1344,8 +1344,8 @@ class ScheduleRenderer:
         self.msp.add_line((ox,oy-rh-2),(ox+total,oy-rh-2),dxfattribs={"layer":"FP-ANNO-NOTE","lineweight":18})
         oy -= rh+2
         bmap = {"pendant":"SPKR_PEND","upright":"SPKR_UPRT","sidewall":"SPKR_SIDE","esfr":"SPKR_ESFR","concealed":"SPKR_CONC"}
-        for (stype,k,temp),g in sorted(groups.items()):
-            mfr_name = g["sample"].get("manufacturer","Viking")
+        for (stype,k,temp,mfr),g in sorted(groups.items()):
+            mfr_name = mfr or g["sample"].get("manufacturer","Viking")
             info = _lookup_sprinkler(stype, k, temp, mfr_name)
             sym_x = ox + cws[0]//2
             try:
