@@ -82,6 +82,77 @@ def _extract_json(raw: str) -> str:
 
 client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
+
+def design_to_agent_outputs(d: dict) -> dict:
+    """Map the deterministic NFPA 13 design into the agent-output shape the
+    synthesizer and drawing engine expect. The design engine is authoritative;
+    in design-grounded mode the LLM geometry agents are skipped entirely (their
+    output was discarded by the merge step anyway, and they were the source of
+    the large-payload JSON parse failures)."""
+    return {
+        "cad": {
+            "sprinkler_placements": d.get("sprinkler_placements", []),
+            "pipe_sections":        d.get("pipe_sections", []),
+            "valves":               d.get("valves", []),
+            "equipment":            d.get("equipment", []),
+            "walls":                d.get("walls", []),
+            "columns":              d.get("columns", []),
+            "rooms":                d.get("rooms", []),
+            "hangers":              d.get("hangers", []),
+            "dxf_ready":            d.get("dxf_ready", False),
+            "ifc_ready":            d.get("ifc_ready", False),
+        },
+        "hydraulics": {k: d.get(k) for k in (
+            "static_pressure", "residual_pressure", "required_pressure",
+            "pressure_delta", "flow_demand", "density_area", "demand_curve",
+            "remote_area_calcs", "compliant") if d.get(k) is not None},
+        "routing": {
+            "pipe_sections": d.get("pipe_sections", []),
+            "valves":        d.get("valves", []),
+            "equipment":     d.get("equipment", []),
+        },
+        "bracing": {k: d.get(k) for k in (
+            "hanger_schedule", "sway_braces", "seismic_zone", "bom",
+            "total_material_cost") if d.get(k)},
+    }
+
+
+def design_review_summary(d: dict) -> dict:
+    """A compact, validation-relevant summary of the deterministic design for
+    the NFPA 13 reviewer — not the full coordinate list. Including the engine's
+    own deterministic compliance flags keeps the reviewer focused on
+    documentation / design-basis judgment items rather than re-deriving geometry
+    it cannot see (which is what produced the bogus spacing findings before)."""
+    dm   = d.get("design_metadata", {})
+    spk  = d.get("sprinkler_placements", []) or []
+    s0   = spk[0] if spk else {}
+    area = dm.get("floor_area_sf", 0) or d.get("total_area", 0) or 0
+    n    = dm.get("total_sprinklers", len(spk)) or len(spk)
+    return {
+        "occupancy":              d.get("occupancy") or dm.get("occupancy"),
+        "hazard_class":           dm.get("hazard_class"),
+        "floor_area_sf":          area,
+        "ceiling_height_ft":      d.get("ceiling_height") or dm.get("ceiling_height"),
+        "total_sprinklers":       n,
+        "coverage_sf_per_head":   round(area / n, 1) if n else None,
+        "sprinkler_k_factor":     s0.get("k_factor"),
+        "sprinkler_type":         s0.get("type"),
+        "static_pressure_psi":    d.get("static_pressure"),
+        "residual_pressure_psi":  d.get("residual_pressure"),
+        "required_pressure_psi":  d.get("required_pressure"),
+        "pressure_delta_psi":     d.get("pressure_delta"),
+        "flow_demand_gpm":        d.get("flow_demand"),
+        "fire_pump_added":        d.get("fire_pump_added", False),
+        "seismic_zone":           d.get("seismic_zone"),
+        "sway_brace_count":       len(d.get("sway_braces", []) or []),
+        "hanger_count":           len(d.get("hanger_schedule", []) or d.get("hangers", []) or []),
+        "pipe_section_count":     len(d.get("pipe_sections", []) or []),
+        "bom_line_items":         len(d.get("bom", []) or []),
+        "total_material_cost":    d.get("total_material_cost"),
+        "deterministic_compliant":        d.get("compliant"),
+        "deterministic_compliance_flags": dm.get("compliance_flags", []),
+    }
+
 # ── Output format registry ─────────────────────────────────────────────────────
 
 ALL_FORMATS = {
@@ -657,6 +728,7 @@ class FireAIOrchestrator:
         self,
         project_context:  dict,
         selected_formats: set[str] | None = None,
+        design_output:    dict | None = None,
     ) -> dict:
         selected_formats = selected_formats or DEFAULT_FORMATS
         self._log("info", "orchestrator",
@@ -671,42 +743,83 @@ class FireAIOrchestrator:
         compliance: Optional[ComplianceResult] = None
         iteration = 0
 
-        # Initial parallel run
-        agent_outputs = await self._run_phase1(project_context, {}, {}, frozen_agents)
+        if design_output:
+            # ── Design-grounded mode ──────────────────────────────────────────
+            # The deterministic NFPA 13 engine (and the verify-repair loop) is
+            # authoritative for geometry, hydraulics, and pass/fail. We skip the
+            # LLM geometry agents — their output was discarded by the merge step
+            # anyway — and use the validator as a REVIEW pass over the real
+            # design. This makes the compliance verdict reflect the artifact that
+            # actually becomes the drawings, and removes the large-payload JSON
+            # failures that came from agents hand-writing hundreds of coordinates.
+            iteration = 1
+            agent_outputs = design_to_agent_outputs(design_output)
+            self._log("info", "orchestrator",
+                "Design-grounded — validating the deterministic design "
+                "(LLM geometry agents skipped)")
 
-        # Compliance loop
-        for iteration in range(1, MAX_ITERATIONS + 1):
+            review = await self.nfpa_agent.validate(
+                {"deterministic_design": design_review_summary(design_output)},
+                project_context, iteration)
 
-            compliance = await self._run_nfpa13(agent_outputs, project_context, iteration)
+            # The engine's own deterministic checks are authoritative for the
+            # hard pass/fail; the reviewer adds documentation / design-basis
+            # findings on top.
+            det_flags = design_output.get("design_metadata", {}).get("compliance_flags", [])
+            det_crit  = [f for f in det_flags if f.get("severity") != "pass"]
+            det_ok    = bool(design_output.get("compliant")) and not det_crit
+            review_crit = [v for v in review.violations if v.severity == "critical"]
 
-            if compliance.compliant:
-                break
-
-            if iteration == MAX_ITERATIONS:
-                break
-
-            violation_map = self._build_violation_map(compliance.violations)
-
-            for aid, viols in violation_map.items():
-                self.tracker.record(aid, len(viols))
-
-            violation_map, frozen_agents = self._apply_progressive_strictness(
-                violation_map, iteration, frozen_agents
+            compliance = ComplianceResult(
+                compliant  = det_ok and not review_crit,
+                violations = review.violations,
+                summary    = review.summary,
             )
+            # Genuine human-review items = critical/major review findings
+            # (e.g. designer credentials, commodity-class confirmation, flow test).
+            frozen_violations = [v for v in review.violations
+                                 if v.severity in ("critical", "major")]
+            self._log(
+                "success" if compliance.compliant else "warn", "nfpa13",
+                f"Design review: {'compliant' if compliance.compliant else 'review required'} "
+                f"— {len(review.violations)} finding(s), "
+                f"{len(frozen_violations)} for human review")
+        else:
+            # ── Legacy LLM-agent iterative mode (unchanged) ───────────────────
+            agent_outputs = await self._run_phase1(project_context, {}, {}, frozen_agents)
 
-            if not violation_map:
-                self._log("warn", "orchestrator", "All failing agents frozen — exiting loop early")
-                break
+            for iteration in range(1, MAX_ITERATIONS + 1):
 
-            agent_outputs = await self._run_phase1(
-                project_context, violation_map, agent_outputs, frozen_agents
-            )
+                compliance = await self._run_nfpa13(agent_outputs, project_context, iteration)
 
-        # Collect frozen violations
-        frozen_violations = [
-            v for v in (compliance.violations if compliance else [])
-            if (v.agent_id or owner_from_section(v.section)) in frozen_agents
-        ]
+                if compliance.compliant:
+                    break
+
+                if iteration == MAX_ITERATIONS:
+                    break
+
+                violation_map = self._build_violation_map(compliance.violations)
+
+                for aid, viols in violation_map.items():
+                    self.tracker.record(aid, len(viols))
+
+                violation_map, frozen_agents = self._apply_progressive_strictness(
+                    violation_map, iteration, frozen_agents
+                )
+
+                if not violation_map:
+                    self._log("warn", "orchestrator", "All failing agents frozen — exiting loop early")
+                    break
+
+                agent_outputs = await self._run_phase1(
+                    project_context, violation_map, agent_outputs, frozen_agents
+                )
+
+            # Collect frozen violations
+            frozen_violations = [
+                v for v in (compliance.violations if compliance else [])
+                if (v.agent_id or owner_from_section(v.section)) in frozen_agents
+            ]
 
         partial_result = self.synthesizer.assemble(
             agent_outputs, None, compliance or ComplianceResult(compliant=False),
