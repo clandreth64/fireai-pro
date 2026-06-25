@@ -263,8 +263,23 @@ async def _run_job(job_id: str, project_context: dict,
             include_3d      = "dwg_3d"   in (selected_formats or []),
         )
 
-        all_files = (orch_result.get("published_files", []) +
-                     [m["filename"] for m in drawing_manifest if not m.get("error")])
+        # ── Write the data deliverables (IFC / XLSX / JSON) from the
+        #    authoritative deterministic design, then advertise only files that
+        #    actually exist on disk so no download link is ever broken. ────────
+        data_files: list[str] = []
+        try:
+            from fireai_export import write_requested
+            data_files = write_requested(
+                design_output, project_context, str(job_output_dir),
+                orch_result.get("published_files", []))
+        except Exception as _exp_err:
+            log.warning(f"[{job_id}] Data-format export skipped: {_exp_err}")
+
+        drawing_files = [m["filename"] for m in drawing_manifest if not m.get("error")]
+
+        candidate = list(dict.fromkeys(
+            data_files + drawing_files + orch_result.get("published_files", [])))
+        all_files = [f for f in candidate if (job_output_dir / f).exists()]
 
         compliant        = orch_result["metadata"]["compliant"]
         iterations_used  = orch_result["metadata"]["iterations_used"]
