@@ -2,7 +2,7 @@
 FireAI Pro — NFPA 13 Design Engine  v5
 ========================================
 Complete engineering rewrite.
-
+ 
 Key fixes vs v4:
   ✓ Pipe sizing: NFPA 13 schedule method (Table 12.1/12.2) replaces velocity-based
   ✓ Hydraulics: True node-by-node Hazen-Williams replaces p=mp+i*0.3 placeholder
@@ -14,15 +14,15 @@ Key fixes vs v4:
   ✓ Head counts: Correct numbering by zone, type, and floor level
   ✓ Hose stream: Added to demand only, not to required pressure (§22.3)
 """
-
+ 
 import math
 import logging
 from collections import defaultdict, Counter
-
+ 
 log = logging.getLogger("fireai.design")
-
+ 
 # ─── NFPA 13 Hazard Criteria ──────────────────────────────────────────────────
-
+ 
 HAZARD_CRITERIA = {
     "light":         {"density":0.10,"area":1500,"max_coverage":225,"max_spacing":15.0,"k":5.6, "min_psi":7.0, "type":"pendant","esfr":False,"in_rack":False,"hose_gpm":100},
     "ordinary_1":    {"density":0.15,"area":1500,"max_coverage":130,"max_spacing":15.0,"k":5.6, "min_psi":7.0, "type":"pendant","esfr":False,"in_rack":False,"hose_gpm":250},
@@ -38,7 +38,7 @@ HAZARD_CRITERIA = {
     "freezer":       {"density":0.15,"area":2000, "max_coverage":130,"max_spacing":12.0,"k":5.6, "min_psi":7.0, "type":"upright","esfr":False,"in_rack":False,"hose_gpm":250},
     "cooler":        {"density":0.15,"area":1500, "max_coverage":130,"max_spacing":12.0,"k":5.6, "min_psi":7.0, "type":"pendant","esfr":False,"in_rack":False,"hose_gpm":250},
 }
-
+ 
 ZONE_MAP = {
     "warehouse":"esfr_k14","high pile":"esfr_k14","high-pile":"esfr_k14",
     "merchandise":"esfr_k14","sales floor":"esfr_k14","rack":"esfr_k14",
@@ -53,10 +53,10 @@ ZONE_MAP = {
     "freezer":"freezer","cooler":"cooler","refrigerated":"cooler","frozen":"freezer",
     "unclassified":"esfr_k14",
 }
-
+ 
 # ── NFPA 13 Pipe Schedule (Table 12.1 / 12.2) ────────────────────────────────
 # Max number of sprinklers per pipe diameter by hazard category
-
+ 
 PIPE_SCHEDULE = {
     "light": {
         0.75: 2,
@@ -93,19 +93,19 @@ PIPE_SCHEDULE = {
         5.0:  999,
     },
 }
-
+ 
 # Standard pipe diameters in ascending order
 PIPES = [0.75, 1.0, 1.25, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 5.0, 6.0, 8.0]
-
+ 
 # Max hanger spacing (ft) per pipe diameter — NFPA 13 §9.1
 MAX_HANG = {0.75:6, 1.0:6, 1.25:8, 1.5:8, 2.0:12, 2.5:12, 3.0:15,
             3.5:15, 4.0:15, 5.0:20, 6.0:20, 8.0:20}
 MAX_SWAY = 40.0   # Max sway brace interval (ft) — §9.3
-
+ 
 # Hazen-Williams C factors
 HW_C = {"steel":120, "schedule 40 steel":120, "sch40":120,
         "schedule 10 steel":120, "cpvc":150, "copper":150, "stainless":140}
-
+ 
 # Fitting equivalent lengths (ft) — NFPA 13 Appendix D
 FEQ = {
     "90_elbow":   {0.75:1, 1.0:1, 1.25:1, 1.5:2, 2.0:2, 2.5:3, 3.0:4, 4.0:5,  5.0:7,  6.0:9},
@@ -117,64 +117,64 @@ FEQ = {
     "butterfly":  {2.0:2, 3.0:3, 4.0:4, 5.0:5, 6.0:6},
     "check_valve":{2.0:4, 3.0:5, 4.0:7, 5.0:9, 6.0:11},
 }
-
+ 
 # Unit costs (USD)
 PIPE_COST  = {0.75:2.1, 1.0:2.8, 1.25:3.5, 1.5:4.2, 2.0:6.5, 2.5:9.8,
               3.0:13.5, 3.5:17.0, 4.0:20.0, 5.0:28.0, 6.0:38.0, 8.0:52.0}
 SPKR_COST  = {"pendant":8.5, "upright":9.5, "sidewall":10.0, "esfr":52.0, "cmsa":45.0}
 VALVE_COST = {"osy":285, "butterfly":220, "check":520, "alarm":95, "inspector_test":65, "drain":145, "rpm":780}
-
-
+ 
+ 
 # ─── Geometry helpers ─────────────────────────────────────────────────────────
-
+ 
 def _poly_area(pts):
     n = len(pts)
     if n < 3: return 0
     return abs(sum(pts[i]["x"]*pts[(i+1)%n]["y"] - pts[(i+1)%n]["x"]*pts[i]["y"]
                    for i in range(n))) / 2
-
-
+ 
+ 
 def normalize_geometry(geo: dict, ctx: dict) -> dict:
     """Normalize geometry to feet with origin at (0,0)."""
     walls = geo.get("walls", [])
     rooms = geo.get("rooms", [])
-
+ 
     if geo.get("_use_synthetic"):
         return _synthetic(ctx)
-
+ 
     ax, ay = [], []
     for w in walls:
         for p in w.get("points", []): ax.append(float(p.get("x",0))); ay.append(float(p.get("y",0)))
     for r in rooms:
         for p in r.get("boundary", []): ax.append(float(p.get("x",0))); ay.append(float(p.get("y",0)))
-
+ 
     if not ax:
         return _synthetic(ctx)
-
+ 
     ox, oy  = min(ax), min(ay)
     raw_w   = max(ax) - ox
     raw_h   = max(ay) - oy
     raw     = max(raw_w, raw_h)
     total   = float(ctx.get("total_area", 0))
     exp     = math.sqrt(total) if total > 0 else 0
-
+ 
     # Auto-detect units
     if raw > 100000: sc = 1/304.8
     elif raw > 10000: sc = 1/25.4
     elif raw > 1000:  sc = 1/12.0
     else:             sc = 1.0
-
+ 
     scaled = raw * sc
     if exp > 0 and (scaled < exp*0.05 or scaled > exp*20):
         log.warning("[Geo] Scale validation failed — using synthetic")
         return _synthetic(ctx)
-
+ 
     bw_sc = raw_w * sc
     bh_sc = raw_h * sc
-
+ 
     def sp(pts):
         return [{"x": round((p["x"]-ox)*sc, 2), "y": round((p["y"]-oy)*sc, 2)} for p in pts]
-
+ 
     valid_rooms = []
     for r in rooms:
         pts     = r.get("boundary", [])
@@ -186,7 +186,7 @@ def normalize_geometry(geo: dict, ctx: dict) -> dict:
         area = _poly_area(clamped)
         if area < 50: continue
         valid_rooms.append({**r, "boundary": clamped, "area_sf": round(area, 1)})
-
+ 
     n = dict(geo)
     n["walls"]   = [{**w, "points": sp(w.get("points", []))} for w in walls]
     n["columns"] = [{**c, "x": round((c.get("x",0)-ox)*sc, 2),
@@ -195,8 +195,8 @@ def normalize_geometry(geo: dict, ctx: dict) -> dict:
     n["building_dimensions"] = {"width_ft": round(bw_sc,1), "depth_ft": round(bh_sc,1)}
     n["_scale"]  = sc
     return n
-
-
+ 
+ 
 def _synthetic(ctx: dict) -> dict:
     """Generate occupancy-appropriate building layout from project specs."""
     area   = float(ctx.get("total_area", 10000))
@@ -214,20 +214,20 @@ def _synthetic(ctx: dict) -> dict:
     af     = area / floors
     occ    = ctx.get("occupancy","").lower()
     ch     = float(ctx.get("ceiling_height", 10))
-
+ 
     if any(k in occ for k in ["warehouse","storage","wholesale","big box","distribution","industrial"]):
         ratio = 0.65
     elif any(k in occ for k in ["office","business"]):
         ratio = 0.85
     else:
         ratio = 0.75
-
+ 
     w = math.sqrt(af / ratio)
     d = af / w
     walls = [{"points":[{"x":0,"y":0},{"x":w,"y":0},{"x":w,"y":d},{"x":0,"y":d}],
               "closed":True,"exterior":True}]
     rooms = []
-
+ 
     if any(k in occ for k in ["warehouse","storage","wholesale","big box","distribution"]):
         has_tire = any(k in occ for k in ["wholesale","big box","costco"])
         has_food = any(k in occ for k in ["wholesale","big box","costco","retail"])
@@ -257,7 +257,7 @@ def _synthetic(ctx: dict) -> dict:
              "boundary":[{"x":w*0.6,"y":d-sup_d},{"x":w,"y":d-sup_d},{"x":w,"y":d},{"x":w*0.6,"y":d}],
              "area_sf":w*0.4*sup_d,"ceiling_height_ft":min(ch,14)},
         ]
-
+ 
     elif any(k in occ for k in ["office","business"]):
         ld = min(30, d*0.15); cd = 8
         rooms += [
@@ -287,7 +287,7 @@ def _synthetic(ctx: dict) -> dict:
             {"name":"Main Area","boundary":[{"x":0,"y":0},{"x":w,"y":0},{"x":w,"y":d-sd},{"x":0,"y":d-sd}],"area_sf":w*(d-sd)},
             {"name":"Support","hazard_override":"light","boundary":[{"x":0,"y":d-sd},{"x":w,"y":d-sd},{"x":w,"y":d},{"x":0,"y":d}],"area_sf":w*sd},
         ]
-
+ 
     # Partition walls
     seen_y = set(); seen_x = set()
     for room in rooms:
@@ -297,13 +297,13 @@ def _synthetic(ctx: dict) -> dict:
                 walls.append({"points":[{"x":0,"y":ry},{"x":w,"y":ry}],"exterior":False}); seen_y.add(ry)
             if 0 < rx < w and rx not in seen_x:
                 walls.append({"points":[{"x":rx,"y":0},{"x":rx,"y":d}],"exterior":False}); seen_x.add(rx)
-
+ 
     return {"walls":walls,"rooms":rooms,"columns":[],"obstructions":[],
             "building_dimensions":{"width_ft":round(w,1),"depth_ft":round(d,1)},
             "floor_area_sf":af,"ceiling_height_ft":ch,"_synthetic":True}
-
-
-
+ 
+ 
+ 
 # ── Structural framing → hanger type lookup ──────────────────────────────────
 # Maps (framing_type, pipe_size) → TOLCO figure designation number
 # These match the Battalion One / AutoSprink hanger designation convention
@@ -319,14 +319,14 @@ FRAMING_HANGER_MAP = {
     "clt":                ("rod",       1, "TOLCO Fig. 78 Rod Hanger"),
     "default":            ("rod",       1, "TOLCO Fig. 78 Standard Rod"),
 }
-
+ 
 # Cross-mains on open-web trusses use trapeze; branch lines use rod or U-hook
 BRANCH_HANGER_OVERRIDE = {
     "open_web_truss": ("trapeze", 9, "TOLCO Fig. 78 Trapeze"),
     "i_joist":        ("u_hook", 19, "U-Hook Through I-Joist"),
     "wood_joist":     ("wood",   24, "Pipe on Wood Support"),
 }
-
+ 
 def _hanger_type_for(pipe_type: str, framing: str, pipe_dia: float) -> tuple:
     """Returns (type_str, designation_num, description) for a hanger."""
     framing_key = framing.lower().replace(" ","_").replace("-","_") if framing else "default"
@@ -335,12 +335,12 @@ def _hanger_type_for(pipe_type: str, framing: str, pipe_dia: float) -> tuple:
         return BRANCH_HANGER_OVERRIDE[framing_key]
     info = FRAMING_HANGER_MAP.get(framing_key, FRAMING_HANGER_MAP["default"])
     return info
-
-
+ 
+ 
 # ─── Main Design Engine ───────────────────────────────────────────────────────
-
+ 
 class NFPA13DesignEngine:
-
+ 
     def __init__(self, geo: dict, ctx: dict):
         self.geo     = normalize_geometry(geo, ctx)
         self.ctx     = ctx
@@ -363,12 +363,12 @@ class NFPA13DesignEngine:
         self.sprinkler_mfr = ctx.get("sprinkler_manufacturer", "Viking")
         self.bw, self.bd = self._building_footprint()
         self.fa      = self.bw * self.bd or float(ctx.get("total_area", 10000))
-
+ 
         log.info("[DE] Init: %.0fx%.0fft %.0fSF ch=%.0fft def_hz=%s",
                  self.bw, self.bd, self.fa, self.ch, self.def_hz)
-
+ 
     # ── Public entry point ────────────────────────────────────────────────────
-
+ 
     def design(self) -> dict:
         zones        = self._build_zones()
         sprinklers   = self._place_sprinklers(zones)
@@ -378,10 +378,10 @@ class NFPA13DesignEngine:
         valves, equip   = self._valve_schedule(sprinklers, zones)
         bom             = self._bill_of_materials(sprinklers, pipe_sections, hangers, braces, valves)
         compliance      = self._compliance_check(sprinklers, pipe_sections, hydraulics, zones)
-
+ 
         ceiling_sp = [s for s in sprinklers if not s.get("in_rack")]
         rack_sp    = [s for s in sprinklers if s.get("in_rack")]
-
+ 
         log.info("[DE] Complete: %d sprinklers (%d ceiling + %d in-rack) | "
                  "%d pipe sections | %.0fgpm @ %.1fpsi | delta %.1fpsi | BOM %d items $%.0f",
                  len(sprinklers), len(ceiling_sp), len(rack_sp),
@@ -389,8 +389,8 @@ class NFPA13DesignEngine:
                  hydraulics["flow_demand"], hydraulics["required_pressure"],
                  hydraulics["pressure_delta"], len(bom),
                  sum(b["qty"]*b["unit_cost"] for b in bom))
-
-        return {
+ 
+        result = {
             "sprinkler_placements": sprinklers,
             "pipe_sections":        pipe_sections,
             "valves":               valves,
@@ -435,9 +435,51 @@ class NFPA13DesignEngine:
                                        "§22.4","§24","§27.2","Table 12.1","Table 12.2"],
             },
         }
-
+ 
+        # ── Reconcile with the node-by-node worksheet (NFPA 13 §28) ──────────
+        # The compliance flag and the agentic pump-sizing must run off the SAME
+        # node-by-node calc that the FP3.0 sheet renders — not the coarse
+        # critical-path estimate above. Applies to density/area (LH/OH/EH)
+        # designs only; the worksheet is not ESFR-aware, so ESFR/storage keeps
+        # the engine's own calc until the worksheet handles the ESFR method.
+        spk0 = (result["sprinkler_placements"] or [{}])[0]
+        is_esfr = bool(spk0.get("is_esfr")) or spk0.get("type") == "esfr"
+        if not is_esfr:
+            try:
+                from hydraulic_worksheet import build_hydraulic_worksheet
+                ws = build_hydraulic_worksheet({
+                    "sprinkler_placements": result["sprinkler_placements"],
+                    "pipe_sections":        result["pipe_sections"],
+                    "remote_area_calcs":    result["remote_area_calcs"],
+                    "static_pressure":      result["static_pressure"],
+                    "residual_pressure":    result["residual_pressure"],
+                    "pressure_delta":       result["pressure_delta"],
+                    "flow_demand":          result["flow_demand"],
+                    "density_area":         result["density_area"],
+                }, self.ctx)
+                s = ws.get("summary", {})
+                req = s.get("required_pressure_psi")
+                if req is not None:
+                    result["required_pressure"] = round(float(req), 1)
+                    result["flow_demand"]       = round(float(s.get("total_flow_gpm", result["flow_demand"])), 1)
+                    result["pressure_delta"]    = round(float(s.get("pressure_margin_psi", result["pressure_delta"])), 1)
+                    result["compliant"]         = result["pressure_delta"] >= 0
+                    result["hydraulic_method"]  = "node_by_node_§28"
+                    for f in result["design_metadata"]["compliance_flags"]:
+                        if f.get("section") in ("§22", "§22.4") and not result["compliant"]:
+                            f["severity"]    = "critical"
+                            f["description"] = (f"Water supply short by {abs(result['pressure_delta']):.1f} psi "
+                                                f"per node-by-node calc (required {result['required_pressure']:.1f} psi).")
+            except Exception as _ws_err:
+                result.setdefault("warnings", []).append(
+                    f"Worksheet reconciliation skipped: {_ws_err}")
+        else:
+            result["hydraulic_method"] = "esfr_critical_path_§22.1"
+ 
+        return result
+ 
     # ── Zone builder ──────────────────────────────────────────────────────────
-
+ 
     def _build_zones(self) -> list:
         """Build design zones covering 100% of the building floor area."""
         valid = [r for r in self.rooms
@@ -465,11 +507,11 @@ class NFPA13DesignEngine:
                     "ceiling_height_ft": float(r.get("ceiling_height_ft") or self.ch),
                     "room": r,
                 })
-
+ 
         building_area = self.bw * self.bd
         covered       = sum(z["area_sf"] for z in zones)
         pct           = covered / building_area if building_area > 0 else 0
-
+ 
         if pct < 0.15:
             syn   = _synthetic(self.ctx)
             zones = []
@@ -486,9 +528,9 @@ class NFPA13DesignEngine:
                               "room":r})
         elif pct < 0.85:
             zones.extend(self._fill_zone_gaps(zones))
-
+ 
         return zones
-
+ 
     def _fill_zone_gaps(self, zones):
         cell = max(5.0, min(self.bw, self.bd)/40)
         cols = max(1, int(math.ceil(self.bw/cell)))
@@ -522,9 +564,9 @@ class NFPA13DesignEngine:
                              "ceiling_height_ft":self.ch,"room":None})
                 gid+=1
         return gaps
-
+ 
     # ── Sprinkler placement ───────────────────────────────────────────────────
-
+ 
     def _place_sprinklers(self, zones: list) -> list:
         """
         Place sprinklers per NFPA 13:
@@ -536,7 +578,7 @@ class NFPA13DesignEngine:
         """
         sp  = []
         sid = 1
-
+ 
         for z in zones:
             c  = z["criteria"]
             ms = c["max_spacing"]    # max distance between heads (ft)
@@ -548,20 +590,20 @@ class NFPA13DesignEngine:
             in_r  = c["in_rack"]
             room_ch = z.get("ceiling_height_ft", self.ch)
             if room_ch <= 0: room_ch = self.ch
-
+ 
             x0, y0, x1, y1 = z["bounds"]
             x0 = max(0.0, x0); y0 = max(0.0, y0)
             x1 = min(self.bw, x1); y1 = min(self.bd, y1)
             if x1-x0 < 0.5 or y1-y0 < 0.5: continue
-
+ 
             # Temperature rating based on ceiling height
             temp = 286 if room_ch > 30 else (175 if room_ch > 20 else 155)
             if is_e: mp = max(mp, 50.0)
-
+ 
             zone_w = x1 - x0
             zone_d = y1 - y0
             zone_area = zone_w * zone_d
-
+ 
             # ── Small room rule (§3.3.206) ────────────────────────────────
             # One head centered if zone fits within one coverage radius in each dim
             coverage_r = math.sqrt(mc / math.pi) if mc > 0 else ms/2
@@ -576,7 +618,7 @@ class NFPA13DesignEngine:
                                          zone_area, "§3.3.206 Small Room"))
                     sid += 1
                 continue
-
+ 
             # ── Standard grid placement ───────────────────────────────────
             # Grid spacing: sqrt(max_coverage) but ≤ max_spacing
             grid_x = min(ms, math.sqrt(mc))
@@ -585,14 +627,14 @@ class NFPA13DesignEngine:
             if is_e:
                 grid_x = min(10.0, ms)
                 grid_y = min(12.0, ms)
-
+ 
             # Wall offset per §8.5.4.1: max S/2 from wall (use half the grid spacing)
             wall_off_x = min(grid_x / 2, ms / 2)
             wall_off_y = min(grid_y / 2, ms / 2)
-
+ 
             xs = self._grid_pts(x0, x1, wall_off_x, grid_x)
             ys = self._grid_pts(y0, y1, wall_off_y, grid_y)
-
+ 
             for y in ys:
                 for x in xs:
                     if not (0.0 <= x <= self.bw and 0.0 <= y <= self.bd): continue
@@ -602,7 +644,7 @@ class NFPA13DesignEngine:
                                          round(grid_x*grid_y, 1),
                                          "§22.1" if is_e else "§8.5"))
                     sid += 1
-
+ 
             # ── In-rack sprinklers ────────────────────────────────────────
             if in_r and zone_area > 500:
                 for lv in [6.0, 12.0, 18.0, 24.0]:
@@ -620,12 +662,12 @@ class NFPA13DesignEngine:
                                 "nfpa_ref": "§12", "in_rack": True, "rack_level_ft": lv,
                             })
                             sid += 1
-
+ 
         log.info("[DE] Placed %d sprinklers (%d ceiling, %d in-rack)",
                  len(sp), len([s for s in sp if not s.get("in_rack")]),
                  len([s for s in sp if s.get("in_rack")]))
         return sp
-
+ 
     def _head(self, sid, x, y, elev, st, k, temp, mp, z, is_e, in_rack, cr, ca, ref):
         # Size: 1" for dry/ESFR, 1/2" for standard wet heads
         size = "1" if (is_e or temp >= 200) and st in ("upright","esfr") else "1/2"
@@ -641,7 +683,7 @@ class NFPA13DesignEngine:
             "size": size,
             "manufacturer": self.sprinkler_mfr,
         }
-
+ 
     def _grid_pts(self, start: float, end: float, offset: float, spacing: float) -> list:
         """Generate evenly-spaced points with wall offset applied at both ends."""
         pts = []
@@ -650,37 +692,37 @@ class NFPA13DesignEngine:
             pts.append(round(p, 2))
             p += spacing
         return pts or [round((start+end)/2, 2)]
-
+ 
     # ── Pipe routing — proper tree topology ───────────────────────────────────
-
+ 
     def _route_pipes_tree(self, sprinklers: list, zones: list) -> list:
         """
         Route pipes as a proper NFPA 13 tree with per-span sections.
-
+ 
         Every pipe section is ONE SPAN between two connection points:
           - Branch line: wall → head1 → head2 → … → headN → wall
           - Cross-main:  spine tee → branch tee1 → branch tee2 → … → end
           - Supply main: riser → spine tee1 → spine tee2 → … → end
-
+ 
         Each span gets:
           - Its own length  (actual center-to-center ft, from real head/tee coords)
           - Its own diameter (NFPA 13 schedule based on heads downstream of that span)
           - Its own elevation_ft
-
+ 
         This produces the section granularity needed for fabrication labels on drawings.
         """
         csp = [s for s in sprinklers if not s.get("in_rack")]
         if not csp:
             return []
-
+ 
         secs = []
         pid  = [1]
-
+ 
         def nxt(prefix):
             n = f"{prefix}-{pid[0]:03d}"
             pid[0] += 1
             return n
-
+ 
         def seg(pid_prefix, pipe_type, fx, fy, tx, ty, elev, diameter, schedule, mat, fittings, note="§6"):
             length = round(abs(tx-fx) + abs(ty-fy), 2)   # rectilinear length (no diagonals in tree)
             return {
@@ -691,36 +733,36 @@ class NFPA13DesignEngine:
                 "length": length, "elevation_ft": elev,
                 "fittings": fittings, "nfpa_ref": note,
             }
-
+ 
         mat        = self.ctx.get("pipe_material","Steel")
         sched      = "Sch 10" if "10" in mat.lower() else "Sch 40"
         hz_cat     = self._hz_category(self.def_hz)
         main_elev  = round(self.ch - 0.67, 2)   # mains: 8" below structure
         branch_elev= round(self.ch - 0.17, 2)   # branches: 2" below structure
-
+ 
         xs = [s["x"] for s in csp]; ys = [s["y"] for s in csp]
         rx = round(min(xs) - 4, 1)   # riser X
         ry = round((min(ys)+max(ys))/2, 1)
-
+ 
         bw, bd     = self.bw, self.bd
         run_along_x= (bw >= bd)
         tol        = 3.0
-
+ 
         if run_along_x:
             rows = self._group_by(csp, "y", tol)
         else:
             rows = self._group_by(csp, "x", tol)
-
+ 
         row_keys = sorted(rows.keys(), key=lambda v: abs(v-(ry if run_along_x else rx)))
         n_ceiling = len(csp)
         main_d    = self._pipe_size_schedule(n_ceiling, hz_cat)
-
+ 
         # ── Riser stub ────────────────────────────────────────────────────────
         first_jx = round(rx + 4, 1); first_jy = ry
         secs.append(seg("M", "main", rx, ry, first_jx, first_jy,
                         main_elev, main_d, sched, mat,
                         ["gate_valve","alarm_check","check_valve"]))
-
+ 
         # ── Supply main — broken at each cross-main tee ───────────────────────
         # Tee positions along the spine are the cross-main junction X/Y coords
         if run_along_x:
@@ -750,7 +792,7 @@ class NFPA13DesignEngine:
             if prev_x < spine_end - 0.2:
                 secs.append(seg("M","main", prev_x, spine_y, spine_end, spine_y,
                                 main_elev, main_d, sched, mat, []))
-
+ 
         else:
             spine_x   = round(rx + 4, 1)
             spine_end = round(max(ys) + 4, 1)
@@ -774,35 +816,35 @@ class NFPA13DesignEngine:
             if prev_y < spine_end - 0.2:
                 secs.append(seg("M","main", spine_x, prev_y, spine_x, spine_end,
                                 main_elev, main_d, sched, mat, []))
-
+ 
         # ── Cross-mains + per-span branch lines ───────────────────────────────
         for row_key in row_keys:
             row_sp = rows[row_key]
             if not row_sp: continue
-
+ 
             n_row  = len(row_sp)
             hz_row = self._hz_category(row_sp[0].get("zone_hazard", self.def_hz))
-
+ 
             if run_along_x:
                 cross_jy = row_key
                 cross_jx = round((min(s["x"] for s in row_sp)+max(s["x"] for s in row_sp))/2, 1)
-
+ 
                 # ── Cross-main stub (spine → branch tee) ─────────────────────
                 if abs(cross_jy - spine_y) > 0.2:
                     cross_d = self._pipe_size_schedule(n_row, hz_row)
                     secs.append(seg("X","cross", cross_jx, spine_y, cross_jx, cross_jy,
                                     main_elev, cross_d, sched, mat, ["tee_branch"]))
-
+ 
                 # ── Branch line: sort heads L→R, create per-span segments ─────
                 sorted_heads = sorted(row_sp, key=lambda s: s["x"])
                 xs_row = [s["x"] for s in sorted_heads]
                 # Wall offsets per §8.5.4.1: first head position already includes offset
                 wall_left  = round(min(xs_row) - 1.0, 2)   # ~1ft past first head to wall
                 wall_right = round(max(xs_row) + 1.0, 2)
-
+ 
                 # Nodes along the branch: wall_left, h1, h2, ..., hN, wall_right
                 nodes = [wall_left] + xs_row + [wall_right]
-
+ 
                 for i in range(len(nodes)-1):
                     x_from = nodes[i]; x_to = nodes[i+1]
                     # Heads downstream of this span: everything to the right
@@ -813,22 +855,22 @@ class NFPA13DesignEngine:
                     if i == 0: fittings.append("tee_branch")        # tee at branch entry
                     secs.append(seg("B","branch", x_from, cross_jy, x_to, cross_jy,
                                     branch_elev, d, sched, mat, fittings))
-
+ 
             else:
                 cross_jx = row_key
                 cross_jy = round((min(s["y"] for s in row_sp)+max(s["y"] for s in row_sp))/2, 1)
-
+ 
                 if abs(cross_jx - spine_x) > 0.2:
                     cross_d = self._pipe_size_schedule(n_row, hz_row)
                     secs.append(seg("X","cross", spine_x, cross_jy, cross_jx, cross_jy,
                                     main_elev, cross_d, sched, mat, ["tee_branch"]))
-
+ 
                 sorted_heads = sorted(row_sp, key=lambda s: s["y"])
                 ys_row = [s["y"] for s in sorted_heads]
                 wall_bot = round(min(ys_row) - 1.0, 2)
                 wall_top = round(max(ys_row) + 1.0, 2)
                 nodes = [wall_bot] + ys_row + [wall_top]
-
+ 
                 for i in range(len(nodes)-1):
                     y_from = nodes[i]; y_to = nodes[i+1]
                     n_downstream = len([h for h in sorted_heads if h["y"] >= y_to - 0.01])
@@ -836,10 +878,10 @@ class NFPA13DesignEngine:
                     fittings = ["tee_branch"] if i > 0 else ["tee_branch"]
                     secs.append(seg("B","branch", cross_jx, y_from, cross_jx, y_to,
                                     branch_elev, d, sched, mat, fittings))
-
+ 
         return secs
-
-
+ 
+ 
     def _group_by(self, sp: list, axis: str, tol: float) -> dict:
         """Group sprinklers into rows/columns by coordinate proximity."""
         groups: dict = {}
@@ -854,13 +896,13 @@ class NFPA13DesignEngine:
             if not placed:
                 groups[val] = [s]
         return groups
-
+ 
     def _hz_category(self, hz: str) -> str:
         """Map hazard string to schedule table category."""
         if hz.startswith("light"):           return "light"
         if hz.startswith(("ordinary","cooler","freezer")): return "ordinary"
         return "extra"
-
+ 
     def _pipe_size_schedule(self, n_heads: int, category: str) -> float:
         """
         NFPA 13 Table 12.1/12.2 pipe schedule method.
@@ -871,28 +913,28 @@ class NFPA13DesignEngine:
             if table[dia] >= n_heads:
                 return dia
         return max(table.keys())   # largest available
-
+ 
     # ── Hazen-Williams hydraulic calculation ──────────────────────────────────
-
+ 
     def _hydraulic_calc_hw(self, sprinklers: list, pipe_sections: list, zones: list) -> dict:
         """
         Critical-path Hazen-Williams hydraulic calculation per NFPA 13 §22.
-
+ 
         Only calculates friction along the CRITICAL PATH (riser → most remote head),
         not for every pipe section — summing all sections produces physically wrong results
         because the same flow does not travel through every section simultaneously.
-
+ 
         Critical path segments:
           1. Supply main:  riser → cross-main junction (carries total demand)
           2. Cross-main:   junction → branch entry (carries branch demand)
           3. Branch line:  entry → most remote head (carries branch demand)
-
+ 
         Pipe sizes for critical path are selected to keep velocity ≤ 20 fps.
         """
         csp = [s for s in sprinklers if not s.get("in_rack")]
         if not csp:
             return self._zero_hydraulics()
-
+ 
         # Identify worst zone
         wz   = max(zones, key=lambda z: HAZARD_CRITERIA.get(z["hazard"],{}).get("min_psi", 7))
         c    = wz["criteria"]
@@ -902,15 +944,15 @@ class NFPA13DesignEngine:
         hose = c["hose_gpm"]
         method_str = ("§22.1 ESFR" if is_e else
                       f"§22.4 Density/Area {c.get('density',0):.2f} gpm/ft² × {c.get('area',0)} ft²")
-
+ 
         wz_sp = [s for s in csp if s.get("zone_hazard") == wz["hazard"]] or csp
-
+ 
         xs      = [s["x"] for s in csp]; ys = [s["y"] for s in csp]
         riser_x = min(xs) - 4; riser_y = (min(ys)+max(ys))/2
-
+ 
         def dist_from_riser(s):
             return math.sqrt((s["x"]-riser_x)**2 + (s["y"]-riser_y)**2)
-
+ 
         # Number of remote heads
         if is_e:
             n_remote = 12
@@ -920,7 +962,7 @@ class NFPA13DesignEngine:
             n_remote    = max(1, math.ceil(remote_area / coverage))
         n_remote = min(n_remote, len(wz_sp))
         remote   = sorted(wz_sp, key=dist_from_riser, reverse=True)[:n_remote]
-
+ 
         # ── Flow at remote heads (node-by-node, most remote first) ────────────
         # Per NFPA 13 §22.4.2: start at most remote head with minimum design P.
         # Each successive head has slightly higher pressure due to pipe friction.
@@ -936,17 +978,17 @@ class NFPA13DesignEngine:
                 "flow_gpm": round(q_head, 2), "pressure_psi": round(p_head, 2),
                 "k_factor": k, "nfpa_ref": "§22.1" if is_e else "§22.4",
             })
-
+ 
         total_demand = total_sprinkler_flow + hose
         C            = self.hwc
-
+ 
         # ── Critical path geometry ────────────────────────────────────────────
         # Estimate critical path lengths from building geometry.
         # These are the THREE segments friction must traverse:
         #   Segment 1: Supply main (riser to far end) — carries total demand
         #   Segment 2: Cross-main (perpendicular run) — carries remote area demand
         #   Segment 3: Branch line (to most remote head) — carries n_remote/2 heads
-
+ 
         building_diag = math.sqrt(self.bw**2 + self.bd**2)
         # Longest main run = 75% of building diagonal (riser typically at one end)
         L_main  = round(building_diag * 0.75, 1)
@@ -955,7 +997,7 @@ class NFPA13DesignEngine:
         # Branch = width of remote area (n_remote heads × grid spacing)
         ms      = c["max_spacing"]
         L_branch= round(math.sqrt(n_remote) * ms, 1)
-
+ 
         # ── Size critical path pipes to keep velocity ≤ 20fps ────────────────
         def size_pipe_velocity(Q_gpm: float) -> float:
             """Return minimum diameter where velocity ≤ 20 fps."""
@@ -966,16 +1008,16 @@ class NFPA13DesignEngine:
                 if vel <= 20.0:
                     return d
             return PIPES[-1]
-
+ 
         # Flow in each segment
         Q_main   = total_demand
         Q_cross  = total_sprinkler_flow  # cross-main carries heads only (hose connects at riser)
         Q_branch = max(1, int(n_remote / 2)) * k * math.sqrt(mp)  # half the remote heads
-
+ 
         d_main   = size_pipe_velocity(Q_main)
         d_cross  = size_pipe_velocity(Q_cross)
         d_branch = size_pipe_velocity(Q_branch)
-
+ 
         # ── Hazen-Williams friction for each critical-path segment ────────────
         def hw_friction(Q: float, d: float, L: float, fittings: list) -> tuple:
             """Returns (total_loss_psi, hf_per_ft, velocity_fps)."""
@@ -988,14 +1030,14 @@ class NFPA13DesignEngine:
             r_ft = (d/2)/12
             vel  = (Q/7.48)/(math.pi*r_ft**2) if r_ft > 0 else 0
             return round(loss,3), round(hf,5), round(vel,1)
-
+ 
         loss_main,   hf_main,   vel_main   = hw_friction(Q_main,   d_main,   L_main,
                                                           ["gate_valve","alarm_check","check_valve"])
         loss_cross,  hf_cross,  vel_cross  = hw_friction(Q_cross,  d_cross,  L_cross,  ["tee_branch"])
         loss_branch, hf_branch, vel_branch = hw_friction(Q_branch, d_branch, L_branch, ["tee_branch"]*max(1,n_remote//2))
-
+ 
         friction_loss_psi = loss_main + loss_cross + loss_branch
-
+ 
         pipe_calcs = [
             {"section":"Supply Main (Critical Path)","pipe_type":"main",
              "flow_gpm":round(Q_main,1),"diameter_in":d_main,"length_ft":L_main,
@@ -1007,13 +1049,13 @@ class NFPA13DesignEngine:
              "flow_gpm":round(Q_branch,1),"diameter_in":d_branch,"length_ft":L_branch,
              "hf_per_ft":hf_branch,"friction_psi":loss_branch,"velocity_fps":vel_branch},
         ]
-
+ 
         # ── Elevation head (0.433 psi/ft) ────────────────────────────────────
         elev_head = self.ch * 0.433
-
+ 
         # ── Required pressure at riser ────────────────────────────────────────
         req_pressure = mp + friction_loss_psi + elev_head
-
+ 
         # ── Available pressure at demand flow (supply curve fit) ──────────────
         if self.fl_gpm > 0:
             avail_at_demand = max(0, self.sp_psi -
@@ -1021,9 +1063,9 @@ class NFPA13DesignEngine:
                                   (total_demand / self.fl_gpm) ** 0.54)
         else:
             avail_at_demand = self.rp_psi
-
+ 
         pressure_delta = avail_at_demand - req_pressure
-
+ 
         # ── Supply curve ──────────────────────────────────────────────────────
         curve = []
         for frac in [0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 1.0, 1.1]:
@@ -1031,7 +1073,7 @@ class NFPA13DesignEngine:
             p = (self.sp_psi - (self.sp_psi-self.rp_psi)*(q/max(self.fl_gpm,1))**0.54
                  if self.fl_gpm > 0 else (self.rp_psi if frac==0 else 0))
             curve.append({"flow": round(q,1), "pressure": round(max(0,p),1)})
-
+ 
         return {
             "static_pressure":   round(self.sp_psi, 1),
             "residual_pressure": round(self.rp_psi,  1),
@@ -1061,7 +1103,7 @@ class NFPA13DesignEngine:
             },
             "compliant": pressure_delta >= 0,
         }
-
+ 
     def _zero_hydraulics(self):
         return {
             "static_pressure":self.sp_psi,"residual_pressure":self.rp_psi,
@@ -1069,9 +1111,9 @@ class NFPA13DesignEngine:
             "flow_demand":0,"density_area":{},"demand_curve":[],
             "remote_area_calcs":{},"compliant":True,
         }
-
+ 
     # ── Hanger schedule ───────────────────────────────────────────────────────
-
+ 
     def _hanger_schedule(self, ps):
         hangers = []; braces = []; hi = 1; bi = 1
         seis = self.seismic in ("C","D","D1","D2","E")
@@ -1123,9 +1165,9 @@ class NFPA13DesignEngine:
                     })
                     bi += 1
         return hangers, braces
-
+ 
     # ── Valve schedule ────────────────────────────────────────────────────────
-
+ 
     def _valve_schedule(self, sp, zones):
         if not sp: return [], []
         csp   = [s for s in sp if not s.get("in_rack")]
@@ -1136,7 +1178,7 @@ class NFPA13DesignEngine:
         hz_c  = self._hz_category(self.def_hz)
         md    = self._pipe_size_schedule(len(csp), hz_c)
         mds   = f"{md:.0f}" if md == int(md) else str(md)
-
+ 
         valves = [
             {"id":"OS&Y-1","type":"osy",    "x":rx,   "y":ry,   "label":f"{mds}\" OS&Y GATE VALVE","nfpa_ref":"§8.16.1","zone":"Main"},
             {"id":"CV-1",  "type":"check",  "x":rx,   "y":ry+3, "label":f"{mds}\" ALARM CHECK VALVE","nfpa_ref":"§8.16.2","zone":"Main"},
@@ -1156,15 +1198,15 @@ class NFPA13DesignEngine:
              "label":"FDC\n6\"×2.5\"×2.5\"×2.5\"×2.5\"","nfpa_ref":"§8.16.6"},
         ]
         return valves, equip
-
+ 
     # ── Bill of materials ─────────────────────────────────────────────────────
-
+ 
     def _bill_of_materials(self, sp, ps, hangers, braces, valves):
         bom  = []
         csp  = [s for s in sp if not s.get("in_rack")]
         rsp  = [s for s in sp if s.get("in_rack")]
         mat  = self.ctx.get("pipe_material","Steel")
-
+ 
         # Sprinklers (ceiling) — include 6% spare per §6.2.9
         for (st, k), qty in sorted(Counter((s["type"],s["k_factor"]) for s in csp).items()):
             s0   = next((s for s in csp if s["type"]==st and s["k_factor"]==k), csp[0])
@@ -1177,7 +1219,7 @@ class NFPA13DesignEngine:
                 "unit": "EA", "unit_cost": SPKR_COST.get(st, 9.00),
                 "nfpa_ref": "§6.2.9",
             })
-
+ 
         # In-rack sprinklers
         if rsp:
             for lv, qty in sorted(Counter(s.get("rack_level_ft",6) for s in rsp).items()):
@@ -1187,7 +1229,7 @@ class NFPA13DesignEngine:
                     "qty": qty + max(2, int(qty*0.05)),
                     "unit": "EA", "unit_cost": 9.50, "nfpa_ref": "§12",
                 })
-
+ 
         # Pipe by diameter, schedule, material — include 5% waste
         pl: dict = defaultdict(float)
         for s in ps:
@@ -1201,7 +1243,7 @@ class NFPA13DesignEngine:
                 "unit": "LF", "unit_cost": PIPE_COST.get(d, 6.00),
                 "nfpa_ref": "§6.3",
             })
-
+ 
         # Fittings
         fc: dict = defaultdict(int)
         for s in ps:
@@ -1218,7 +1260,7 @@ class NFPA13DesignEngine:
                 "unit": "EA", "unit_cost": fco.get(f, 15) * max(d/2, 1),
                 "nfpa_ref": "§6.3",
             })
-
+ 
         # Hangers and braces
         for ht, qty in Counter(h.get("type","rod") for h in hangers).items():
             bom.append({
@@ -1233,7 +1275,7 @@ class NFPA13DesignEngine:
                 "part_number": "TBD", "qty": len(braces),
                 "unit": "EA", "unit_cost": 195.0, "nfpa_ref": "§9.3",
             })
-
+ 
         # Valves
         for v in valves:
             bom.append({
@@ -1242,7 +1284,7 @@ class NFPA13DesignEngine:
                 "unit_cost": VALVE_COST.get(v.get("type","osy"), 200),
                 "nfpa_ref": v.get("nfpa_ref","§8.16"),
             })
-
+ 
         # Fixed riser components
         for item, cost, ref in [
             ("MAIN RISER ASSEMBLY — WET PIPE, COMPLETE",        3500, "§8.16"),
@@ -1255,15 +1297,15 @@ class NFPA13DesignEngine:
             bom.append({"item":item,"part_number":"TBD","qty":1,
                         "unit":"EA","unit_cost":cost,"nfpa_ref":ref})
         return bom
-
+ 
     # ── Compliance checks ─────────────────────────────────────────────────────
-
+ 
     def _compliance_check(self, sp, ps, hyd, zones):
         flags = []
-
+ 
         def flag(section, desc, sev="pass"):
             flags.append({"section":section,"description":desc,"severity":sev})
-
+ 
         # §8.5.2 — Head spacing
         csp  = [s for s in sp if not s.get("in_rack")]
         rows = self._group_by(csp, "y" if self.bw >= self.bd else "x", 3.0)
@@ -1280,15 +1322,15 @@ class NFPA13DesignEngine:
             if not spacing_ok: break
         if spacing_ok:
             flag("§8.5.2","Head spacing compliant in all zones","pass")
-
+ 
         # §8.5.4.1 — Wall offset
         flag("§8.5.4.1",
              "Wall offsets = S/2 applied in both axes (checked at placement)","pass")
-
+ 
         # §8.7.2 — Arm-overs
         ao = [s for s in ps if s.get("pipe_type")=="armover"]
         flag("§8.7.2",f"Arm-overs generated: {len(ao)} (max 1ft per §8.7.2)","pass")
-
+ 
         # §22 — Supply pressure
         pd = hyd.get("pressure_delta", 0)
         rp = hyd.get("required_pressure", 0)
@@ -1299,37 +1341,37 @@ class NFPA13DesignEngine:
         else:
             flag("§22",f"Pressure OK — {rv:.1f} psi available, {rp:.1f} psi required "
                  f"({pd:.1f} psi margin)","pass")
-
+ 
         # §22.1 — ESFR
         esfr_zones = [z for z in zones if HAZARD_CRITERIA.get(z["hazard"],{}).get("esfr")]
         if esfr_zones:
             flag("§22.1",f"ESFR design applied: {', '.join(z['name'] for z in esfr_zones)}","pass")
-
+ 
         # §12 — In-rack
         rack = [s for s in sp if s.get("in_rack")]
         if rack:
             flag("§12",f"In-rack sprinklers: {len(rack)} heads","pass")
-
+ 
         # §9.3 — Seismic
         if self.seismic in ("C","D","D1","D2","E"):
             flag("§9.3",f"Seismic zone {self.seismic} — 4-way sway bracing required on mains","pass")
-
+ 
         # Table 12.1/12.2 — Pipe schedule
         flag("Table 12.1","Pipe sizes from NFPA 13 schedule method","pass")
-
+ 
         # §8.16 — Riser
         flag("§8.16","Riser assembly: OS&Y, alarm check, flow switch, gauge, drain","pass")
-
+ 
         # §8.17 — Inspector's test
         flag("§8.17","Inspector's test valve at most remote sprinkler","pass")
-
+ 
         # §27.2 — Hydraulic placard
         flag("§27.2","Hydraulic design information sign required at riser","pass")
-
+ 
         return flags
-
+ 
     # ── Building footprint helper ─────────────────────────────────────────────
-
+ 
     def _building_footprint(self):
         bd = self.geo.get("building_dimensions",{})
         if bd.get("width_ft") and bd.get("depth_ft"):
@@ -1345,3 +1387,4 @@ class NFPA13DesignEngine:
         area = float(self.ctx.get("total_area",10000))
         w = math.sqrt(area/0.65)
         return w, area/w
+ 
