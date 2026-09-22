@@ -14,6 +14,8 @@ import json
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 ROOT = Path(__file__).resolve().parent.parent
 OUT_ROOT = ROOT / "tests" / "real_drawings_outputs_local"
 GT_DIR = ROOT / "tests" / "real_drawings" / "ground_truth"
@@ -53,7 +55,8 @@ def main():
         rid = d.name.split("_")[0] + "_" + d.name.split("_")[1]
         gt = json.loads((GT_DIR / f"{rid}.json").read_text()) if (GT_DIR / f"{rid}.json").exists() else {}
         rep = json.loads(rfile.read_text()) if rfile.exists() else {}
-        rows = _elements(json.loads(mfile.read_text())) if mfile.exists() else []
+        from fireai.schema import read_model_dict   # restores defaults omitted from persisted entities
+        rows = _elements(read_model_dict(mfile)) if mfile.exists() else []
         data[d.name] = rows
         trig = ", ".join(t["code"] for t in rep.get("review_triggers", [])) or "none"
         fail = rep.get("failure") or {}

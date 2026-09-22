@@ -48,7 +48,100 @@ def dimension_checks(model: BuildingModel) -> tuple[list[DimensionCheck], list[I
     return checks, warnings, triggers
 
 
-def review_checks(model: BuildingModel, unsupported: Counter, xrefs: set[str], hidden_count: int,
+_XREF_ABSENT = {"missing", "load_failed", "conversion_unavailable", "too_deep", "unresolved", "not_attempted"}
+
+
+def xref_checks(xrefs) -> tuple[list[Issue], list[Issue]]:
+    """Review triggers for XREFs. Anything not loaded means geometry is missing."""
+    warnings: list[Issue] = []
+    triggers: list[Issue] = []
+    absent = [x for x in xrefs if x.status in _XREF_ABSENT]
+    if absent:
+        triggers.append(Issue(code="XREF_NOT_RESOLVED", severity="error",
+                              entity_ids=[i for x in absent for i in x.insert_entity_ids],
+                              message=f"{len(absent)} external reference(s) not loaded — their geometry is MISSING from "
+                                      "this model: " + "; ".join(
+                                          f"{x.name} (path in drawing: '{x.path_in_drawing or '?'}', {x.status}"
+                                          + (f": {x.note}" if x.note else "") + ")" for x in absent)
+                                      + ". Upload the referenced files with the drawing."))
+    circ = [x for x in xrefs if x.status == "circular"]
+    if circ:
+        triggers.append(Issue(code="XREF_CIRCULAR", severity="error",
+                              entity_ids=[i for x in circ for i in x.insert_entity_ids],
+                              message="Circular external reference(s) not loaded a second time: "
+                                      + ", ".join(f"{x.name} -> {x.resolved_file}" for x in circ)
+                                      + ". Confirm the intended reference structure."))
+    uu = [x for x in xrefs if x.status == "units_unresolved"]
+    if uu:
+        triggers.append(Issue(code="XREF_UNITS_UNRESOLVED", severity="error",
+                              entity_ids=[i for x in uu for i in x.insert_entity_ids],
+                              message="External reference(s) not loaded because units could not be established: "
+                                      + "; ".join(f"{x.name}: {x.note}" for x in uu)))
+    stem = [x for x in xrefs if x.status == "resolved" and x.matched_by == "same_stem_other_extension"]
+    if stem:
+        triggers.append(Issue(code="XREF_SUBSTITUTED_FILE",
+                              message="XREF(s) resolved to a supplied file with the same name but a different "
+                                      "extension (e.g. a DXF export standing in for the referenced DWG): "
+                                      + ", ".join(f"{x.path_in_drawing or x.name} -> {x.resolved_file}" for x in stem)
+                                      + ". Confirm it is the same revision."))
+    lost = [x for x in xrefs if x.status == "resolved" and x.conversion_significance in ("material", "review")]
+    if lost:
+        triggers.append(Issue(code="XREF_CONVERSION_LOSS",
+                              severity="error" if any(x.conversion_significance == "material" for x in lost) else "warning",
+                              message="Converting XREF DWG(s) lost or changed content: "
+                                      + "; ".join(f"{x.resolved_file} ({x.conversion_significance}): {x.conversion_lost}"
+                                                  for x in lost)))
+    res = [x for x in xrefs if x.status == "resolved"]
+    if res:
+        warnings.append(Issue(code="XREFS_LOADED", severity="info",
+                              message="External references loaded from supplied files: "
+                                      + ", ".join(f"{x.name} <- {x.resolved_file} (sha256 {x.sha256[:12]}…, "
+                                                  f"unit scale {x.unit_scale:g}, {x.entity_count} entities)" for x in res)))
+    ov = [x for x in xrefs if x.status == "overlay_not_loaded"]
+    if ov:
+        warnings.append(Issue(code="XREF_NESTED_OVERLAY_SKIPPED", severity="info",
+                              message="Nested overlay XREF(s) not loaded (CAD convention: overlays do not carry "
+                                      "into referencing drawings): " + ", ".join(x.name for x in ov)))
+    return warnings, triggers
+
+
+def _loss_text(by_type: dict) -> str:
+    return ", ".join(f"{t} x{v['count']}" for t, v in by_type.items()) or "none"
+
+
+def conversion_loss_issues(audit: dict, what: str) -> list[Issue]:
+    """Handle-level audit (fireai/ingest/dwg_audit.py) -> review triggers. Material loss is an error."""
+    out = []
+    by = audit.get("lost_by_significance", {})
+    if audit.get("significance") == "material":
+        parts = []
+        if by.get("material"):
+            parts.append("entities lost where they are drawn: " + _loss_text(by["material"]))
+        if audit.get("geometry_mismatch_count"):
+            parts.append(f"{audit['geometry_mismatch_count']} entities with changed geometry (e.g. handles "
+                         + ", ".join(g["handle"] for g in audit["geometry_mismatch"][:5]) + ")")
+        out.append(Issue(code="DWG_CONVERSION_LOST_ENTITIES", severity="error",
+                         message=f"{what} does not faithfully contain the DWG: " + "; ".join(parts)
+                                 + ". This content is absent or wrong in the model; obtain a DXF exported by the "
+                                   "authoring CAD software before relying on it."))
+    if audit.get("significance") in ("material", "review"):
+        parts = []
+        if by.get("review"):
+            parts.append("content FireAI does not interpret was lost: " + _loss_text(by["review"]))
+        if audit.get("layers", {}).get("lost"):
+            parts.append(f"layers lost: {audit['layers']['lost'][:10]}")
+        if audit.get("blocks", {}).get("lost"):
+            parts.append(f"block definitions lost: {audit['blocks']['lost'][:10]}")
+        if audit.get("type_changed_count"):
+            parts.append(f"{audit['type_changed_count']} entities changed type")
+        if audit.get("text_mismatch_count"):
+            parts.append(f"{audit['text_mismatch_count']} texts changed")
+        if parts:
+            out.append(Issue(code="DWG_CONVERSION_LOSS_REVIEW", message=f"{what}: " + "; ".join(parts) + "."))
+    return out
+
+
+def review_checks(model: BuildingModel, unsupported: Counter, xrefs, hidden_count: int,
                   audit_errors: list[str]) -> tuple[list[Issue], list[Issue]]:
     warnings: list[Issue] = []
     triggers: list[Issue] = []
@@ -93,9 +186,9 @@ def review_checks(model: BuildingModel, unsupported: Counter, xrefs: set[str], h
                                       message="Model space contains substantial geometry well outside the walls (details, "
                                               "other plans, or stray entities). Confirm which region is the building."))
 
-    if xrefs:
-        triggers.append(Issue(code="XREF_NOT_RESOLVED",
-                              message=f"{len(xrefs)} external reference(s) not loaded: {sorted(xrefs)}. Their geometry is missing."))
+    xw, xt = xref_checks(xrefs)
+    warnings.extend(xw)
+    triggers.extend(xt)
 
     total_top = sum(1 for e in model.entities if e.parent_id is None and e.space == "model")
     n_unsupported = sum(unsupported.values())
@@ -134,11 +227,20 @@ def review_checks(model: BuildingModel, unsupported: Counter, xrefs: set[str], h
             triggers.append(Issue(code="DWG_CONVERSION_AUDIT_UNAVAILABLE",
                                   message="Could not independently verify that the DWG->DXF conversion kept every entity "
                                           f"({audit.get('note', 'no audit')}). Entities may be missing without notice."))
-        elif audit.get("lost"):
-            triggers.append(Issue(code="DWG_CONVERSION_LOST_ENTITIES",
-                                  message="The converted DXF is missing entities that exist in the DWG: "
-                                          + ", ".join(f"{t} x{n}" for t, n in audit["lost"].items())
-                                          + ". Their geometry is absent from this model."))
+        elif "significance" not in audit:          # pre-1.6 count-level audit
+            if audit.get("lost"):
+                triggers.append(Issue(code="DWG_CONVERSION_LOST_ENTITIES",
+                                      message="The converted DXF is missing entities that exist in the DWG: "
+                                              + ", ".join(f"{t} x{n}" for t, n in audit["lost"].items())
+                                              + ". Their geometry is absent from this model."))
+        else:
+            triggers.extend(conversion_loss_issues(audit, "The converted DXF"))
+            if audit["significance"] == "minor":
+                warnings.append(Issue(code="DWG_CONVERSION_MINOR_DIFFERENCES", severity="info",
+                                      message="DWG->DXF conversion differences judged minor: "
+                                              + _loss_text(audit.get("lost_by_significance", {}).get("minor", {}))
+                                              + (" (drawing extents header differs)" if any(
+                                                  not v["agrees"] for v in audit.get("extents", {}).values()) else "")))
         warnings.append(Issue(code="DWG_CONVERTED",
                               message=f"Geometry was read from a DXF produced by DWG converter "
                                       f"'{model.source.converter.get('name') if model.source.converter else '?'}'. "

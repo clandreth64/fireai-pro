@@ -1,33 +1,62 @@
 {
+  "schema": "ground_truth/2",
   "id": "REAL_003",
-  "review": {
+  "review_status": "PENDING_HUMAN_VERIFICATION",
+  "source_sha256s": [
+    "7d5507da05fb70ba55875d99e676524ca2caa0ed7a5582ad130c3c06e8d925f1"
+  ],
+  "note": "claude_draft is an AI-assisted DRAFT, not ground truth. Human truth lives in a separate human-review file; FireAI output is never used as ground truth.",
+  "claude_draft": {
+    "author": "Claude (AI-assisted draft)",
     "method": "AI-assisted visual review of source.png + DXF tables; independent of FireAI output",
-    "status": "PENDING_HUMAN_CONFIRMATION",
-    "date": "2026-09-22"
-  },
-  "drawing_type": {
-    "value": "same plan as REAL_002, metric edition",
-    "assertion": "EXACT"
-  },
-  "units": {
-    "value": "m",
-    "assertion": "EXACT",
-    "note": "header $INSUNITS=6"
-  },
-  "extents_match_REAL_002_within": {
-    "value": "1%",
-    "assertion": "APPROXIMATE"
-  },
-  "structural_difference_from_REAL_002": {
-    "value": "walls drawn as exploded LINEs (not polylines); porch posts not on a column layer",
-    "assertion": "EXACT"
-  },
-  "separate_views_in_model_space": {
-    "value": 2,
-    "assertion": "EXACT"
-  },
-  "stairs": {
-    "value": 2,
-    "assertion": "EXACT"
+    "date": "2026-09-22",
+    "fields": {
+      "drawing_type": {
+        "value": "same plan as REAL_002, metric edition",
+        "assertion": "EXACT"
+      },
+      "units": {
+        "value": "m",
+        "assertion": "EXACT",
+        "note": "header $INSUNITS=6"
+      },
+      "extents_match_REAL_002_within": {
+        "value": "1%",
+        "assertion": "APPROXIMATE"
+      },
+      "structural_difference_from_REAL_002": {
+        "value": "walls drawn as exploded LINEs (not polylines); porch posts not on a column layer",
+        "assertion": "EXACT"
+      },
+      "separate_views_in_model_space": {
+        "value": 2,
+        "assertion": "EXACT"
+      },
+      "stairs": {
+        "value": 2,
+        "assertion": "EXACT"
+      }
+    },
+    "by_category": {
+      "drawing_type": [
+        "drawing_type"
+      ],
+      "units": [
+        "units"
+      ],
+      "extents": [
+        "extents_match_REAL_002_within"
+      ],
+      "other": [
+        "structural_difference_from_REAL_002"
+      ],
+      "view_count": [
+        "separate_views_in_model_space"
+      ],
+      "stairs": [
+        "stairs"
+      ]
+    },
+    "expected_behavior": []
   }
 }

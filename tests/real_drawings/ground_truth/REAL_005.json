@@ -1,25 +1,48 @@
 {
+  "schema": "ground_truth/2",
   "id": "REAL_005",
-  "review": {
+  "review_status": "PENDING_HUMAN_VERIFICATION",
+  "source_sha256s": [
+    "45b419d0c7382eb271079b80c3237a52183f4fa09e7b495c3d7a65c6baa927dc"
+  ],
+  "note": "claude_draft is an AI-assisted DRAFT, not ground truth. Human truth lives in a separate human-review file; FireAI output is never used as ground truth.",
+  "claude_draft": {
+    "author": "Claude (AI-assisted draft)",
     "method": "AI-assisted visual review of source.png + DXF tables; independent of FireAI output",
-    "status": "PENDING_HUMAN_CONFIRMATION",
-    "date": "2026-09-22"
-  },
-  "drawing_type": {
-    "value": "civil site plan: parcel, pond, road, one building footprint",
-    "assertion": "EXACT"
-  },
-  "units": {
-    "value": "NOT_EVALUATED",
-    "assertion": "NOT_EVALUATED",
-    "note": "header says inches, which makes the parcel ~66 ft wide \u2014 implausible for a site with a road and pond; likely feet, but no dimension or scale text exists to verify"
-  },
-  "rooms": {
-    "value": 0,
-    "assertion": "EXACT"
-  },
-  "building_footprint": {
-    "value": 1,
-    "assertion": "APPROXIMATE"
+    "date": "2026-09-22",
+    "fields": {
+      "drawing_type": {
+        "value": "civil site plan: parcel, pond, road, one building footprint",
+        "assertion": "EXACT"
+      },
+      "units": {
+        "value": "NOT_EVALUATED",
+        "assertion": "NOT_EVALUATED",
+        "note": "header says inches, which makes the parcel ~66 ft wide \u2014 implausible for a site with a road and pond; likely feet, but no dimension or scale text exists to verify"
+      },
+      "rooms": {
+        "value": 0,
+        "assertion": "EXACT"
+      },
+      "building_footprint": {
+        "value": 1,
+        "assertion": "APPROXIMATE"
+      }
+    },
+    "by_category": {
+      "drawing_type": [
+        "drawing_type"
+      ],
+      "units": [
+        "units"
+      ],
+      "room_count": [
+        "rooms"
+      ],
+      "other": [
+        "building_footprint"
+      ]
+    },
+    "expected_behavior": []
   }
 }

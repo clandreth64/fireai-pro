@@ -34,6 +34,7 @@ AREA_LABEL_TOLERANCE = 0.05
 DOOR_CLOSURE_MIN_FT = 1.5      # shorter pairs are wall thickness, not an opening
 DOOR_CLOSURE_MAX_FT = 8.0      # widest opening bridged (pair of doors)
 DOOR_CLOSURE_MARGIN_FT = 0.75  # search margin around a door's footprint
+LABEL_NEAR_FT = 1.0            # R-LABEL-NEAR: max distance of an outside label from a boundary
 WALL_QUALIFIER_TOKENS = {"ABOVE", "BELOW", "OVHD", "OVERHEAD", "HIDDEN", "DEMO", "DEMOLITION", "DEMOLISH",
                          "FUTURE", "NIC", "EXIST", "EXISTING", "REMOVE", "RMV"}
 
@@ -66,8 +67,10 @@ def _conf_flag(c: float) -> bool:
 
 class Interpreter:
     def __init__(self, entities: list[SourceEntity], layer_roles: dict[str, R.RoleMatch | None],
-                 block_roles: dict[str, R.RoleMatch | None], source_uid: str | None = None):
+                 block_roles: dict[str, R.RoleMatch | None], source_uid: str | None = None,
+                 region_of: dict[str, dict] | None = None):
         self.source_uid = source_uid
+        self.region_of = region_of or {}
         self.all = entities
         self.by_id = {e.id: e for e in entities}
         self.children: dict[str, list[SourceEntity]] = defaultdict(list)
@@ -103,6 +106,11 @@ class Interpreter:
                 p = [ent.normalized.insert]
             return p
         return geometry_points(ent.normalized)
+
+    def room_logic_allowed(self, ent: SourceEntity) -> bool:
+        """False inside regions classified as non-plan views (sections, details ...)."""
+        r = self.region_of.get(ent.id)
+        return r is None or r.get("room_logic", "applied") == "applied"
 
     def role(self, ent: SourceEntity) -> R.RoleMatch | None:
         return self.layer_roles.get(ent.layer)
@@ -351,7 +359,7 @@ class Interpreter:
             if e.id in self.claimed or e.normalized is None:
                 continue
             r = self.role(e)
-            if not r or r.role != "room_boundary":
+            if not r or r.role != "room_boundary" or not self.room_logic_allowed(e):
                 continue
             g = e.normalized
             if g.kind == "polyline" and g.closed and len(g.points) >= 3:
@@ -366,7 +374,8 @@ class Interpreter:
 
         method = "area_layer_polyline"
         if not cands:
-            walls = [el for el in self.out.elements if el.category == "wall" and el.subtype == "wall_linework"]
+            walls = [el for el in self.out.elements if el.category == "wall" and el.subtype == "wall_linework"
+                     and all(self.room_logic_allowed(self.by_id[i]) for i in el.source_entity_ids)]
             lines = []
             for w in walls:
                 pts = w.geometry.points if w.geometry else []
@@ -415,14 +424,24 @@ class Interpreter:
 
         # Label association (text inside boundary, smallest containing polygon wins)
         texts = [t for t in self.model_entities() if t.id not in self.claimed and t.normalized is not None
-                 and t.normalized.kind == "text" and t.normalized.text]
+                 and t.normalized.kind == "text" and t.normalized.text and self.room_logic_allowed(t)]
         prepared = [(prep(c[0]), c) for c, _ in rooms]
         labels: dict[int, list[SourceEntity]] = defaultdict(list)
+        near_labels: dict[int, list[SourceEntity]] = defaultdict(list)
         for t in texts:
             p = Point(t.normalized.insert)
             inside = [(c[0].area, idx) for idx, (pp, c) in enumerate(prepared) if pp.contains(p)]
             if inside:
                 labels[min(inside)[1]].append(t)
+                continue
+            # R-LABEL-NEAR: a room-label-layer text just outside exactly one boundary
+            r = self.role(t)
+            if not (r and r.role == "room_label"):
+                continue
+            reach = max(LABEL_NEAR_FT, 2.0 * (t.normalized.height or 0.0))
+            near = [idx for idx, (_pp, c) in enumerate(prepared) if c[0].exterior.distance(p) <= reach]
+            if len(near) == 1:
+                near_labels[near[0]].append(t)
         label_role_texts = [t for t in texts if (r := self.role(t)) and r.role == "room_label"]
 
         for idx, ((poly, src, conf, ev, rule_ids, meth, door_closures), _) in enumerate(rooms):
@@ -432,6 +451,12 @@ class Interpreter:
             # Prefer text on room-label layers; otherwise short text only.
             preferred = [t for t in candidates if (r := self.role(t)) and r.role in ("room_label", "room_boundary")]
             chosen = preferred or [t for t in candidates if len(t.normalized.text) <= 40]
+            near = False
+            if not chosen and near_labels.get(idx):
+                chosen = preferred = near_labels[idx]
+                near = True
+                rule_ids.append("R-LABEL-NEAR")
+                conf = min(conf, 0.5)
             # Parse each text entity separately; never concatenate different entities into one name.
             names, numbers, stated_areas, notes = [], [], [], []
             for t in chosen:
@@ -460,7 +485,11 @@ class Interpreter:
                 rule_ids.append("T-FINISH-NOTE")
             verify = False
             subtype = None
-            if chosen:
+            if near:
+                ev.append(f"label text {[t.normalized.text for t in chosen]} is OUTSIDE the boundary, within "
+                          f"{LABEL_NEAR_FT:g} ft (or 2 text heights) of it and near no other room")
+                verify = True
+            elif chosen:
                 ev.append(f"label text inside boundary: {[t.normalized.text for t in chosen]}")
                 if not preferred:
                     ev.append("label text is not on a room-label layer")

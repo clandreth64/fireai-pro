@@ -21,8 +21,9 @@ FIXTURES = Path(__file__).parent / "fixtures"
 
 
 def test_schema_version_is_current(results):
-    assert SCHEMA_VERSION == "0.2.0"
-    assert results["office_in"].model.schema_version == "0.2.0"
+    # M1.6 bumped the schema (XREF records, view types, wall analysis, verification binding).
+    assert SCHEMA_VERSION == "0.3.0"
+    assert results["office_in"].model.schema_version == "0.3.0"
 
 
 def test_every_object_has_a_unique_persistent_uid(results):
@@ -150,8 +151,8 @@ def test_migrate_real_0_1_0_model():
     data = json.loads((FIXTURES / "model_v0_1_0_simple_rect.json").read_text())
     assert data["schema_version"] == "0.1.0"
     model, applied = load_model(data)
-    assert applied == ["0.1.0->0.2.0"]
-    assert model.schema_version == "0.2.0"
+    assert applied == ["0.1.0->0.2.0", "0.2.0->0.3.0"]
+    assert model.schema_version == "0.3.0"
     assert all(e.uid for e in model.entities) and all(e.uid for e in model.elements)
     assert all(el.placement.elevation_ft is None for el in model.elements)       # unknown, not invented
     assert {f.id for f in model.coordinate_frames} == {"SRC", "SRC_FT", "LOCAL", "PROJECT"}
@@ -215,3 +216,39 @@ def test_builder_fixture_unchanged():
     with tempfile.TemporaryDirectory() as d:
         p = B.make_simple_rect(Path(d) / "x.dxf")
         assert ezdxf.readfile(p).modelspace().query("LWPOLYLINE").__len__() == 3
+
+
+def test_migrate_real_0_2_0_model_with_xref():
+    """Fixture produced by the Milestone 1.5 code (b6a1fb3) — a real 0.2.0 model."""
+    data = json.loads((FIXTURES / "model_v0_2_0_xref_host.json").read_text())
+    assert data["schema_version"] == "0.2.0"
+    model, applied = load_model(data)
+    assert applied == ["0.2.0->0.3.0"]
+    (x,) = model.xrefs
+    assert x.name == "ARCH-BASE" and x.status == "not_attempted"     # 0.2.0 never loaded XREFs
+    assert all(r["view_type"] == "UNKNOWN" and r["review_state"] == "unreviewed" for r in model.view_regions)
+    assert model.verification is None and model.wall_model is None
+    # nothing else changes meaning
+    assert [e.uid for e in model.entities] == [e["uid"] for e in data["entities"]]
+    assert [e.uid for e in model.elements] == [e["uid"] for e in data["elements"]]
+
+
+def test_persisted_model_is_lossless_and_keeps_safety_flags_explicit(results):
+    from fireai.schema import dump_model
+    m = results["office_ft"].model
+    raw = dump_model(m)
+    d = json.loads(raw)
+    for k in ("schema_version", "geometry_is_synthetic", "ready_for_design", "engineering_review_status",
+              "ai_inference_used", "requires_human_review"):
+        assert k in d, k                                   # never omitted, even at default values
+    assert d["geometry_is_synthetic"] is False and d["ready_for_design"] is False
+    m2, applied = load_model(d)
+    assert applied == [] and m2.model_dump(mode="json") == m.model_dump(mode="json")
+    assert len(raw) < len(json.dumps(m.model_dump(mode="json")))
+
+
+def test_pipeline_writes_the_compact_lossless_model(results):
+    r = results["warehouse"]
+    on_disk = json.loads(r.path("model_json").read_text())
+    m2, _ = load_model(on_disk)
+    assert m2.model_dump(mode="json") == r.model.model_dump(mode="json")

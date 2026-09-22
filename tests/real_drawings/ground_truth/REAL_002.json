@@ -1,80 +1,121 @@
 {
+  "schema": "ground_truth/2",
   "id": "REAL_002",
-  "review": {
+  "review_status": "PENDING_HUMAN_VERIFICATION",
+  "source_sha256s": [
+    "3c95e8a82d5c8c251483fabc61efa8ca904f4e4bc8c2fce4786d74e812284d07"
+  ],
+  "note": "claude_draft is an AI-assisted DRAFT, not ground truth. Human truth lives in a separate human-review file; FireAI output is never used as ground truth.",
+  "claude_draft": {
+    "author": "Claude (AI-assisted draft)",
     "method": "AI-assisted visual review of source.png + DXF tables; independent of FireAI output",
-    "status": "PENDING_HUMAN_CONFIRMATION",
-    "date": "2026-09-22"
-  },
-  "drawing_type": {
-    "value": "two-storey residential floor plans (floor 1 and floor 2 side by side)",
-    "assertion": "EXACT"
-  },
-  "units": {
-    "value": "in",
-    "assertion": "EXACT",
-    "note": "header $INSUNITS=1; plan size (~33 x 40 ft per floor) is plausible"
-  },
-  "separate_views_in_model_space": {
-    "value": 2,
-    "assertion": "EXACT"
-  },
-  "rooms_labeled": {
-    "value": [
-      "LAUNDRY",
-      "B/R",
-      "HALL",
-      "KITCHEN",
-      "STUDY",
-      "DINING ROOM",
-      "FORUM",
-      "BEDROOM",
-      "BEDROOM",
-      "WALK-IN CLOSET",
-      "B/R",
-      "HALL",
-      "HALL",
-      "MASTER BEDROOM"
-    ],
-    "assertion": "APPROXIMATE",
-    "note": "visible room labels; one first-floor label partly obscured (NOT_EVALUATED)"
-  },
-  "finish_notes_present": {
-    "value": [
-      "HRWD FLOOR",
-      "TILE FLOOR"
-    ],
-    "assertion": "EXACT"
-  },
-  "walls": {
-    "value": "double-line exterior and interior walls on layer 'Walls'",
-    "assertion": "EXACT"
-  },
-  "doors": {
-    "value": 16,
-    "assertion": "APPROXIMATE",
-    "note": "Door dynamic-block copies plus bifold/french door blocks"
-  },
-  "windows": {
-    "value": 42,
-    "assertion": "APPROXIMATE",
-    "note": "Window dynamic-block copies (each includes a tag hexagon). Initial visual reading 'tags are not windows' was WRONG \u2014 corrected by effective block names"
-  },
-  "columns": {
-    "value": 5,
-    "assertion": "APPROXIMATE",
-    "note": "porch posts"
-  },
-  "stairs": {
-    "value": 2,
-    "assertion": "EXACT",
-    "note": "one per floor"
-  },
-  "fixtures_and_equipment": {
-    "value": "receptacles, switches, lighting, appliances, sinks, toilets (not building elements)",
-    "assertion": "EXACT"
-  },
-  "expected_behavior": [
-    "two drawing regions reported",
-    "rooms must not be merged across doors with concatenated names"
-  ]
+    "date": "2026-09-22",
+    "fields": {
+      "drawing_type": {
+        "value": "two-storey residential floor plans (floor 1 and floor 2 side by side)",
+        "assertion": "EXACT"
+      },
+      "units": {
+        "value": "in",
+        "assertion": "EXACT",
+        "note": "header $INSUNITS=1; plan size (~33 x 40 ft per floor) is plausible"
+      },
+      "separate_views_in_model_space": {
+        "value": 2,
+        "assertion": "EXACT"
+      },
+      "rooms_labeled": {
+        "value": [
+          "LAUNDRY",
+          "B/R",
+          "HALL",
+          "KITCHEN",
+          "STUDY",
+          "DINING ROOM",
+          "FORUM",
+          "BEDROOM",
+          "BEDROOM",
+          "WALK-IN CLOSET",
+          "B/R",
+          "HALL",
+          "HALL",
+          "MASTER BEDROOM"
+        ],
+        "assertion": "APPROXIMATE",
+        "note": "visible room labels; one first-floor label partly obscured (NOT_EVALUATED)"
+      },
+      "finish_notes_present": {
+        "value": [
+          "HRWD FLOOR",
+          "TILE FLOOR"
+        ],
+        "assertion": "EXACT"
+      },
+      "walls": {
+        "value": "double-line exterior and interior walls on layer 'Walls'",
+        "assertion": "EXACT"
+      },
+      "doors": {
+        "value": 16,
+        "assertion": "APPROXIMATE",
+        "note": "Door dynamic-block copies plus bifold/french door blocks"
+      },
+      "windows": {
+        "value": 42,
+        "assertion": "APPROXIMATE",
+        "note": "Window dynamic-block copies (each includes a tag hexagon). Initial visual reading 'tags are not windows' was WRONG \u2014 corrected by effective block names"
+      },
+      "columns": {
+        "value": 5,
+        "assertion": "APPROXIMATE",
+        "note": "porch posts"
+      },
+      "stairs": {
+        "value": 2,
+        "assertion": "EXACT",
+        "note": "one per floor"
+      },
+      "fixtures_and_equipment": {
+        "value": "receptacles, switches, lighting, appliances, sinks, toilets (not building elements)",
+        "assertion": "EXACT"
+      }
+    },
+    "by_category": {
+      "drawing_type": [
+        "drawing_type"
+      ],
+      "units": [
+        "units"
+      ],
+      "view_count": [
+        "separate_views_in_model_space"
+      ],
+      "room_names": [
+        "rooms_labeled"
+      ],
+      "other": [
+        "finish_notes_present",
+        "fixtures_and_equipment"
+      ],
+      "walls": [
+        "walls"
+      ],
+      "doors": [
+        "doors"
+      ],
+      "windows": [
+        "windows"
+      ],
+      "columns": [
+        "columns"
+      ],
+      "stairs": [
+        "stairs"
+      ]
+    },
+    "expected_behavior": [
+      "two drawing regions reported",
+      "rooms must not be merged across doors with concatenated names"
+    ]
+  }
 }

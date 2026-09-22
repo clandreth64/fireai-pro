@@ -1,15 +1,28 @@
 {
+  "schema": "ground_truth/2",
   "id": "REAL_006",
-  "review": {
+  "review_status": "PENDING_HUMAN_VERIFICATION",
+  "source_sha256s": [
+    "edf22e187337e37d2083b26d6d00ce30ed78d2fd31d6bf0e9869902325ad3ab1"
+  ],
+  "note": "claude_draft is an AI-assisted DRAFT, not ground truth. Human truth lives in a separate human-review file; FireAI output is never used as ground truth.",
+  "claude_draft": {
+    "author": "Claude (AI-assisted draft)",
     "method": "AI-assisted visual review of source.png + DXF tables; independent of FireAI output",
-    "status": "PENDING_HUMAN_CONFIRMATION",
-    "date": "2026-09-22"
-  },
-  "drawing_type": {
-    "value": "3D visualization model (solids/meshes); no 2D plan linework",
-    "assertion": "APPROXIMATE"
-  },
-  "expected_behavior": [
-    "fail closed (GEOMETRY_EXTRACTION_FAILED) \u2014 no invented 2D geometry"
-  ]
+    "date": "2026-09-22",
+    "fields": {
+      "drawing_type": {
+        "value": "3D visualization model (solids/meshes); no 2D plan linework",
+        "assertion": "APPROXIMATE"
+      }
+    },
+    "by_category": {
+      "drawing_type": [
+        "drawing_type"
+      ]
+    },
+    "expected_behavior": [
+      "fail closed (GEOMETRY_EXTRACTION_FAILED) \u2014 no invented 2D geometry"
+    ]
+  }
 }

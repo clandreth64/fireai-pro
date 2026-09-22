@@ -1,7 +1,8 @@
 # FireAI Pro — Spatial / BIM Architecture
 
-**Status:** Milestone 1.5 architecture review. Documents the target architecture and records which
-foundations were implemented now (schema **0.2.0**) and which are deliberately deferred.
+**Status:** Milestone 1.5 architecture review, updated for Milestone 1.6 (schema **0.3.0**, see §13b).
+Documents the target architecture and records which foundations are implemented and which are
+deliberately deferred.
 Nothing here implements sprinkler design, hydraulics, BIM coordination, clash detection, or fabrication.
 
 Governing rule: **never guess, never silently default, never claim success when input understanding failed.**
@@ -9,12 +10,12 @@ Unknown values stay unknown — including Z, elevation, building, and level.
 
 ---
 
-## 1. Current normalized model (schema 0.2.0)
+## 1. Current normalized model (schema 0.3.0)
 
 One `BuildingModel` per ingested source file (a *drawing-understanding record*):
 
 ```
-BuildingModel (schema_version 0.2.0)
+BuildingModel (schema_version 0.3.0)
 ├─ source            SourceInfo: filename, format, sha256, source_uid, document_guid, version_guid,
 │                    DXF version, converter {name, version, command}, converted_dxf_sha256,
 │                    converter_log_tail, converter_warnings
@@ -31,7 +32,17 @@ BuildingModel (schema_version 0.2.0)
 │     requires_verification, geometry (LOCAL), properties,
 │     placement{building_id, level_id, elevation_ft, height_ft, thickness_ft, rotation_deg, z_status},
 │     provenance{origin:"deterministic_inference", engine, engine_version, rule_ids, derived_from, review}
-├─ unclassified_entity_ids, title_block, scale (dimension checks), layers, blocks
+├─ unclassified_entity_ids, title_block, scale (dimension checks, viewport windows), layers, blocks
+├─ xrefs[]           0.3.0 XrefRecord: name, stored path, status (resolved|missing|circular|
+│                    units_unresolved|load_failed|...), resolved file + sha256, unit scale, depth
+│                    (XREF geometry is in entities[], each with attributes.xref_source {file, sha256, handle})
+├─ view_regions[]    0.3.0 id, uid, bbox, member entities, view_type (+confidence, candidates, evidence,
+│                    rules, source fireai|human), review_state, room_logic applied|skipped
+├─ wall_model        0.3.0 DERIVED ANALYSIS LAYER: paired wall pieces (thickness, centerline or arc,
+│                    faces→source entities), junctions, openings (door|doorless), room connections
+├─ human_corrections_applied  0.3.0 which stored human corrections were applied to this run
+├─ verification      0.3.0 fingerprint (source, XREFs, units, engine, corrections) + status
+│                    UNREVIEWED|REVIEW_REQUIRED|HUMAN_VERIFIED|INVALIDATED
 ├─ diagnostics       warnings · errors · review_triggers
 └─ fixed facts       geometry_is_synthetic=false · ready_for_design=false ·
                      engineering_review_status="not_performed" · ai_inference_used=false
@@ -44,7 +55,7 @@ BuildingModel (schema_version 0.2.0)
 | Plan geometry is XY only | No 3D solids, no clearances in Z | Source Z recorded in `z_range`, never promoted |
 | One model = one source file | Multi-sheet / multi-file projects not unified | Future `ProjectModel` (§4) |
 | No levels | Everything is "unassigned" | Correct — levels are not established by a plan DXF |
-| Walls are linework | No thickness/centerline/height | Wall pairing is a later interpretation task |
+| Walls are linework + a derived analysis layer | Thickness/centerline/junctions/openings are ANALYSIS (`wall_model`), not walls; no height | Semantic Wall objects wait for the ProjectModel |
 | Rooms are 2D polygons | No ceiling height/volume | Ceiling data (RCP) would come from other sources |
 | PROJECT frame unresolved | Files cannot yet be aligned | Requires a human/adapter decision (§5) |
 
@@ -239,8 +250,11 @@ meaning of existing fields. No event-sourcing system is built now.
 ## 12. Schema-versioning strategy
 
 * `schema_version` on every persisted model; `fireai.schema.load_model` is the only loader.
-* Known older versions are migrated **step by step** (`0.1.0 → 0.2.0` implemented and tested with a
-  real 0.1.0 model); unknown or newer versions are **refused** (`UnsupportedSchemaVersion`).
+* Known older versions are migrated **step by step** (`0.1.0 → 0.2.0 → 0.3.0`, each tested with a
+  real model produced by that version's code); unknown or newer versions are **refused**
+  (`UnsupportedSchemaVersion`).
+* Persisted form (0.3.0): compact JSON, entities written without default-valued fields
+  (`fireai.schema.dump_model`); lossless, and top-level safety declarations are always explicit.
 * Migrations only derive information that exists or mark new information unknown; they record
   themselves in the returned `applied` list.
 * Planned line: `0.x` drawing understanding (2D → 3D building understanding) → `1.x` ProjectModel with
@@ -264,6 +278,21 @@ meaning of existing fields. No event-sourcing system is built now.
 | `schema.py` with migration 0.1.0→0.2.0 and refusal of unknown versions | Persisted models must not silently change meaning | real 0.1.0 fixture migrates; unknown refused |
 | DWG→DXF linkage: `converted_dxf_sha256`, converter log/warnings | Conversion must be auditable | recorded |
 
+## 13b. Changes made in Milestone 1.6 (schema 0.3.0)
+
+| Change | Why | Tests |
+|---|---|---|
+| `xrefs[]` records; XREF entities carry `attributes.xref_source` (file, sha256, original handle); uid handle path gains `X<sha12>/<handle>` segments | XREF geometry must be traceable to its file and object, and absent XREFs must be explicit | `test_xref.py`, `test_xref_api.py` |
+| `view_regions[]` gain uid, view_type, evidence, review state, room_logic | Room logic must not run on sections; plan selection is a human decision | `test_views.py` |
+| `wall_model` analysis layer (not elements) | Thickness/centerline/openings are derived; they must never be mistaken for source walls | `test_walls.py` |
+| Room evidence: `shape_hints`, `openings`, `split_candidates` (suggested, never applied) | Doorless openings and merged spaces are flagged, not silently split | `test_rooms_m16.py` |
+| `human_corrections_applied`, `verification` binding; review store keyed by source sha256 (+ document-GUID revision index) | Human truth kept separate from machine output; any material change invalidates verification; future engineering calls `require_verified_model` | `test_review_gate.py` |
+| Handle-level DWG conversion audit with significance classes | Count-level census masked losses (R14 INSERTs) | `test_real_world_failure_classes.py` |
+| Migration 0.2.0→0.3.0 (XREFs `not_attempted`, view types UNKNOWN, no binding) | Old models must not silently gain meaning | `test_foundations.py` |
+
+Unchanged: uids of existing (non-XREF) entities and elements, frames, placement (all unknown), Z
+handling, provenance semantics. Still no IFC/Revit, 3D solids, clash detection or sprinkler network.
+
 ## 14. Changes that explicitly WAIT
 
 ProjectModel/Building/Level objects · 3D geometry representations and solids · relationship graph ·
@@ -282,5 +311,5 @@ would be speculative.
 | LibreDWG fidelity gaps | Converter warnings recorded; DWG vs DXF equivalence tests; conversion failures fail closed |
 | GPL obligations if the converter binary ships in a product image | Process isolation; legal review before commercial distribution |
 | 2D elements lack Z; future 3D work may be tempted to "assume ceiling height" | `z_status`/`elevation_ft=None` semantics and tests forbid defaults |
-| Model size (full source inventory per file) | Acceptable at current scale; later: store source layer separately, reference by uid |
+| Model size (full source inventory per file) | 0.3.0 writes compact JSON without entity defaults (REAL_010: see REAL_DRAWING_VALIDATION §M1.6); later: store source layer separately, reference by uid |
 | Frames add complexity for simple consumers | LOCAL remains available; frame is explicit on every geometry |

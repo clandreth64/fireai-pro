@@ -12,11 +12,14 @@ Rules:
 Version line (see docs/SPATIAL_BIM_ARCHITECTURE.md §12 for the long-term plan):
     0.1.0  2D drawing understanding (Milestone 1)
     0.2.0  identity, frames, placement (unknown), provenance (Milestone 1.5)
+    0.3.0  XREF records, view classification, wall analysis layer, human
+           corrections + verification binding (Milestone 1.6)
 """
 
 from __future__ import annotations
 
 import copy
+import json
 from typing import Any, Callable
 
 from fireai.ingest.extract import source_uid_for, uid_for
@@ -71,9 +74,51 @@ def _migrate_0_1_0_to_0_2_0(d: dict[str, Any]) -> dict[str, Any]:
     return d
 
 
+def _migrate_0_2_0_to_0_3_0(d: dict[str, Any]) -> dict[str, Any]:
+    """0.2.0 never loaded XREFs: each XREF block becomes a record with status
+    "not_attempted" (geometry absent). View types, wall analysis and verification
+    were not computed -> UNKNOWN / None / UNREVIEWED-without-binding."""
+    d = copy.deepcopy(d)
+    xrefs = []
+    for b in d.get("blocks", []):
+        if b.get("is_xref"):
+            xrefs.append({"name": b["name"], "status": "not_attempted",
+                          "note": "model produced by schema 0.2.0, which did not load XREFs"})
+    d.setdefault("xrefs", xrefs)
+    for r in d.get("view_regions", []):
+        r.setdefault("view_type", "UNKNOWN")
+        r.setdefault("view_type_confidence", 0.0)
+        r.setdefault("view_type_evidence", ["not classified (schema 0.2.0)"])
+        r.setdefault("review_state", "unreviewed")
+    d.setdefault("wall_model", None)
+    d.setdefault("human_corrections_applied", [])
+    d.setdefault("verification", None)       # no binding: cannot be verified until reprocessed
+    d["schema_version"] = "0.3.0"
+    return d
+
+
 MIGRATIONS: dict[str, tuple[str, Callable[[dict], dict]]] = {
     "0.1.0": ("0.2.0", _migrate_0_1_0_to_0_2_0),
+    "0.2.0": ("0.3.0", _migrate_0_2_0_to_0_3_0),
 }
+
+
+def dump_model(model: BuildingModel) -> str:
+    """Persisted form (0.3.0+): compact JSON; inside ``entities`` only non-default fields
+    are written (the bulk of large models is default-valued geometry/provenance fields).
+    Lossless: ``load_model`` restores every default. Top-level fields — including
+    schema_version and the safety declarations (geometry_is_synthetic, ready_for_design,
+    engineering_review_status, ai_inference_used) — are always written explicitly."""
+    d = model.model_dump(mode="json", exclude={"entities"})
+    d["entities"] = [e.model_dump(mode="json", exclude_defaults=True) for e in model.entities]
+    return json.dumps(d, separators=(",", ":"), default=str)
+
+
+def read_model_dict(path) -> dict[str, Any]:
+    """Load a persisted model file and return the FULL (defaults-restored, migrated) dict."""
+    from pathlib import Path
+    model, _applied = load_model(json.loads(Path(path).read_text(encoding="utf-8")))
+    return model.model_dump(mode="json")
 
 
 def load_model(data: dict[str, Any]) -> tuple[BuildingModel, list[str]]:

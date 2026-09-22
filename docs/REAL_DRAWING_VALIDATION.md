@@ -1,4 +1,8 @@
-# Milestone 1.5 — Real-Drawing Validation
+# Real-Drawing Validation (Milestones 1.5 and 1.6)
+
+Sections 1–8 record Milestone 1.5 unchanged. Milestone 1.6 results are in **§M1.6** at the end.
+
+## Milestone 1.5
 
 **Engine versions:** baseline = Milestone 1 commit `f45b03d` (run `baseline_m1`, write-once, captured
 *before* any tuning); final = Milestone 1.5 working tree (run `tuned_m15_r2`). An intermediate run
@@ -7,7 +11,7 @@ checksum-verified tarball. ODA was not used (owner decision; non-commercial-only
 
 **Ground truth:** `tests/real_drawings/ground_truth/REAL_###.json` — produced by **AI-assisted visual review**
 of each source rendering and the DXF tables, independent of FireAI's output, with EXACT / APPROXIMATE /
-NOT_EVALUATED assertions. **Status: PENDING HUMAN CONFIRMATION.** Where my first visual reading was wrong
+NOT_EVALUATED assertions. **Status (Milestone 1.6): these are Claude DRAFTS, `PENDING_HUMAN_VERIFICATION`** — see §M1.6 and docs/HUMAN_REVIEW.md; they are not ground truth until a person reviews them. Where my first visual reading was wrong
 (REAL_002 "window tags"), the record says so.
 
 **Data handling:** drawings, renders and full models stay in the git-ignored `tests/real_drawings_local/`
@@ -152,3 +156,86 @@ files**: in this corpus, the only real architectural plans (REAL_002/003) yielde
 and one flagged merged region per plan. A first sprinkler-design milestone is therefore justified **only**
 if scoped to inputs where rooms are explicit (closed room/area polylines or human-confirmed boundaries),
 single-region, units declared, with a human confirming the room model before design starts.
+
+---
+
+## §M1.6 — Milestone 1.6 results
+
+**Runs:** `tuned_m15_r2` (M1.5 final, before) vs `m16_final` (M1.6, like-for-like: same harness
+settings, work dir on the Windows bind mount, no unit hypothesis). `m16_profile_local` repeats REAL_001
+(units = in, labelled hypothesis), REAL_004 and REAL_010 with a container-local work dir, which matches
+production. `m16_final.json` was assembled from the per-file `metrics.json` because the harness could
+not write the run file (container permission); the keys and anonymization are the same.
+
+**Ground truth:** unchanged content, restructured as Claude **drafts** (`PENDING_HUMAN_VERIFICATION`).
+No human review exists yet, so nothing below is scored against human truth.
+
+### View classification (significant regions)
+
+| File | FireAI view types | Draft says | Room logic |
+|---|---|---|---|
+| REAL_002 / 003 | FLOOR_PLAN ×2 (0.85, viewport titles "FIRST/SECOND FLOOR PLAN") | two floor plans | applied; `MULTIPLE_FLOOR_PLANS` — no plan auto-selected |
+| REAL_004 | SECTION ×4 (0.85 / 0.70 via viewport titles + section layer names; 0.60 ×2 layer names only → review) | sections and details | **skipped** (M1.5 produced walls/doors as if plan; still 0 rooms) |
+| REAL_001 (units = in) | UNKNOWN ×4 | key plan + riser diagrams | its riser diagrams/legends are drawn in **paper space**, which is not region-classified (limitation) |
+| REAL_005/007/009/010/011 | UNKNOWN (no titles, no plan evidence) | site / test / library drawings | applied (nothing found) |
+
+The "STAIR DETAIL" viewports in REAL_004 frame part of a section region; they are recorded as
+`viewport_shows_part_of_region`, not used as the region's type.
+
+### Wall analysis (plan regions only)
+
+REAL_002: 229 wall segments → 95 paired pieces (5.5 in ×63, 3.5 in ×32); 120 junctions; 12 door
+openings, 8 doorless openings. REAL_003 (metric): 92 pieces, 13 door / 6 doorless openings. REAL_004's 61
+wall-layer entities are all in SECTION regions and were not analysed. Exterior evidence exists for one
+floor of each plan pair; on the other, open exterior walls leave the outline unclosed, so it is `unknown`.
+REAL_002/003 produced no `ROOM_SPLIT_CANDIDATE`: closing their doorless openings does not separate the
+labels cleanly, so the merged regions stay flagged and unsplit.
+
+### DWG conversion loss (handle-level, class-resolved)
+
+| File | Significance | Detail |
+|---|---|---|
+| REAL_001 | minor | LINE ×7, only in unreferenced block definitions (M1.5 count census: "LINE ×7 lost", trigger) |
+| REAL_002 / 003 | review | ACAD_TABLE ×2 (M1.5: "UNKNOWN ×2") |
+| REAL_005 | **material** | DIMENSION ×13 in model space → `DWG_CONVERSION_LOST_ENTITIES` (error), blocks engineering |
+| REAL_007 / 009 | review | ACAD_TABLE ×1 |
+| REAL_008 (R14) | **material** | MULTILEADER ×1; review: ACAD_TABLE, ARC_DIMENSION, LIGHT; minor: WIPEOUT ×2 |
+| REAL_004 / 010 | none | — |
+
+Limitation: the audit compares LibreDWG's independent JSON read with its DXF writer. Objects LibreDWG
+cannot **decode** are invisible to both sides. REAL_008's two INSERTs, found in M1.5 only by comparing
+with the author's own DXF export, are still not detectable without such a reference.
+
+### Performance (before → after, like-for-like)
+
+| File | Convert+audit (s) | Source render (s) | Overlay PNG+SVG (s) | Overlay DXF (s) | Total (s) | Pipeline peak RSS (MB) | Converter peak RSS (MB) | Model JSON (MB) |
+|---|---|---|---|---|---|---|---|---|
+| REAL_001.dwg (units unresolved) | 113.6 → 108.1 | 13.5 → 5.7 | — | — | 138.9 → 126.6 | 1322 → 266 | 4575 | 8.2 → 2.7 |
+| REAL_002.dwg | 1.3 → 1.2 | 2.0 → 1.4 | 3.0 → 2.5 | 1.3 → 0.7 | 9.6 → 8.0 | 183 → 165 | 72 | 6.8 → 2.6 |
+| REAL_004.dwg | 1.0 → 0.9 | 22.1 → 20.9 | **149.3 → 3.3** | 0.8 → 0.4 | **176.3 → 28.1** | 548 → 525 | 72 | 3.9 → 1.3 |
+| REAL_010.dwg | 15.2 → 14.4 | 23.1 → 18.3 | 38.3 → 31.0 | 18.3 → 12.2 | 121.8 → 101.8 | **1833 → 1082** | 72 | **155.3 → 42.8** |
+| REAL_010.dxf | — | 23.6 → 16.0 | 39.8 → 41.9 | 18.5 → 16.6 | 107.3 → 101.3 | **1838 → 1144** | — | **155.3 → 42.8** |
+
+All other files are unchanged or ±1 s. Changes that produced this:
+* The overlay underlay draws hatch outlines only (`source.png` keeps full hatches).
+* Renderers reuse the loaded DXF: 1 parse instead of 4.
+* The DWG census is streamed and handle-level, compared against the already-loaded document (the M1.5
+  version loaded 176 MB of JSON, about 660 MB of Python memory, and re-parsed the DXF).
+* The harness's duplicate probe conversion was removed. It had inflated the M1.5 peak RSS of 1322 MB.
+* The model JSON is compact and omits per-entity default values. This is lossless and tested; the safety
+  flags are always written.
+
+**What did NOT improve:** REAL_001 conversion time. LibreDWG itself peaks at **4.6 GB RSS** for this
+5 MB DWG, in both `dwg2dxf` and `dwgread`. The Docker VM has 7.7 GB. Measured standalone on
+container-local disk, each step takes 6–16 s. In the pipeline it took 108 s on the bind mount and 221 s in
+the local-work profiling run, so memory pressure and I/O dominate and vary run to run. REAL_010's DWG
+conversion dropped 14.4 → 4.3 s with a local work dir.
+
+**Targets** (not yet met for REAL_001):
+* Conversion and audit in an isolated worker with ≥ 8 GB and a hard cap (`FIREAI_DWG_MAX_MEMORY_MB`,
+  default 8192; overruns fail closed).
+* Conversion + audit ≤ 30 s for a ≤ 10 MB DWG.
+* Pipeline RSS ≤ 1.2 GB for 80 k entities (met: 1.08–1.14 GB).
+* Model JSON ≤ 50 MB for 80 k entities (met: 42.8 MB).
+* Overlay ≤ 60 s (met across the corpus).
+Next step: store the source-entity layer separately from the semantic model, with no provenance dropped.

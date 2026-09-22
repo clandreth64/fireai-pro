@@ -14,6 +14,9 @@ import json
 import math
 import sys
 from collections import Counter
+from pathlib import Path as _P
+
+sys.path.insert(0, str(_P(__file__).resolve().parent.parent))
 
 
 def _key(e):
@@ -91,7 +94,8 @@ def main():
     ap.add_argument("dwg_model"); ap.add_argument("dxf_model")
     ap.add_argument("--tol", type=float, default=1e-6)
     a = ap.parse_args()
-    r = compare(json.load(open(a.dwg_model)), json.load(open(a.dxf_model)), a.tol)
+    from fireai.schema import read_model_dict   # restores defaults omitted from persisted entities
+    r = compare(read_model_dict(a.dwg_model), read_model_dict(a.dxf_model), a.tol)
     print(json.dumps(r, indent=2, default=str))
     sys.exit(0 if r["equivalent"] else 1)
 

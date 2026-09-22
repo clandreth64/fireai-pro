@@ -1,21 +1,39 @@
 {
+  "schema": "ground_truth/2",
   "id": "REAL_011",
-  "review": {
+  "review_status": "PENDING_HUMAN_VERIFICATION",
+  "source_sha256s": [
+    "c2597f95c007852db2ba82dedd9558f9318981115dda82fccfc0267ca60e5a56"
+  ],
+  "note": "claude_draft is an AI-assisted DRAFT, not ground truth. Human truth lives in a separate human-review file; FireAI output is never used as ground truth.",
+  "claude_draft": {
+    "author": "Claude (AI-assisted draft)",
     "method": "AI-assisted visual review of source.png + DXF tables; independent of FireAI output",
-    "status": "PENDING_HUMAN_CONFIRMATION",
-    "date": "2026-09-22"
-  },
-  "drawing_type": {
-    "value": "nested block transform test matrix (rotation 0/45/90 x mirror X/Y)",
-    "assertion": "EXACT"
-  },
-  "is_building": {
-    "value": false,
-    "assertion": "EXACT"
-  },
-  "nested_block_placement": {
-    "value": "FireAI-extracted linework coincides with ezdxf rendering for all inserts",
-    "assertion": "EXACT",
-    "note": "visual check of overlay"
+    "date": "2026-09-22",
+    "fields": {
+      "drawing_type": {
+        "value": "nested block transform test matrix (rotation 0/45/90 x mirror X/Y)",
+        "assertion": "EXACT"
+      },
+      "is_building": {
+        "value": false,
+        "assertion": "EXACT"
+      },
+      "nested_block_placement": {
+        "value": "FireAI-extracted linework coincides with ezdxf rendering for all inserts",
+        "assertion": "EXACT",
+        "note": "visual check of overlay"
+      }
+    },
+    "by_category": {
+      "drawing_type": [
+        "drawing_type",
+        "is_building"
+      ],
+      "other": [
+        "nested_block_placement"
+      ]
+    },
+    "expected_behavior": []
   }
 }

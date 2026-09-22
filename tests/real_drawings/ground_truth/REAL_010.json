@@ -1,24 +1,46 @@
 {
+  "schema": "ground_truth/2",
   "id": "REAL_010",
-  "review": {
+  "review_status": "PENDING_HUMAN_VERIFICATION",
+  "source_sha256s": [
+    "3320aac4a5b8128d58f9a7a28d013c6d06b1f7785d00884a7c952b58afdb13cc",
+    "95cc558d02a2596d13ce2a8da30e22c734a5fba7e0ba990fcf203955674c7f88"
+  ],
+  "note": "claude_draft is an AI-assisted DRAFT, not ground truth. Human truth lives in a separate human-review file; FireAI output is never used as ground truth.",
+  "claude_draft": {
+    "author": "Claude (AI-assisted draft)",
     "method": "AI-assisted visual review of source.png + DXF tables; independent of FireAI output",
-    "status": "PENDING_HUMAN_CONFIRMATION",
-    "date": "2026-09-22"
-  },
-  "drawing_type": {
-    "value": "dynamic-block library sheet (cars, trees, furniture, north arrows, wall/door blocks, test dims)",
-    "assertion": "EXACT"
-  },
-  "is_building": {
-    "value": false,
-    "assertion": "EXACT"
-  },
-  "rooms": {
-    "value": 0,
-    "assertion": "EXACT"
-  },
-  "notes": {
-    "value": "north arrow is on layer 'Title Box' (title-block classification is layer-driven and defensible)",
-    "assertion": "EXACT"
+    "date": "2026-09-22",
+    "fields": {
+      "drawing_type": {
+        "value": "dynamic-block library sheet (cars, trees, furniture, north arrows, wall/door blocks, test dims)",
+        "assertion": "EXACT"
+      },
+      "is_building": {
+        "value": false,
+        "assertion": "EXACT"
+      },
+      "rooms": {
+        "value": 0,
+        "assertion": "EXACT"
+      },
+      "notes": {
+        "value": "north arrow is on layer 'Title Box' (title-block classification is layer-driven and defensible)",
+        "assertion": "EXACT"
+      }
+    },
+    "by_category": {
+      "drawing_type": [
+        "drawing_type",
+        "is_building"
+      ],
+      "room_count": [
+        "rooms"
+      ],
+      "other": [
+        "notes"
+      ]
+    },
+    "expected_behavior": []
   }
 }

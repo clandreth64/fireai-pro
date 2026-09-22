@@ -76,6 +76,15 @@ def build_report(model: BuildingModel | None, processing_status: str, failure: d
         "review_triggers": [w.model_dump() for w in model.diagnostics.review_triggers],
         "requires_human_review": model.requires_human_review,
         "assumptions": model.assumptions,
+        "xrefs": [x.model_dump() for x in model.xrefs],
+        "view_regions": [{k: r.get(k) for k in ("id", "uid", "bbox_ft", "entity_count", "significant", "view_type",
+                                               "view_type_confidence", "view_type_source", "review_state",
+                                               "room_logic", "view_type_evidence", "element_counts")}
+                         for r in model.view_regions],
+        "wall_analysis": ({"stats": model.wall_model.get("stats"), "note": model.wall_model.get("note")}
+                          if model.wall_model else None),
+        "human_corrections_applied": model.human_corrections_applied,
+        "verification": model.verification.model_dump() if model.verification else None,
     })
     return rep
 
@@ -137,6 +146,32 @@ def build_summary_md(rep: dict[str, Any]) -> str:
             for k, v in rep["title_block"].get("fields", {}).items():
                 if not k.startswith("_"):
                     L.append(f"- {k}: {v['value']}")
+        if rep.get("verification"):
+            v = rep["verification"]
+            L.append(f"\n### Human verification: `{v['status']}`\n")
+            L.append("A model must be HUMAN_VERIFIED before any engineering use; FireAI never sets that status."
+                     + (" Reasons: " + "; ".join(v["status_reasons"]) if v.get("status_reasons") else ""))
+        if rep.get("xrefs"):
+            L.append("\n### External references (XREFs)\n")
+            L.append("| XREF | Depth | Status | Resolved file | Unit scale | Entities |")
+            L.append("|---|---:|---|---|---:|---:|")
+            for x in rep["xrefs"]:
+                L.append(f"| {x['name']} | {x['depth']} | **{x['status']}** | {x.get('resolved_file') or '—'} | "
+                         f"{x.get('unit_scale') if x.get('unit_scale') is not None else '—'} | {x['entity_count']} |")
+        sig = [r for r in rep.get("view_regions") or [] if r.get("significant")]
+        if sig:
+            L.append("\n### Drawing regions (likely view type — verify)\n")
+            L.append("| Region | View type | Confidence | Source | Review | Room logic |")
+            L.append("|---|---|---:|---|---|---|")
+            for r in sig:
+                L.append(f"| {r['id']} | {r.get('view_type')} | {r.get('view_type_confidence', 0):.2f} | "
+                         f"{r.get('view_type_source')} | {r.get('review_state')} | {r.get('room_logic')} |")
+        if rep.get("wall_analysis"):
+            st = rep["wall_analysis"]["stats"]
+            L.append("\n### Wall analysis (derived analysis geometry — not source walls)\n")
+            L.append(f"{st['wall_pieces']} paired wall pieces ({st['curved_pieces']} curved) from {st['wall_segments']} "
+                     f"wall-layer segments; {st['junctions']} junctions; {st['door_openings']} door openings, "
+                     f"{st['doorless_openings']} doorless openings (verify).")
         L.append("\n### Layers\n")
         L.append("| Layer | Entities | Interpreted role | Confidence |")
         L.append("|---|---:|---|---:|")

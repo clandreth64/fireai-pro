@@ -1,20 +1,41 @@
 {
+  "schema": "ground_truth/2",
   "id": "REAL_009",
-  "review": {
+  "review_status": "PENDING_HUMAN_VERIFICATION",
+  "source_sha256s": [
+    "7bc7721224003062b237845842b7a976e46771c37eba6833b9ed3712e7a5a65a",
+    "e64b0cfb6e1587f9d2bb4387d59064efa5bc667cda9ecbc00313459b304bb997"
+  ],
+  "note": "claude_draft is an AI-assisted DRAFT, not ground truth. Human truth lives in a separate human-review file; FireAI output is never used as ground truth.",
+  "claude_draft": {
+    "author": "Claude (AI-assisted draft)",
     "method": "AI-assisted visual review of source.png + DXF tables; independent of FireAI output",
-    "status": "PENDING_HUMAN_CONFIRMATION",
-    "date": "2026-09-22"
-  },
-  "drawing_type": {
-    "value": "same 'example' drawing, 2018 format",
-    "assertion": "EXACT"
-  },
-  "units": {
-    "value": "mm",
-    "assertion": "EXACT"
-  },
-  "dwg_dxf_equivalence": {
-    "value": "geometry identical for shared entities; converter omits ACAD_TABLE",
-    "assertion": "EXACT"
+    "date": "2026-09-22",
+    "fields": {
+      "drawing_type": {
+        "value": "same 'example' drawing, 2018 format",
+        "assertion": "EXACT"
+      },
+      "units": {
+        "value": "mm",
+        "assertion": "EXACT"
+      },
+      "dwg_dxf_equivalence": {
+        "value": "geometry identical for shared entities; converter omits ACAD_TABLE",
+        "assertion": "EXACT"
+      }
+    },
+    "by_category": {
+      "drawing_type": [
+        "drawing_type"
+      ],
+      "units": [
+        "units"
+      ],
+      "other": [
+        "dwg_dxf_equivalence"
+      ]
+    },
+    "expected_behavior": []
   }
 }

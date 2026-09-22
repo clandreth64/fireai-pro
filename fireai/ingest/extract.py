@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Iterable
 
 from ezdxf import path as ezpath
+from ezdxf.math import Matrix44, Vec3
 from ezdxf import recover
 from ezdxf.document import Drawing
 from ezdxf.lldxf.const import DXFStructureError
@@ -64,6 +65,7 @@ class Extraction:
     audit_errors: list[str] = field(default_factory=list)
     audit_fixes: int = 0
     viewport_scales: list[dict] = field(default_factory=list)
+    xref_records: list[dict] = field(default_factory=list)
 
 
 # ── loading ──────────────────────────────────────────────────────────────────
@@ -235,10 +237,26 @@ def geometry_points(g: Geometry | None) -> list[tuple[float, float]]:
 
 # ── extraction ───────────────────────────────────────────────────────────────
 
+def _doc_feet_per_unit(doc, override: str | None = None) -> float | None:
+    from fireai.ingest.units import FEET_PER_UNIT, INSUNITS_SUPPORTED
+    if override:
+        return FEET_PER_UNIT[override]
+    code = doc.header.get("$INSUNITS") if "$INSUNITS" in doc.header else None
+    u = INSUNITS_SUPPORTED.get(code) if code is not None else None
+    return FEET_PER_UNIT[u] if u else None
+
+
 class _Collector:
     def __init__(self, doc: Drawing, max_entities: int, source_uid: str | None = None,
-                 document_guid: str | None = None):
+                 document_guid: str | None = None, xref_resolver=None, host_units: str | None = None,
+                 host_sha: str | None = None):
         self.doc = doc
+        self.xref_resolver = xref_resolver
+        self.host_units = host_units
+        self.xref_records: list[dict] = []
+        self._xref_index: dict[tuple, dict] = {}
+        self._xref_stack: list[str] = [host_sha] if host_sha else []
+        self._xref_base = len(self._xref_stack)
         self.source_uid = source_uid
         self.document_guid = document_guid
         self.max_entities = max_entities
@@ -262,7 +280,8 @@ class _Collector:
         return self.layer_state.get(e.dxf.layer.upper(), True)
 
     def add(self, e, space: str, parent: SourceEntity | None, block_path: list[str],
-            depth: int, parent_visible: bool = True, path_suffix: list[str] | None = None) -> None:
+            depth: int, parent_visible: bool = True, path_suffix: list[str] | None = None,
+            extra_attrs: dict | None = None, unsupported_reason: str | None = None) -> None:
         if len(self.entities) >= self.max_entities:
             raise PipelineFailure(FailureCode.GEOMETRY_EXTRACTION_FAILED,
                                   f"Drawing exceeds the {self.max_entities:,} entity limit for this milestone.")
@@ -271,8 +290,8 @@ class _Collector:
         # Block-internal entities on layer "0" inherit the INSERT's layer (CAD convention).
         if parent is not None and layer == "0":
             layer = parent.layer
-        supported = t in SUPPORTED_TYPES
-        geom, attrs = (None, {"reason": f"entity type {t} not supported"})
+        supported = t in SUPPORTED_TYPES and unsupported_reason is None
+        geom, attrs = (None, {"reason": unsupported_reason or f"entity type {t} not supported"})
         _Z.clear()
         if supported:
             try:
@@ -282,6 +301,8 @@ class _Collector:
             supported = geom is not None
         if not supported:
             self.unsupported[t] += 1
+        if extra_attrs:
+            attrs = {**attrs, **extra_attrs}
         visible = self._visible(e, parent_visible)
         if geom is not None:
             geom.frame = "SRC"
@@ -308,13 +329,14 @@ class _Collector:
         )
         self.entities.append(ent)
 
-        if t == "INSERT":
+        if t == "INSERT" and supported:
             self._explode(e, ent, space, block_path, depth, visible)
 
     def _explode(self, e, ent: SourceEntity, space: str, block_path: list[str], depth: int, visible: bool) -> None:
         name = e.dxf.name
         self.block_inserts[name] += 1
-        block = self.doc.blocks.get(name)
+        doc = e.doc if e.doc is not None else self.doc
+        block = doc.blocks.get(name)
         if block is None:
             ent.supported = False
             ent.attributes["reason"] = f"block definition '{name}' missing"
@@ -323,7 +345,7 @@ class _Collector:
             return
         if block.block_record.is_xref:
             self.xref_blocks.add(name)
-            ent.attributes["xref"] = True
+            self._load_xref(e, ent, block, doc, space, block_path, depth, visible)
             return
         if depth >= MAX_BLOCK_DEPTH:
             self.warnings.append(Issue(code="BLOCK_NESTING_TOO_DEEP",
@@ -350,9 +372,128 @@ class _Collector:
                     self.add(att, space, ent, block_path + [name], depth + 1, visible, prefix + [f"#a{ai}"])
 
 
+    # ── XREFs ────────────────────────────────────────────────────────────────
+    def _load_xref(self, e, ent: SourceEntity, block, doc, space, block_path, depth, visible) -> None:
+        """Resolve an XREF insert and add the XREF's model-space entities, transformed into
+        the host WCS, as children of the INSERT. Never invents geometry for failures."""
+        name = e.dxf.name
+        bdxf = block.block.dxf
+        xpath = bdxf.get("xref_path", "") or ""
+        context = self._xref_stack[-1] if self._xref_stack else "host"
+        key = (name.upper(), context)
+        rec = self._xref_index.get(key)
+        if rec is None:
+            rec = {"name": name, "path_in_drawing": xpath, "status": "unresolved", "depth": len(self._xref_stack) - self._xref_base,
+                   "parent_context": context[:12] if context != "host" else "host",
+                   "overlay": bool((bdxf.get("flags", 0) or 0) & 8), "insert_entity_ids": [], "entity_count": 0}
+            self._xref_index[key] = rec
+            self.xref_records.append(rec)
+        rec["insert_entity_ids"].append(ent.id)
+        ent.attributes["xref"] = {"name": name, "path_in_drawing": xpath}
+
+        if rec["overlay"] and len(self._xref_stack) > self._xref_base:
+            rec["status"] = "overlay_not_loaded"   # CAD convention: nested overlays are not loaded
+            return
+        if self.xref_resolver is None:
+            rec["status"] = "missing"
+            rec["note"] = "no XREF files were supplied with this drawing"
+            return
+        path, matched_by = self.xref_resolver.find(xpath or name)
+        if path is None:
+            rec["status"] = "missing"
+            rec["note"] = f"no supplied file named '{self.xref_resolver.referenced_name(xpath or name)}'"
+            return
+        from fireai.ingest.xref import MAX_XREF_DEPTH, XrefLoadError
+        try:
+            x = self.xref_resolver.load(path, matched_by)
+        except XrefLoadError as exc:
+            rec["status"] = exc.status
+            rec["note"] = str(exc)
+            return
+        except Exception as exc:  # converter failure etc. — recorded, never hidden
+            rec["status"] = "load_failed"
+            rec["note"] = f"{type(exc).__name__}: {exc}"
+            return
+        rec.update({"resolved_file": x.file_name, "sha256": x.sha256, "format": x.format, "matched_by": matched_by,
+                    "converter": x.converter, "conversion_lost": (x.conversion_audit or {}).get("lost"),
+                    "conversion_significance": (x.conversion_audit or {}).get("significance")})
+        if x.sha256 in self._xref_stack:
+            rec["status"] = "circular"
+            rec["note"] = "XREF chain refers back to a drawing already being loaded"
+            return
+        if len(self._xref_stack) - self._xref_base >= MAX_XREF_DEPTH:
+            rec["status"] = "too_deep"
+            return
+        parent_ft = _doc_feet_per_unit(doc, self.host_units if doc is self.doc else None)
+        xref_ft = _doc_feet_per_unit(x.doc)
+        rec["units_ft_per_unit"] = xref_ft
+        if parent_ft is None or xref_ft is None:
+            rec["status"] = "units_unresolved"
+            rec["note"] = ("units of the " + ("XREF" if xref_ft is None else "referencing drawing")
+                           + " are not declared; the XREF cannot be scaled without guessing, so it was not loaded")
+            return
+        unit_scale = xref_ft / parent_ft
+        base = Vec3(bdxf.get("base_point", (0, 0, 0)))
+        if base.magnitude < 1e-12 and "$INSBASE" in x.doc.header:
+            base = Vec3(x.doc.header.get("$INSBASE"))
+        rec["unit_scale"] = unit_scale
+        rec["base_point"] = [base.x, base.y, base.z]
+        m = Matrix44.translate(-base.x, -base.y, -base.z) @ Matrix44.scale(unit_scale) @ e.matrix44()
+
+        # Layer visibility: host overrides ("NAME|LAYER") win over the XREF's own layer table.
+        for layer in x.doc.layers:
+            qualified = f"{name}|{layer.dxf.name}".upper()
+            self.layer_state.setdefault(qualified, not (layer.is_off() or layer.is_frozen()))
+
+        self._xref_stack.append(x.sha256)
+        rec["status"] = "resolved"
+        try:
+            for src in x.doc.modelspace():
+                orig_handle = src.dxf.get("handle")
+                src_layer = src.dxf.get("layer", "0")
+                attrs = {"xref_source": {"xref": name, "file": x.file_name, "sha256": x.sha256, "handle": orig_handle,
+                                         "layer": src_layer}}
+                suffix = [f"X{x.sha256[:12]}", orig_handle or f"xseq{rec['entity_count']}"]
+                rec["entity_count"] += 1
+                try:
+                    c = src.copy()
+                    c.transform(m)
+                    if src_layer != "0":
+                        c.dxf.layer = f"{name}|{src_layer}"
+                except Exception as exc:
+                    self.add(src, space, ent, block_path + [name], depth + 1, visible, suffix, attrs,
+                             unsupported_reason=f"XREF entity could not be transformed: {type(exc).__name__}: {exc}")
+                    continue
+                self.add(c, space, ent, block_path + [name], depth + 1, visible, suffix, attrs)
+        finally:
+            self._xref_stack.pop()
+
+
+def _viewport_window(vp, view_height: float, paper_height: float) -> dict:
+    """Paper rectangle of a viewport and the model-space (WCS, drawing units)
+    window it shows. Only plan-direction, untwisted viewports get a window;
+    anything else is recorded as not mappable (never approximated)."""
+    c = vp.dxf.get("center", (0, 0, 0))
+    w = float(vp.dxf.get("width", 0) or 0)
+    out = {"paper_rect": [c[0] - w / 2, c[1] - paper_height / 2, c[0] + w / 2, c[1] + paper_height / 2]}
+    direction = tuple(vp.dxf.get("view_direction_vector", (0, 0, 1)))
+    twist = float(vp.dxf.get("view_twist_angle", 0) or 0)
+    if abs(direction[0]) > 1e-9 or abs(direction[1]) > 1e-9 or direction[2] <= 0 or abs(twist) > 1e-6:
+        out["model_window_src"] = None
+        out["model_window_note"] = "viewport is not an untwisted plan view; model window not mapped"
+        return out
+    vc = vp.dxf.get("view_center_point", (0, 0))
+    tgt = vp.dxf.get("view_target_point", (0, 0, 0))
+    cx, cy = vc[0] + tgt[0], vc[1] + tgt[1]
+    mw = view_height * (w / paper_height) if paper_height else 0.0
+    out["model_window_src"] = [cx - mw / 2, cy - view_height / 2, cx + mw / 2, cy + view_height / 2]
+    return out
+
+
 def extract(doc: Drawing, max_entities: int, audit_errors: list[str], audit_fixes: int,
-            source_uid: str | None = None, document_guid: str | None = None) -> Extraction:
-    col = _Collector(doc, max_entities, source_uid, document_guid)
+            source_uid: str | None = None, document_guid: str | None = None, xref_resolver=None,
+            host_units: str | None = None, host_sha: str | None = None) -> Extraction:
+    col = _Collector(doc, max_entities, source_uid, document_guid, xref_resolver, host_units, host_sha)
     for e in doc.modelspace():
         col.add(e, "model", None, [], 0)
     viewport_scales = []
@@ -362,14 +503,15 @@ def extract(doc: Drawing, max_entities: int, audit_errors: list[str], audit_fixe
         for e in layout:
             t = e.dxftype()
             if t in ("TEXT", "MTEXT", "INSERT"):
-                col.add(e, "paper", None, [], 0)
+                col.add(e, "paper", None, [], 0, extra_attrs={"layout": layout.name})
             elif t == "VIEWPORT" and e.dxf.get("id", 0) > 1:
                 vh = float(e.dxf.get("view_height", 0) or 0)
                 h = float(e.dxf.get("height", 0) or 0)
                 if vh > 0 and h > 0:
                     pu = {0: "in", 1: "mm", 2: "px"}.get(layout.dxf_layout.dxf.get("plot_paper_units"))
                     viewport_scales.append({"layout": layout.name, "handle": e.dxf.handle,
-                                            "paper_units_per_model_unit": h / vh, "paper_units": pu})
+                                            "paper_units_per_model_unit": h / vh, "paper_units": pu,
+                                            **_viewport_window(e, vh, h)})
 
     layer_table: dict[str, dict] = {}
     for layer in doc.layers:
@@ -379,7 +521,7 @@ def extract(doc: Drawing, max_entities: int, audit_errors: list[str], audit_fixe
         }
     ex = Extraction(doc=doc, entities=col.entities, layer_table=layer_table,
                     block_inserts=col.block_inserts, xref_blocks=col.xref_blocks,
-                    unsupported=col.unsupported, warnings=col.warnings,
+                    unsupported=col.unsupported, warnings=col.warnings, xref_records=col.xref_records,
                     audit_errors=audit_errors, audit_fixes=audit_fixes,
                     viewport_scales=viewport_scales)
     return ex

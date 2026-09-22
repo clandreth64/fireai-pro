@@ -56,6 +56,9 @@ class JobStore:
     def source_dir(self, job_id: str) -> Path:
         return self.job_dir(job_id) / "source"
 
+    def xref_dir(self, job_id: str) -> Path:
+        return self.source_dir(job_id) / "xrefs"
+
     def work_dir(self, job_id: str) -> Path:
         return self.job_dir(job_id) / "work"
 

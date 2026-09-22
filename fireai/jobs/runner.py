@@ -29,8 +29,11 @@ def run_job(store: JobStore, job_id: str) -> None:
         job = store.update(job_id, processing_status="running")
         try:
             src = next(store.source_dir(job_id).glob("upload.*"))
+            xdir = store.xref_dir(job_id)
+            xref_files = sorted(p for p in xdir.iterdir() if p.is_file()) if xdir.is_dir() else []
             result = understand_drawing(src, job["source"]["filename"], store.work_dir(job_id),
-                                        store.deliverables_dir(job_id), job.get("units_override"), settings)
+                                        store.deliverables_dir(job_id), job.get("units_override"), settings,
+                                        xref_files=xref_files)
             out_dir = store.deliverables_dir(job_id)
             registry = {}
             for did, fname in result.deliverables.items():
@@ -45,7 +48,9 @@ def run_job(store: JobStore, job_id: str) -> None:
                            "units": (rep.get("units") or {}).get("resolved_units"),
                            "bounds_normalized_ft": rep.get("bounds_normalized_ft"),
                            "review_trigger_codes": [t["code"] for t in rep.get("review_triggers", [])],
-                           "unclassified_count": (rep.get("unclassified") or {}).get("count")}
+                           "unclassified_count": (rep.get("unclassified") or {}).get("count"),
+                           "verification_status": (result.model.verification.status
+                                                   if result.model.verification else None)}
             store.update(job_id, processing_status=result.processing_status, failure=result.failure,
                          requires_human_review=bool(rep.get("requires_human_review", True)),
                          unit_resolution_required=rep.get("unit_resolution_required"),

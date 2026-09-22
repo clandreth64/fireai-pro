@@ -1,20 +1,41 @@
 {
+  "schema": "ground_truth/2",
   "id": "REAL_008",
-  "review": {
+  "review_status": "PENDING_HUMAN_VERIFICATION",
+  "source_sha256s": [
+    "aec626c5680584c763418497495950089854ff9682af36076851fd793d9e2c0b",
+    "b5db43eb376b8e6a11fc1596945baf538b67448d87e73840f6347007ea0035ed"
+  ],
+  "note": "claude_draft is an AI-assisted DRAFT, not ground truth. Human truth lives in a separate human-review file; FireAI output is never used as ground truth.",
+  "claude_draft": {
+    "author": "Claude (AI-assisted draft)",
     "method": "AI-assisted visual review of source.png + DXF tables; independent of FireAI output",
-    "status": "PENDING_HUMAN_CONFIRMATION",
-    "date": "2026-09-22"
-  },
-  "drawing_type": {
-    "value": "same 'example' drawing, R14 format",
-    "assertion": "EXACT"
-  },
-  "units": {
-    "value": "NOT_DECLARED (R14 predates $INSUNITS)",
-    "assertion": "EXACT"
-  },
-  "dwg_dxf_equivalence": {
-    "value": "converter omits 2 WIPEOUT, 2 INSERT, 1 proxy entity",
-    "assertion": "EXACT"
+    "date": "2026-09-22",
+    "fields": {
+      "drawing_type": {
+        "value": "same 'example' drawing, R14 format",
+        "assertion": "EXACT"
+      },
+      "units": {
+        "value": "NOT_DECLARED (R14 predates $INSUNITS)",
+        "assertion": "EXACT"
+      },
+      "dwg_dxf_equivalence": {
+        "value": "converter omits 2 WIPEOUT, 2 INSERT, 1 proxy entity",
+        "assertion": "EXACT"
+      }
+    },
+    "by_category": {
+      "drawing_type": [
+        "drawing_type"
+      ],
+      "units": [
+        "units"
+      ],
+      "other": [
+        "dwg_dxf_equivalence"
+      ]
+    },
+    "expected_behavior": []
   }
 }

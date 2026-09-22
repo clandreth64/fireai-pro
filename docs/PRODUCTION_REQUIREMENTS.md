@@ -1,7 +1,7 @@
 # FireAI Pro — Production Requirements (not met yet)
 
-Milestone 1.5 is **not deployable**. Railway has not been modified. This page records what must be
-true before any public or customer-facing deployment. None of it is in scope for Milestone 1.5.
+Milestones 1.5/1.6 are **not deployable**. Railway has not been modified. This page records what must be
+true before any public or customer-facing deployment. None of it is in scope for Milestones 1.5/1.6.
 
 | Area | Current state | Required before production |
 |---|---|---|
@@ -13,6 +13,9 @@ true before any public or customer-facing deployment. None of it is in scope for
 | **Large-file performance** | Measured: 5 MB DWG → up to ~4.6 GB peak RSS during conversion audit; 10 MB DXF with dynamic blocks → 106 MB model JSON, ~2.6 GB RSS; worst overlay 135 s | Streaming/lighter DWG census; store source layer separately from the model; optional SVG; per-job memory limits in isolated workers |
 | **Fonts** | Installed in `docker/Dockerfile` (fonts-dejavu-core) | Must be present in any runtime image; Railway's default Python builder does not provide them — drawing text would silently vanish from renders |
 | **DWG conversion** | GNU LibreDWG 0.14.8597 built from a pinned, checksum-verified tarball; invoked as a separate process | Legal review of GPL obligations for distributing the binary in a product image (source offer, license text); decide long-term converter (LibreDWG vs. ODA membership vs. cloud API); conversion sandboxing (seccomp/cgroup limits), fuzz-hardening |
+| **Human review identity** | Reviewer is a free-text name in correction/verification requests; review store is local JSON under `FIREAI_DATA_DIR/reviews` | Reviewer = authenticated principal; role check (reviewer/engineer); review store in the database with audit history; verification records signed/attributable |
+| **XREF uploads** | Up to 32 files per job, same per-file size limit, content-validated, matched by sanitized file name; stored paths never opened | Per-tenant quotas; project-level reference library instead of per-job uploads |
+| **Converter memory** | Each LibreDWG subprocess capped by `FIREAI_DWG_MAX_MEMORY_MB` (default 8192, address space); LibreDWG itself peaks ~4.6 GB RSS on the 5 MB REAL_001 | Isolated conversion workers with cgroup limits sized from measured peaks |
 | **Upload safety** | Size limit (streaming), content sniffing, sanitized names, isolated job dirs | Malware scanning, per-tenant quotas, rate limiting |
 | **Secrets** | None required by v2 code | Managed secret store; rotate anything previously used by v1 on Railway |
 | **Observability** | Stage timings in reports | Structured logs, metrics, tracing, alerting on failure rates and review-trigger rates |

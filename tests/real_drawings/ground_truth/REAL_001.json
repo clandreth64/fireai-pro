@@ -1,47 +1,79 @@
 {
+  "schema": "ground_truth/2",
   "id": "REAL_001",
-  "review": {
+  "review_status": "PENDING_HUMAN_VERIFICATION",
+  "source_sha256s": [
+    "102d702b1f9878a3d3ee953134201100e1b03839fc910379eabb7abf2b451b18"
+  ],
+  "note": "claude_draft is an AI-assisted DRAFT, not ground truth. Human truth lives in a separate human-review file; FireAI output is never used as ground truth.",
+  "claude_draft": {
+    "author": "Claude (AI-assisted draft)",
     "method": "AI-assisted visual review of source.png + DXF tables; independent of FireAI output",
-    "status": "PENDING_HUMAN_CONFIRMATION",
-    "date": "2026-09-22"
-  },
-  "drawing_type": {
-    "value": "fire sprinkler / fire alarm drawing: tenant-suite key plan + piping/riser diagrams",
-    "assertion": "APPROXIMATE"
-  },
-  "is_floor_plan_of_building": {
-    "value": "partial (key plan only; architectural background is in XREFs)",
-    "assertion": "APPROXIMATE"
-  },
-  "units": {
-    "value": "in",
-    "assertion": "APPROXIMATE",
-    "note": "Header unitless ($INSUNITS=0). Paper-space viewport scale 1:96 and title text 'SCALE: 1/8\" = 1'-0\"' are both consistent with inches. Evidence, not declaration."
-  },
-  "xrefs": {
-    "value": 2,
-    "assertion": "EXACT",
-    "note": "two external references in the block table; files not supplied"
-  },
-  "separate_views_in_model_space": {
-    "value": ">=3 (key plan, piping diagram groups)",
-    "assertion": "APPROXIMATE"
-  },
-  "rooms": {
-    "value": "6 tenant suites + common area on key plan (hatched boundaries with labels)",
-    "assertion": "APPROXIMATE"
-  },
-  "walls": {
-    "value": "NOT_PRESENT_IN_FILE (in unresolved XREFs)",
-    "assertion": "APPROXIMATE"
-  },
-  "existing_fire_protection": {
-    "value": "present: sprinkler piping, heads, risers",
-    "assertion": "APPROXIMATE",
-    "note": "counts NOT_EVALUATED"
-  },
-  "expected_behavior": [
-    "needs_human_input: UNIT_DETECTION_FAILED (units undeclared)",
-    "with units supplied: XREF_NOT_RESOLVED and MULTIPLE_DRAWING_REGIONS"
-  ]
+    "date": "2026-09-22",
+    "fields": {
+      "drawing_type": {
+        "value": "fire sprinkler / fire alarm drawing: tenant-suite key plan + piping/riser diagrams",
+        "assertion": "APPROXIMATE"
+      },
+      "is_floor_plan_of_building": {
+        "value": "partial (key plan only; architectural background is in XREFs)",
+        "assertion": "APPROXIMATE"
+      },
+      "units": {
+        "value": "in",
+        "assertion": "APPROXIMATE",
+        "note": "Header unitless ($INSUNITS=0). Paper-space viewport scale 1:96 and title text 'SCALE: 1/8\" = 1'-0\"' are both consistent with inches. Evidence, not declaration."
+      },
+      "xrefs": {
+        "value": 2,
+        "assertion": "EXACT",
+        "note": "two external references in the block table; files not supplied"
+      },
+      "separate_views_in_model_space": {
+        "value": ">=3 (key plan, piping diagram groups)",
+        "assertion": "APPROXIMATE"
+      },
+      "rooms": {
+        "value": "6 tenant suites + common area on key plan (hatched boundaries with labels)",
+        "assertion": "APPROXIMATE"
+      },
+      "walls": {
+        "value": "NOT_PRESENT_IN_FILE (in unresolved XREFs)",
+        "assertion": "APPROXIMATE"
+      },
+      "existing_fire_protection": {
+        "value": "present: sprinkler piping, heads, risers",
+        "assertion": "APPROXIMATE",
+        "note": "counts NOT_EVALUATED"
+      }
+    },
+    "by_category": {
+      "drawing_type": [
+        "drawing_type",
+        "is_floor_plan_of_building"
+      ],
+      "units": [
+        "units"
+      ],
+      "other": [
+        "xrefs"
+      ],
+      "view_count": [
+        "separate_views_in_model_space"
+      ],
+      "room_count": [
+        "rooms"
+      ],
+      "walls": [
+        "walls"
+      ],
+      "sprinkler_components": [
+        "existing_fire_protection"
+      ]
+    },
+    "expected_behavior": [
+      "needs_human_input: UNIT_DETECTION_FAILED (units undeclared)",
+      "with units supplied: XREF_NOT_RESOLVED and MULTIPLE_DRAWING_REGIONS"
+    ]
+  }
 }

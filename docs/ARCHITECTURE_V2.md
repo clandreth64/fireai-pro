@@ -46,7 +46,7 @@ Governing rule: **never guess, never silently default, never report success when
 |---|---|
 | `fireai/errors.py` | `FailureCode` enum, `PipelineFailure` |
 | `fireai/config.py` | env settings with restrictive defaults |
-| `fireai/model.py` | canonical building model (Pydantic, schema `0.2.0`; JSON schema in `docs/building_model.schema.json`; migrations in `fireai/schema.py`) |
+| `fireai/model.py` | canonical building model (Pydantic, schema `0.3.0`; JSON schema in `docs/building_model.schema.json`; migrations in `fireai/schema.py`) |
 | `fireai/ingest/filetype.py` | extension + content sniffing, filename sanitising |
 | `fireai/ingest/dwg.py` | `DwgConverter` interface, `OdaFileConverter`, `LibreDwgConverter`, `select_converter` |
 | `fireai/ingest/units.py` | `$INSUNITS` resolution, exact factors, unit-resolution requirement |

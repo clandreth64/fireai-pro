@@ -28,16 +28,28 @@ from fireai.ingest.extract import (compute_source_bounds, extract, load_dxf, nor
                                    source_uid_for)
 from fireai.ingest.filetype import sanitize_filename, validate_upload
 from fireai.ingest.units import resolve_units, unit_evidence, unit_requirement
+from fireai.ingest.xref import XrefResolver
 from fireai.interpret import rules as R
 from fireai.interpret.checks import dimension_checks, review_checks
 from fireai.interpret.elements import Interpreter
-from fireai.interpret.regions import detect_regions
+from fireai.interpret.rooms import annotate_rooms
+from fireai.interpret.walls import build_wall_model
+from fireai.interpret.regions import (classify_regions, cluster_regions, region_index, region_warnings,
+                                      summarize_regions)
 from fireai.model import (BlockInfo, Bounds, BuildingModel, Issue, LayerInfo, ScaleInfo, SourceInfo, Transform,
-                          UnitsInfo)
+                          UnitsInfo, VerificationBinding, XrefRecord)
 from fireai.report import build_report, build_summary_md
+from fireai.review.apply import (apply_element_corrections, apply_view_type_corrections, correction_issues,
+                                 corrections_digest)
+from fireai.review.store import ReviewStore, verification_state
+from fireai.schema import dump_model
 from fireai.spatial import build_frames
 
 _USE_CONFIGURED = object()
+
+# Bump whenever interpretation output can change for the same input: a human
+# verification recorded under another engine version is invalidated.
+ENGINE_VERSION = f"{__version__}+interp.m16.1"
 
 ASSUMPTIONS = [
     "Model-space geometry is drawn at full scale (1 drawing unit = 1 unit of the declared units); "
@@ -125,10 +137,31 @@ def _write_json(path: Path, data) -> None:
     path.write_text(json.dumps(data, indent=2, default=str), encoding="utf-8")
 
 
+def resolved_xref_shas(model: BuildingModel) -> list[str]:
+    return sorted({x.sha256 for x in model.xrefs if x.status == "resolved" and x.sha256})
+
+
+def verification_binding(model: BuildingModel) -> VerificationBinding:
+    """Fingerprint of everything a human verification depends on: source bytes,
+    loaded XREF bytes, unit resolution, engine version and applied corrections.
+    Any byte change of the source is treated as material (conservative)."""
+    xshas = resolved_xref_shas(model)
+    digest = corrections_digest(model.human_corrections_applied)
+    basis = {"source": model.source.sha256, "xrefs": xshas, "units": model.units.resolved_units,
+             "engine": ENGINE_VERSION, "corrections": digest}
+    fp = hashlib.sha256(json.dumps(basis, sort_keys=True).encode()).hexdigest()
+    return VerificationBinding(fingerprint=fp, source_sha256=model.source.sha256, xref_sha256=xshas,
+                               resolved_units=model.units.resolved_units, engine_version=ENGINE_VERSION,
+                               corrections_digest=digest)
+
+
 def understand_drawing(upload_path: Path, original_filename: str | None, work_dir: Path, out_dir: Path,
                        units_override: str | None = None, settings: Settings | None = None,
-                       converter: DwgConverter | None | object = _USE_CONFIGURED) -> PipelineResult:
+                       converter: DwgConverter | None | object = _USE_CONFIGURED,
+                       xref_files: list[Path] | None = None,
+                       review_store: ReviewStore | None | object = _USE_CONFIGURED) -> PipelineResult:
     settings = settings or get_settings()
+    store = ReviewStore(settings.review_dir) if review_store is _USE_CONFIGURED else review_store
     work_dir.mkdir(parents=True, exist_ok=True)
     out_dir.mkdir(parents=True, exist_ok=True)
     stages = _Stages()
@@ -145,7 +178,7 @@ def understand_drawing(upload_path: Path, original_filename: str | None, work_di
         (out_dir / DELIVERABLES["summary_md"][0]).write_text(build_summary_md(rep), encoding="utf-8")
         deliverables["summary_md"] = DELIVERABLES["summary_md"][0]
         if model is not None:
-            _write_json(out_dir / DELIVERABLES["model_json"][0], model.model_dump(mode="json"))
+            (out_dir / DELIVERABLES["model_json"][0]).write_text(dump_model(model), encoding="utf-8")
             deliverables["model_json"] = DELIVERABLES["model_json"][0]
         return PipelineResult(status, model, rep, dict(deliverables), fail, out_dir)
 
@@ -177,12 +210,24 @@ def understand_drawing(upload_path: Path, original_filename: str | None, work_di
                                       f"Converted DXF could not be read: {f.message}") from f
             raise
 
+        if conversion is not None:
+            stages.run("conversion_audit", conversion.finalize_audit, doc)
         header = doc.header
         source_uid = source_uid_for(sha)
         document_guid = header.get("$FINGERPRINTGUID") if "$FINGERPRINTGUID" in header else None
         version_guid = header.get("$VERSIONGUID") if "$VERSIONGUID" in header else None
+        insunits = header.get("$INSUNITS") if "$INSUNITS" in header else None
+        measurement = header.get("$MEASUREMENT") if "$MEASUREMENT" in header else None
+        ures = stages.run("resolve_units", resolve_units, insunits, measurement, units_override)
+        conv_for_xrefs = None
+        if xref_files:
+            try:
+                conv_for_xrefs = select_converter(settings) if converter is _USE_CONFIGURED else converter
+            except Exception:
+                conv_for_xrefs = None
+        resolver = XrefResolver(list(xref_files or []), conv_for_xrefs, work_dir, settings.dwg_timeout_s)
         ex = stages.run("extract_geometry", extract, doc, settings.max_entities, audit_errors, audit_fixes,
-                        source_uid, document_guid)
+                        source_uid, document_guid, resolver, ures.resolved_units, sha)
         top_model = [e for e in ex.entities if e.space == "model" and e.parent_id is None]
         if not top_model:
             raise PipelineFailure(FailureCode.EMPTY_DRAWING, "The drawing's model space contains no entities.",
@@ -194,10 +239,6 @@ def understand_drawing(upload_path: Path, original_filename: str | None, work_di
                 "No visible, supported geometry could be read from model space.",
                 {"unsupported": dict(ex.unsupported), "top_level_entities": len(top_model),
                  "hidden": sum(1 for e in top_model if not e.visible)})
-
-        insunits = header.get("$INSUNITS") if "$INSUNITS" in header else None
-        measurement = header.get("$MEASUREMENT") if "$MEASUREMENT" in header else None
-        ures = stages.run("resolve_units", resolve_units, insunits, measurement, units_override)
 
         # Inventory (layers / blocks) — independent of units
         layer_types: dict[str, Counter] = {}
@@ -248,6 +289,7 @@ def understand_drawing(upload_path: Path, original_filename: str | None, work_di
             bounds_source=bounds_src,
             scale=ScaleInfo(viewport_scales=ex.viewport_scales),
             layers=layers, blocks=blocks, entities=ex.entities,
+            xrefs=[XrefRecord(**r) for r in ex.xref_records],
             assumptions=list(ASSUMPTIONS),
         )
         model.diagnostics.warnings.extend(ex.warnings)
@@ -260,7 +302,7 @@ def understand_drawing(upload_path: Path, original_filename: str | None, work_di
         # Source rendering is useful even when units are unresolved.
         from fireai.render.overlay import render_source_png, render_overlay, write_overlay_dxf
         try:
-            stages.run("render_source", render_source_png, dxf_path, bounds_src, out_dir / "source.png", display_name)
+            stages.run("render_source", render_source_png, doc, bounds_src, out_dir / "source.png", display_name)
             deliverables["source_png"] = "source.png"
         except Exception as exc:
             raise PipelineFailure(FailureCode.OVERLAY_GENERATION_FAILED, f"Source rendering failed: {exc}") from exc
@@ -280,7 +322,12 @@ def understand_drawing(upload_path: Path, original_filename: str | None, work_di
         s = model.transform.scale
         model.bounds_normalized = Bounds(min=(0.0, 0.0), max=(bounds_src.width * s, bounds_src.height * s))
 
-        res = stages.run("interpret", Interpreter(model.entities, layer_roles, block_roles, source_uid).run)
+        regions = stages.run("view_regions", cluster_regions, model)
+        classify_regions(model, regions, layer_roles, block_roles)
+        corrections = store.corrections(sha) if store else []
+        applied = apply_view_type_corrections(regions, corrections, resolved_xref_shas(model))
+        res = stages.run("interpret", Interpreter(model.entities, layer_roles, block_roles, source_uid,
+                                                  region_index(model, regions)).run)
         model.elements = res.elements
         model.unclassified_entity_ids = res.unclassified_entity_ids
         model.title_block = res.title_block
@@ -288,18 +335,35 @@ def understand_drawing(upload_path: Path, original_filename: str | None, work_di
             sc = model.title_block["fields"].get("scale_text")
             model.scale.title_block_scale_text = sc["value"] if sc else None
 
-        model.view_regions, region_issues = detect_regions(model)
+        region_issues = summarize_regions(model, regions)
+        model.view_regions = regions
+        model.wall_model = stages.run("wall_analysis", build_wall_model, model, source_uid)
+        room_issues = stages.run("room_analysis", annotate_rooms, model)
+        applied += apply_element_corrections(model, corrections, resolved_xref_shas(model))
+        model.human_corrections_applied = applied
+        room_issues += correction_issues(applied)
+        stale = [x for x in (store.other_revisions(model) if store else []) if store.corrections(x)]
+        if stale:
+            room_issues.append(Issue(code="HUMAN_CORRECTIONS_FROM_OTHER_REVISION", severity="error",
+                                     message=f"Human corrections exist for {len(stale)} other revision(s) of this "
+                                             "drawing (same document GUID) and were NOT applied, because the source "
+                                             "changed. Review them against this revision."))
         checks, dim_warn, dim_trig = dimension_checks(model)
         model.scale.dimension_checks = checks
         hidden = sum(1 for e in model.entities if e.parent_id is None and not e.visible)
-        warn, trig = review_checks(model, ex.unsupported, ex.xref_blocks, hidden, audit_errors)
-        model.diagnostics.warnings.extend(dim_warn + warn)
-        model.diagnostics.review_triggers.extend(dim_trig + res.issues + trig + region_issues)
+        warn, trig = review_checks(model, ex.unsupported, model.xrefs, hidden, audit_errors)
+        model.diagnostics.warnings.extend(dim_warn + warn + region_warnings(regions))
+        model.diagnostics.review_triggers.extend(dim_trig + res.issues + trig + region_issues + room_issues)
         model.requires_human_review = bool(model.diagnostics.review_triggers)
+        model.verification = verification_binding(model)
+        vs = verification_state(model, store)
+        model.verification.status = vs["status"]
+        model.verification.status_reasons = vs["reasons"]
 
         try:
-            stages.run("render_overlay", render_overlay, dxf_path, model, out_dir / "overlay.png", out_dir / "overlay.svg")
-            stages.run("write_overlay_dxf", write_overlay_dxf, dxf_path, model, out_dir / "overlay.dxf")
+            stages.run("render_overlay", render_overlay, doc, model, out_dir / "overlay.png", out_dir / "overlay.svg")
+            # last: adds FIREAI_* layers to the loaded document
+            stages.run("write_overlay_dxf", write_overlay_dxf, doc, model, out_dir / "overlay.dxf")
         except Exception as exc:
             raise PipelineFailure(FailureCode.OVERLAY_GENERATION_FAILED,
                                   f"Verification overlay could not be generated: {type(exc).__name__}: {exc}") from exc

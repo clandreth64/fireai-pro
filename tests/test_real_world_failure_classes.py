@@ -15,8 +15,8 @@ from pathlib import Path
 import pytest
 
 from conftest import run_pipeline
-from fireai.ingest.dwg import (ConversionResult, DwgConverter, LibreDwgConverter, compare_entity_counts,
-                               normalize_dwg_entity_type)
+from fireai.ingest.dwg import ConversionResult, DwgConverter, LibreDwgConverter
+from fireai.ingest.dwg_audit import DwgCensus, compare, dxf_census, normalize_type
 from fixtures import builders as B
 
 
@@ -139,18 +139,74 @@ def test_conflicting_unit_evidence_gives_no_suggestion():
 
 # ── DWG conversion entity loss ───────────────────────────────────────────────
 
-def test_entity_census_comparison():
-    assert normalize_dwg_entity_type("DIMENSION_LINEAR") == "DIMENSION"
-    assert normalize_dwg_entity_type("VERTEX_2D") is None and normalize_dwg_entity_type("TABLE") == "ACAD_TABLE"
-    res = compare_entity_counts(Counter({"LINE": 10, "INSERT": 4, "WIPEOUT": 2}), Counter({"LINE": 10, "INSERT": 2}), "t")
-    assert res["lost"] == {"INSERT": 2, "WIPEOUT": 2}
+def test_entity_type_normalization():
+    assert normalize_type("DIMENSION_LINEAR") == "DIMENSION"
+    assert normalize_type("VERTEX_2D") is None and normalize_type("TABLE") == "ACAD_TABLE"
+
+
+def _census_of(dxf_path, extra=(), drop=()) -> DwgCensus:
+    """A DWG-side census that mirrors a DXF, plus extra (lost) and minus dropped (added) entities."""
+    import ezdxf
+    d = dxf_census(ezdxf.readfile(dxf_path))
+    c = DwgCensus()
+    for h, x in d.entities.items():
+        if h in drop:
+            continue
+        c.entities[h] = {"type": x["type"], "owner": None, "space": x["space"] if x["space"] != "block" else "block",
+                         "fp": dict(x["fp"])}
+        c.counts[x["type"]] += 1
+    for h, t, space in extra:
+        c.entities[h] = {"type": t, "owner": None, "space": space, "fp": {}}
+        c.counts[t] += 1
+    c.layers = set(d.layers)
+    c.block_names = {i: n for i, n in enumerate(sorted(d.block_names))}
+    return c
+
+
+def test_handle_level_loss_is_not_masked_by_counts(fx):
+    """Same per-type COUNTS on both sides, but two INSERTs replaced by two others: the count-level
+    audit of M1.5 reported no loss (the R14 REAL_008 masking case); the handle-level audit must."""
+    import ezdxf
+    doc = ezdxf.readfile(fx["office_ft"])
+    d = dxf_census(doc)
+    dropped = [h for h, x in d.entities.items() if x["type"] == "LINE"][:2]
+    census = _census_of(fx["office_ft"], extra=[(0xFFFF01, "LINE", "model"), (0xFFFF02, "LINE", "model")],
+                        drop=dropped)
+    assert census.counts == d.counts                                     # counts identical
+    res = compare(census, d, "t")
+    assert res["lost"] == {"LINE": 2} and res["significance"] == "material"
+    assert res["added_in_dxf"] == {"LINE": 2}
+    assert res["lost_by_significance"]["material"]["LINE"]["handles_sample"] == ["FFFF01", "FFFF02"]
+
+
+def test_loss_classification(fx):
+    import ezdxf
+    d = dxf_census(ezdxf.readfile(fx["office_ft"]))
+    minor = compare(_census_of(fx["office_ft"], extra=[(0xFFFF10, "WIPEOUT", "model")]), d, "t")
+    assert minor["significance"] == "minor"
+    unref = compare(_census_of(fx["office_ft"], extra=[(0xFFFF11, "LINE", "block")]), d, "t")
+    assert unref["significance"] == "minor"                               # only in an unreferenced block
+    review = compare(_census_of(fx["office_ft"], extra=[(0xFFFF12, "ACAD_TABLE", "paper")]), d, "t")
+    assert review["significance"] == "review"
+    none = compare(_census_of(fx["office_ft"]), d, "t")
+    assert none["significance"] == "none" and none["lost"] == {}
+
+
+def test_geometry_change_is_material(fx):
+    import ezdxf
+    d = dxf_census(ezdxf.readfile(fx["office_ft"]))
+    c = _census_of(fx["office_ft"])
+    h = next(h for h, x in c.entities.items() if x["type"] == "LINE")
+    c.entities[h]["fp"]["end"] = [c.entities[h]["fp"]["end"][0] + 1.0, c.entities[h]["fp"]["end"][1], 0.0]
+    res = compare(c, d, "t")
+    assert res["significance"] == "material" and res["geometry_mismatch_count"] == 1
 
 
 class _AuditConverter(DwgConverter):
     name = "test-audit"
 
-    def __init__(self, dxf, audit):
-        self.dxf, self._audit = dxf, audit
+    def __init__(self, dxf, census_fn):
+        self.dxf, self._census_fn = dxf, census_fn
 
     def available(self):
         return True
@@ -158,22 +214,34 @@ class _AuditConverter(DwgConverter):
     def _run(self, dwg_path, out_dir, timeout_s):
         out = out_dir / "c.dxf"
         shutil.copyfile(self.dxf, out)
-        return ConversionResult(out, self.name, "1", ["x"])
+        return ConversionResult(out, self.name, "1", ["x"], audit_method="test")
 
-    def audit(self, dwg_path, dxf_path, work_dir, timeout_s):
-        return self._audit
+    def source_census(self, dwg_path, work_dir, timeout_s):
+        return self._census_fn()
 
 
 def test_conversion_loss_triggers_review(fx, tmp_path):
-    lost = {"status": "ok", "method": "t", "source_counts": {}, "output_counts": {}, "lost": {"INSERT": 2}}
-    m = run_pipeline(fx["fake_dwg"], tmp_path, converter=_AuditConverter(fx["office_ft"], lost)).model
+    conv = _AuditConverter(fx["office_ft"], lambda: (_census_of(fx["office_ft"], extra=[
+        (0xFFFF01, "INSERT", "model"), (0xFFFF02, "INSERT", "model")]), ""))
+    m = run_pipeline(fx["fake_dwg"], tmp_path, converter=conv).model
     assert "DWG_CONVERSION_LOST_ENTITIES" in _codes(m)
     assert m.source.conversion_audit["lost"] == {"INSERT": 2}
+    assert m.source.conversion_audit["significance"] == "material"
+    t = next(t for t in m.diagnostics.review_triggers if t.code == "DWG_CONVERSION_LOST_ENTITIES")
+    assert t.severity == "error"
+
+
+def test_material_conversion_loss_blocks_engineering(fx, tmp_path):
+    from fireai.review.gate import engineering_readiness
+    conv = _AuditConverter(fx["office_ft"], lambda: (_census_of(fx["office_ft"], extra=[
+        (0xFFFF01, "LINE", "model")]), ""))
+    m = run_pipeline(fx["fake_dwg"], tmp_path, converter=conv).model
+    assert any("material loss" in b for b in engineering_readiness(m, None)["blockers"])
 
 
 def test_missing_conversion_audit_triggers_review(fx, tmp_path):
     m = run_pipeline(fx["fake_dwg"], tmp_path,
-                     converter=_AuditConverter(fx["office_ft"], {"status": "unavailable", "note": "n/a"})).model
+                     converter=_AuditConverter(fx["office_ft"], lambda: (None, "unavailable: n/a"))).model
     assert "DWG_CONVERSION_AUDIT_UNAVAILABLE" in _codes(m)
 
 

@@ -1457,11 +1457,289 @@
       },
       "title": "UnitsInfo",
       "type": "object"
+    },
+    "VerificationBinding": {
+      "description": "What a human verification of this model is bound to (0.3.0).\n\n``fingerprint`` changes whenever the source drawing, any loaded XREF, the\nunit resolution or the interpretation engine version changes. A human\nverification recorded against another fingerprint is INVALIDATED.",
+      "properties": {
+        "fingerprint": {
+          "title": "Fingerprint",
+          "type": "string"
+        },
+        "source_sha256": {
+          "title": "Source Sha256",
+          "type": "string"
+        },
+        "xref_sha256": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Xref Sha256",
+          "type": "array"
+        },
+        "resolved_units": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Resolved Units"
+        },
+        "engine_version": {
+          "title": "Engine Version",
+          "type": "string"
+        },
+        "corrections_digest": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Corrections Digest"
+        },
+        "status": {
+          "default": "UNREVIEWED",
+          "enum": [
+            "UNREVIEWED",
+            "REVIEW_REQUIRED",
+            "HUMAN_VERIFIED",
+            "INVALIDATED"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "status_reasons": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Status Reasons",
+          "type": "array"
+        },
+        "note": {
+          "default": "Status is computed from the human-review store at processing time; the pipeline never writes a verification. Re-check with the review API before relying on it.",
+          "title": "Note",
+          "type": "string"
+        }
+      },
+      "required": [
+        "fingerprint",
+        "source_sha256",
+        "engine_version"
+      ],
+      "title": "VerificationBinding",
+      "type": "object"
+    },
+    "XrefRecord": {
+      "description": "One external reference as found in a drawing (0.3.0).\n\n``status`` is the outcome of resolving it. Only \"resolved\" XREFs contribute\ngeometry; every other status means the XREF's geometry is ABSENT from the\nmodel (never approximated).",
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "path_in_drawing": {
+          "default": "",
+          "title": "Path In Drawing",
+          "type": "string"
+        },
+        "status": {
+          "default": "unresolved",
+          "enum": [
+            "resolved",
+            "missing",
+            "circular",
+            "units_unresolved",
+            "load_failed",
+            "conversion_unavailable",
+            "overlay_not_loaded",
+            "too_deep",
+            "unresolved",
+            "not_attempted"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "depth": {
+          "default": 0,
+          "title": "Depth",
+          "type": "integer"
+        },
+        "parent_context": {
+          "default": "host",
+          "title": "Parent Context",
+          "type": "string"
+        },
+        "overlay": {
+          "default": false,
+          "title": "Overlay",
+          "type": "boolean"
+        },
+        "insert_entity_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Insert Entity Ids",
+          "type": "array"
+        },
+        "entity_count": {
+          "default": 0,
+          "title": "Entity Count",
+          "type": "integer"
+        },
+        "resolved_file": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Resolved File"
+        },
+        "sha256": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sha256"
+        },
+        "format": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Format"
+        },
+        "matched_by": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Matched By"
+        },
+        "converter": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Converter"
+        },
+        "conversion_lost": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Conversion Lost"
+        },
+        "conversion_significance": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Conversion Significance"
+        },
+        "units_ft_per_unit": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Units Ft Per Unit"
+        },
+        "unit_scale": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Unit Scale"
+        },
+        "base_point": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Base Point"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Note"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "XrefRecord",
+      "type": "object"
     }
   },
   "properties": {
     "schema_version": {
-      "default": "0.2.0",
+      "default": "0.3.0",
       "title": "Schema Version",
       "type": "string"
     },
@@ -1563,6 +1841,45 @@
       },
       "title": "View Regions",
       "type": "array"
+    },
+    "xrefs": {
+      "items": {
+        "$ref": "#/$defs/XrefRecord"
+      },
+      "title": "Xrefs",
+      "type": "array"
+    },
+    "wall_model": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Wall Model"
+    },
+    "human_corrections_applied": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Human Corrections Applied",
+      "type": "array"
+    },
+    "verification": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/VerificationBinding"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
     },
     "title_block": {
       "anyOf": [

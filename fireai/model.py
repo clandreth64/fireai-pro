@@ -1,10 +1,13 @@
-"""Canonical normalized building model (schema 0.2.0).
+"""Canonical normalized building model (schema 0.3.0).
 
 Schema history (see fireai/schema.py for migrations):
 * 0.1.0 — Milestone 1: 2D drawing understanding.
 * 0.2.0 — Milestone 1.5 foundations: persistent uids, explicit coordinate
   frames, placement (building/level/Z) fields that default to UNKNOWN,
   provenance, recorded source Z range, DWG->DXF conversion linkage.
+* 0.3.0 — Milestone 1.6: XREF records (and XREF geometry with per-entity
+  source-file identity), classified view regions, a derived wall ANALYSIS
+  layer, applied human corrections, and a verification binding.
 
 Two layers are kept strictly separate:
 
@@ -35,7 +38,7 @@ from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field
 
-SCHEMA_VERSION = "0.2.0"
+SCHEMA_VERSION = "0.3.0"
 
 Point = tuple[float, float]
 FrameId = Literal["SRC", "SRC_FT", "LOCAL", "PROJECT"]
@@ -258,6 +261,53 @@ class BuildingElement(BaseModel):
     provenance: Provenance = Field(default_factory=lambda: Provenance(origin="deterministic_inference"))
 
 
+class XrefRecord(BaseModel):
+    """One external reference as found in a drawing (0.3.0).
+
+    ``status`` is the outcome of resolving it. Only "resolved" XREFs contribute
+    geometry; every other status means the XREF's geometry is ABSENT from the
+    model (never approximated)."""
+    name: str                                   # XREF block name in the referencing drawing
+    path_in_drawing: str = ""                   # stored path (informational; never opened as a path)
+    status: Literal["resolved", "missing", "circular", "units_unresolved", "load_failed",
+                    "conversion_unavailable", "overlay_not_loaded", "too_deep", "unresolved",
+                    "not_attempted"] = "unresolved"
+    depth: int = 0                              # 0 = referenced by the uploaded drawing
+    parent_context: str = "host"                # "host" or the sha256 prefix of the referencing XREF
+    overlay: bool = False
+    insert_entity_ids: list[str] = Field(default_factory=list)
+    entity_count: int = 0
+    resolved_file: Optional[str] = None
+    sha256: Optional[str] = None
+    format: Optional[str] = None
+    matched_by: Optional[str] = None            # exact_name | same_stem_other_extension
+    converter: Optional[dict[str, Any]] = None
+    conversion_lost: Optional[dict[str, Any]] = None
+    conversion_significance: Optional[str] = None      # none | minor | review | material (handle-level audit)
+    units_ft_per_unit: Optional[float] = None
+    unit_scale: Optional[float] = None          # XREF units -> referencing-drawing units
+    base_point: Optional[list[float]] = None
+    note: Optional[str] = None
+
+
+class VerificationBinding(BaseModel):
+    """What a human verification of this model is bound to (0.3.0).
+
+    ``fingerprint`` changes whenever the source drawing, any loaded XREF, the
+    unit resolution or the interpretation engine version changes. A human
+    verification recorded against another fingerprint is INVALIDATED."""
+    fingerprint: str
+    source_sha256: str
+    xref_sha256: list[str] = Field(default_factory=list)
+    resolved_units: Optional[str] = None
+    engine_version: str
+    corrections_digest: Optional[str] = None     # sha256 of applied human correction ids
+    status: Literal["UNREVIEWED", "REVIEW_REQUIRED", "HUMAN_VERIFIED", "INVALIDATED"] = "UNREVIEWED"
+    status_reasons: list[str] = Field(default_factory=list)
+    note: str = ("Status is computed from the human-review store at processing time; the pipeline never writes "
+                 "a verification. Re-check with the review API before relying on it.")
+
+
 class Diagnostics(BaseModel):
     warnings: list[Issue] = Field(default_factory=list)
     errors: list[Issue] = Field(default_factory=list)
@@ -283,6 +333,10 @@ class BuildingModel(BaseModel):
     elements: list[BuildingElement] = Field(default_factory=list)
     unclassified_entity_ids: list[str] = Field(default_factory=list)
     view_regions: list[dict[str, Any]] = Field(default_factory=list)   # separate drawing regions in model space
+    xrefs: list[XrefRecord] = Field(default_factory=list)              # 0.3.0
+    wall_model: Optional[dict[str, Any]] = None   # 0.3.0: derived wall ANALYSIS layer (see interpret/walls.py)
+    human_corrections_applied: list[dict[str, Any]] = Field(default_factory=list)   # 0.3.0
+    verification: Optional[VerificationBinding] = None   # 0.3.0
     title_block: Optional[dict[str, Any]] = None
     diagnostics: Diagnostics = Field(default_factory=Diagnostics)
     requires_human_review: bool = True

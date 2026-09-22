@@ -40,27 +40,27 @@ def _one(path: Path, out_dir: Path) -> dict:
     from fireai.pipeline import understand_drawing
 
     settings = get_settings()
-    conv_log = None
-    if path.suffix.lower() == ".dwg":
-        # Measurement only: capture the converter's own log (the M1 model does not store it).
-        from fireai.ingest.dwg import select_converter
-        conv = select_converter(settings)
-        if conv is not None:
-            try:
-                res = conv.convert(path, out_dir / "_conv_probe", settings.dwg_timeout_s)
-                conv_log = res.log_tail
-            except Exception as exc:  # recorded, never hidden
-                conv_log = f"{type(exc).__name__}: {exc}\n" + str(getattr(exc, "details", ""))
-            (out_dir / "converter_log.txt").write_text(conv_log or "", encoding="utf-8")
-            import shutil
-            shutil.rmtree(out_dir / "_conv_probe", ignore_errors=True)
+    # M1.6: no separate probe conversion (it doubled the cost and inflated peak RSS in M1.5 runs);
+    # the converter log is taken from the model / failure details of the one real run.
 
     # Explicit, labelled HYPOTHESIS unit overrides (e.g. FIREAI_UNITS_OVERRIDES="REAL_001=in").
     overrides = dict(kv.split("=", 1) for kv in os.getenv("FIREAI_UNITS_OVERRIDES", "").split(",") if "=" in kv)
     units_override = overrides.get(path.stem)
     t0 = time.perf_counter()
-    r = understand_drawing(path, path.name, out_dir / "_work", out_dir, units_override, settings)
+    xdir = DRAWINGS.parent / "xrefs" / path.stem          # optional locally supplied XREF files
+    xref_files = sorted(x for x in xdir.iterdir() if x.is_file()) if xdir.is_dir() else None
+    # FIREAI_LOCAL_WORK=1: converter scratch (converted DXF, dwgread JSON) on container-local disk instead of
+    # the bind-mounted output folder -- the production layout (job dirs on local disk). Recorded in metrics.
+    import tempfile
+    work = Path(tempfile.mkdtemp(prefix="fireai_work_")) if os.getenv("FIREAI_LOCAL_WORK") else out_dir / "_work"
+    r = understand_drawing(path, path.name, work, out_dir, units_override, settings,
+                           xref_files=xref_files, review_store=None)
     total = time.perf_counter() - t0
+    conv_log = None
+    if path.suffix.lower() == ".dwg":
+        conv_log = (r.model.source.converter_log_tail if r.model is not None
+                    else str((r.failure or {}).get("details", {}).get("log_tail", "")))
+        (out_dir / "converter_log.txt").write_text(conv_log or "", encoding="utf-8")
     rep = r.report
     m = r.model
     stage_ms = {s["stage"]: s["duration_ms"] for s in rep.get("stages", [])}
@@ -74,9 +74,13 @@ def _one(path: Path, out_dir: Path) -> dict:
         "total_seconds": round(total, 3),
         "stage_ms": stage_ms,
         "peak_rss_mb": round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024, 1),
+        "peak_rss_children_mb": round(resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss / 1024, 1),
+        "model_json_bytes": (out_dir / "building_model.json").stat().st_size
+        if (out_dir / "building_model.json").exists() else None,
         "converter": (rep.get("source") or {}).get("converter"),
         "converter_log_lines": len((conv_log or "").splitlines()) if conv_log is not None else None,
         "units_override_hypothesis": units_override,
+        "work_dir_location": "container_local" if os.getenv("FIREAI_LOCAL_WORK") else "bind_mount",
     }
     if m is not None:
         top = [e for e in m.entities if e.parent_id is None and e.space == "model"]
@@ -115,6 +119,16 @@ def _one(path: Path, out_dir: Path) -> dict:
                              for r in getattr(m, "view_regions", [])],
             "conversion_audit_lost": ((getattr(m.source, "conversion_audit", None) or {}).get("lost")
                                       if m.source.converted_from_dwg else None),
+            "conversion_audit": ({k: (m.source.conversion_audit or {}).get(k) for k in (
+                "status", "level", "significance", "lost_by_significance", "added_in_dxf", "type_changed_count",
+                "geometry_mismatch_count", "text_mismatch_count")}
+                if m.source.converted_from_dwg else None),
+            "view_types": [{"id": r["id"], "view_type": r.get("view_type"), "confidence": r.get("view_type_confidence"),
+                            "review_state": r.get("review_state"), "room_logic": r.get("room_logic"),
+                            "rules": r.get("view_type_rules")} for r in m.view_regions if r.get("significant")],
+            "wall_model": (m.wall_model or {}).get("stats"),
+            "xrefs": [{"status": x.status, "depth": x.depth, "entity_count": x.entity_count} for x in m.xrefs],
+            "verification_status": m.verification.status if m.verification else None,
             "unit_evidence_suggestion": ((getattr(m.units, "evidence", None) or {}).get("suggested_units")
                                          if getattr(m.units, "evidence", None) else None),
             "warnings": [w.code for w in m.diagnostics.warnings],
@@ -130,7 +144,9 @@ ANON_KEYS = {"id", "format", "size_bytes", "processing_status", "failure_code", 
              "xref_blocks", "entities_total", "entities_top_level_model", "entities_paper", "entity_types_top_level",
              "hidden_top_level", "unsupported", "element_counts", "text_entities", "unclassified_top_level",
              "unclassified_pct_of_visible_top", "rooms", "dimension_checks", "review_triggers", "warnings", "errors",
-             "units_override_hypothesis", "view_regions", "conversion_audit_lost", "unit_evidence_suggestion"}
+             "units_override_hypothesis", "view_regions", "conversion_audit_lost", "unit_evidence_suggestion",
+             "peak_rss_children_mb", "model_json_bytes", "conversion_audit", "view_types", "wall_model", "xrefs",
+             "verification_status", "work_dir_location"}
 
 
 def main() -> None:
@@ -165,7 +181,8 @@ def main() -> None:
             m = json.loads(proc.stdout.strip().splitlines()[-1])
         results.append(m)
         print(f"{p.name:14} {m.get('processing_status'):18} {m.get('failure_code') or '':28} "
-              f"{m.get('total_seconds', '')}s rss={m.get('peak_rss_mb', '')}MB elements={m.get('element_counts')}")
+              f"{m.get('total_seconds', '')}s rss={m.get('peak_rss_mb', '')}MB "
+              f"children={m.get('peak_rss_children_mb', '')}MB elements={m.get('element_counts')}")
     RUNS.mkdir(parents=True, exist_ok=True)
     anon = [{k: v for k, v in r.items() if k in ANON_KEYS} for r in results]
     run_file.write_text(json.dumps({"label": a.label, "engine_commit": a.engine_commit,

@@ -1,0 +1,1225 @@
+{
+ "schema_version": "0.2.0",
+ "model_id": "fixture-0-2-0",
+ "created_at": "2026-09-22T00:00:00+00:00",
+ "fireai_version": "0.1.0",
+ "source": {
+  "filename": "xref_host_020.dxf",
+  "format": "dxf",
+  "sha256": "80a8640b35b4679d0b2548b64ca90eb595c177e436c11ad428589df6365dd9ff",
+  "size_bytes": 16437,
+  "dxf_version": "AC1032",
+  "converted_from_dwg": false,
+  "converter": null,
+  "source_uid": "184a0f20-7137-54b1-9585-88adf4fc261c",
+  "document_guid": "{54B4B72C-9042-4E09-A645-730CF9DAB673}",
+  "version_guid": "{13083827-C3F3-4DFC-9008-4058DAAC1E47}",
+  "converted_dxf_sha256": null,
+  "converter_log_tail": null,
+  "converter_warnings": [],
+  "conversion_audit": null
+ },
+ "units": {
+  "insunits_code": 2,
+  "detected_units": "ft",
+  "resolved_units": "ft",
+  "resolution_method": "drawing_header",
+  "normalized_units": "ft",
+  "scale_to_normalized": 1.0,
+  "measurement_system_hint": "metric",
+  "resolved": true,
+  "note": null,
+  "evidence": null
+ },
+ "transform": {
+  "origin": [
+   0.0,
+   0.0
+  ],
+  "scale": 1.0
+ },
+ "coordinate_frames": [
+  {
+   "id": "SRC",
+   "parent": null,
+   "units": "ft",
+   "status": "defined",
+   "matrix": [
+    [
+     1.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    [
+     0.0,
+     1.0,
+     0.0,
+     0.0
+    ],
+    [
+     0.0,
+     0.0,
+     1.0,
+     0.0
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "description": "Source drawing WCS in drawing units (as stored in the file)."
+  },
+  {
+   "id": "SRC_FT",
+   "parent": "SRC",
+   "units": "ft",
+   "status": "defined",
+   "matrix": [
+    [
+     1.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    [
+     0.0,
+     1.0,
+     0.0,
+     0.0
+    ],
+    [
+     0.0,
+     0.0,
+     1.0,
+     0.0
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "description": "Source WCS scaled to feet, no translation. Stable across drawing edits and shared between files that share CAD coordinates."
+  },
+  {
+   "id": "LOCAL",
+   "parent": "SRC_FT",
+   "units": "ft",
+   "status": "defined",
+   "matrix": [
+    [
+     1.0,
+     0.0,
+     0.0,
+     -0.0
+    ],
+    [
+     0.0,
+     1.0,
+     0.0,
+     -0.0
+    ],
+    [
+     0.0,
+     0.0,
+     1.0,
+     0.0
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "description": "SRC_FT shifted so the lower-left of visible model-space geometry is (0,0). Display/analysis convenience only; origin depends on drawing content."
+  },
+  {
+   "id": "PROJECT",
+   "parent": "SRC_FT",
+   "units": "ft",
+   "status": "unresolved",
+   "matrix": null,
+   "description": "Coordinated project frame. Unresolved until a person or adapter establishes the SRC_FT -> PROJECT transform (e.g. shared coordinates, survey point)."
+  }
+ ],
+ "spatial_structure": {
+  "project_id": null,
+  "buildings": [],
+  "levels": [],
+  "status": "unassigned",
+  "note": "Building/level assignment not established from this source."
+ },
+ "bounds_source": {
+  "min": [
+   0.0,
+   0.0
+  ],
+  "max": [
+   40.0,
+   30.0
+  ]
+ },
+ "bounds_normalized": {
+  "min": [
+   0.0,
+   0.0
+  ],
+  "max": [
+   40.0,
+   30.0
+  ]
+ },
+ "scale": {
+  "model_space_full_scale_assumed": true,
+  "dimension_checks": [],
+  "viewport_scales": [],
+  "title_block_scale_text": null
+ },
+ "layers": [
+  {
+   "name": "0",
+   "color": 7,
+   "is_off": false,
+   "is_frozen": false,
+   "entity_count": 1,
+   "entity_types": {
+    "INSERT": 1
+   },
+   "inferred_role": null,
+   "role_confidence": 0.0,
+   "role_rule": null
+  },
+  {
+   "name": "A-AREA-IDEN",
+   "color": null,
+   "is_off": false,
+   "is_frozen": false,
+   "entity_count": 1,
+   "entity_types": {
+    "TEXT": 1
+   },
+   "inferred_role": "room_label",
+   "role_confidence": 0.9,
+   "role_rule": "L-ROOM-LABEL"
+  },
+  {
+   "name": "A-WALL",
+   "color": 7,
+   "is_off": false,
+   "is_frozen": false,
+   "entity_count": 4,
+   "entity_types": {
+    "LINE": 4
+   },
+   "inferred_role": "wall",
+   "role_confidence": 0.9,
+   "role_rule": "L-WALL"
+  },
+  {
+   "name": "Defpoints",
+   "color": 7,
+   "is_off": false,
+   "is_frozen": false,
+   "entity_count": 0,
+   "entity_types": {},
+   "inferred_role": "ignore",
+   "role_confidence": 0.75,
+   "role_rule": "L-IGNORE-DEFPOINTS"
+  }
+ ],
+ "blocks": [
+  {
+   "name": "ARCH-BASE",
+   "effective_name": null,
+   "insert_count": 1,
+   "is_xref": true,
+   "inferred_role": null,
+   "role_confidence": 0.0,
+   "role_rule": null
+  }
+ ],
+ "entities": [
+  {
+   "id": "E000001",
+   "uid": "e3c0df90-a52a-584e-8698-d174d9a6b0db",
+   "handle_path": [
+    "30"
+   ],
+   "uid_basis": "handle",
+   "source_object_key": "{54B4B72C-9042-4E09-A645-730CF9DAB673}:30",
+   "z_range": [
+    0.0,
+    0.0
+   ],
+   "handle": "30",
+   "type": "LINE",
+   "layer": "A-WALL",
+   "space": "model",
+   "parent_id": null,
+   "block_path": [],
+   "visible": true,
+   "supported": true,
+   "source": {
+    "kind": "line",
+    "points": [
+     [
+      0.0,
+      0.0
+     ],
+     [
+      40.0,
+      0.0
+     ]
+    ],
+    "closed": false,
+    "center": null,
+    "radius": null,
+    "start_angle": null,
+    "end_angle": null,
+    "paths": [],
+    "insert": null,
+    "text": null,
+    "height": null,
+    "rotation": null,
+    "measurement": null,
+    "frame": "SRC"
+   },
+   "normalized": {
+    "kind": "line",
+    "points": [
+     [
+      0.0,
+      0.0
+     ],
+     [
+      40.0,
+      0.0
+     ]
+    ],
+    "closed": false,
+    "center": null,
+    "radius": null,
+    "start_angle": null,
+    "end_angle": null,
+    "paths": [],
+    "insert": null,
+    "text": null,
+    "height": null,
+    "rotation": null,
+    "measurement": null,
+    "frame": "LOCAL"
+   },
+   "attributes": {},
+   "provenance": {
+    "origin": "source",
+    "engine": "fireai",
+    "engine_version": null,
+    "rule_ids": [],
+    "derived_from": [],
+    "review": {
+     "status": "unreviewed",
+     "by": null,
+     "at": null,
+     "note": null
+    }
+   }
+  },
+  {
+   "id": "E000002",
+   "uid": "5517c37d-90ac-5943-a8cc-fce20b17fcdd",
+   "handle_path": [
+    "31"
+   ],
+   "uid_basis": "handle",
+   "source_object_key": "{54B4B72C-9042-4E09-A645-730CF9DAB673}:31",
+   "z_range": [
+    0.0,
+    0.0
+   ],
+   "handle": "31",
+   "type": "LINE",
+   "layer": "A-WALL",
+   "space": "model",
+   "parent_id": null,
+   "block_path": [],
+   "visible": true,
+   "supported": true,
+   "source": {
+    "kind": "line",
+    "points": [
+     [
+      40.0,
+      0.0
+     ],
+     [
+      40.0,
+      30.0
+     ]
+    ],
+    "closed": false,
+    "center": null,
+    "radius": null,
+    "start_angle": null,
+    "end_angle": null,
+    "paths": [],
+    "insert": null,
+    "text": null,
+    "height": null,
+    "rotation": null,
+    "measurement": null,
+    "frame": "SRC"
+   },
+   "normalized": {
+    "kind": "line",
+    "points": [
+     [
+      40.0,
+      0.0
+     ],
+     [
+      40.0,
+      30.0
+     ]
+    ],
+    "closed": false,
+    "center": null,
+    "radius": null,
+    "start_angle": null,
+    "end_angle": null,
+    "paths": [],
+    "insert": null,
+    "text": null,
+    "height": null,
+    "rotation": null,
+    "measurement": null,
+    "frame": "LOCAL"
+   },
+   "attributes": {},
+   "provenance": {
+    "origin": "source",
+    "engine": "fireai",
+    "engine_version": null,
+    "rule_ids": [],
+    "derived_from": [],
+    "review": {
+     "status": "unreviewed",
+     "by": null,
+     "at": null,
+     "note": null
+    }
+   }
+  },
+  {
+   "id": "E000003",
+   "uid": "f884c843-fbe4-58a7-899b-dd1fb4439a71",
+   "handle_path": [
+    "32"
+   ],
+   "uid_basis": "handle",
+   "source_object_key": "{54B4B72C-9042-4E09-A645-730CF9DAB673}:32",
+   "z_range": [
+    0.0,
+    0.0
+   ],
+   "handle": "32",
+   "type": "LINE",
+   "layer": "A-WALL",
+   "space": "model",
+   "parent_id": null,
+   "block_path": [],
+   "visible": true,
+   "supported": true,
+   "source": {
+    "kind": "line",
+    "points": [
+     [
+      40.0,
+      30.0
+     ],
+     [
+      0.0,
+      30.0
+     ]
+    ],
+    "closed": false,
+    "center": null,
+    "radius": null,
+    "start_angle": null,
+    "end_angle": null,
+    "paths": [],
+    "insert": null,
+    "text": null,
+    "height": null,
+    "rotation": null,
+    "measurement": null,
+    "frame": "SRC"
+   },
+   "normalized": {
+    "kind": "line",
+    "points": [
+     [
+      40.0,
+      30.0
+     ],
+     [
+      0.0,
+      30.0
+     ]
+    ],
+    "closed": false,
+    "center": null,
+    "radius": null,
+    "start_angle": null,
+    "end_angle": null,
+    "paths": [],
+    "insert": null,
+    "text": null,
+    "height": null,
+    "rotation": null,
+    "measurement": null,
+    "frame": "LOCAL"
+   },
+   "attributes": {},
+   "provenance": {
+    "origin": "source",
+    "engine": "fireai",
+    "engine_version": null,
+    "rule_ids": [],
+    "derived_from": [],
+    "review": {
+     "status": "unreviewed",
+     "by": null,
+     "at": null,
+     "note": null
+    }
+   }
+  },
+  {
+   "id": "E000004",
+   "uid": "918a8e8b-dfc1-5d66-a79f-3c9284f3a057",
+   "handle_path": [
+    "33"
+   ],
+   "uid_basis": "handle",
+   "source_object_key": "{54B4B72C-9042-4E09-A645-730CF9DAB673}:33",
+   "z_range": [
+    0.0,
+    0.0
+   ],
+   "handle": "33",
+   "type": "LINE",
+   "layer": "A-WALL",
+   "space": "model",
+   "parent_id": null,
+   "block_path": [],
+   "visible": true,
+   "supported": true,
+   "source": {
+    "kind": "line",
+    "points": [
+     [
+      0.0,
+      30.0
+     ],
+     [
+      0.0,
+      0.0
+     ]
+    ],
+    "closed": false,
+    "center": null,
+    "radius": null,
+    "start_angle": null,
+    "end_angle": null,
+    "paths": [],
+    "insert": null,
+    "text": null,
+    "height": null,
+    "rotation": null,
+    "measurement": null,
+    "frame": "SRC"
+   },
+   "normalized": {
+    "kind": "line",
+    "points": [
+     [
+      0.0,
+      30.0
+     ],
+     [
+      0.0,
+      0.0
+     ]
+    ],
+    "closed": false,
+    "center": null,
+    "radius": null,
+    "start_angle": null,
+    "end_angle": null,
+    "paths": [],
+    "insert": null,
+    "text": null,
+    "height": null,
+    "rotation": null,
+    "measurement": null,
+    "frame": "LOCAL"
+   },
+   "attributes": {},
+   "provenance": {
+    "origin": "source",
+    "engine": "fireai",
+    "engine_version": null,
+    "rule_ids": [],
+    "derived_from": [],
+    "review": {
+     "status": "unreviewed",
+     "by": null,
+     "at": null,
+     "note": null
+    }
+   }
+  },
+  {
+   "id": "E000005",
+   "uid": "d0bc96af-da8d-55f1-b44c-f9cb962257fa",
+   "handle_path": [
+    "34"
+   ],
+   "uid_basis": "handle",
+   "source_object_key": "{54B4B72C-9042-4E09-A645-730CF9DAB673}:34",
+   "z_range": [
+    0.0,
+    0.0
+   ],
+   "handle": "34",
+   "type": "TEXT",
+   "layer": "A-AREA-IDEN",
+   "space": "model",
+   "parent_id": null,
+   "block_path": [],
+   "visible": true,
+   "supported": true,
+   "source": {
+    "kind": "text",
+    "points": [],
+    "closed": false,
+    "center": null,
+    "radius": null,
+    "start_angle": null,
+    "end_angle": null,
+    "paths": [],
+    "insert": [
+     10.0,
+     10.0
+    ],
+    "text": "ROOM 1",
+    "height": 1.0,
+    "rotation": 0.0,
+    "measurement": null,
+    "frame": "SRC"
+   },
+   "normalized": {
+    "kind": "text",
+    "points": [],
+    "closed": false,
+    "center": null,
+    "radius": null,
+    "start_angle": null,
+    "end_angle": null,
+    "paths": [],
+    "insert": [
+     10.0,
+     10.0
+    ],
+    "text": "ROOM 1",
+    "height": 1.0,
+    "rotation": 0.0,
+    "measurement": null,
+    "frame": "LOCAL"
+   },
+   "attributes": {},
+   "provenance": {
+    "origin": "source",
+    "engine": "fireai",
+    "engine_version": null,
+    "rule_ids": [],
+    "derived_from": [],
+    "review": {
+     "status": "unreviewed",
+     "by": null,
+     "at": null,
+     "note": null
+    }
+   }
+  },
+  {
+   "id": "E000006",
+   "uid": "55e739df-e1eb-593d-8a4c-6362a60941a9",
+   "handle_path": [
+    "38"
+   ],
+   "uid_basis": "handle",
+   "source_object_key": "{54B4B72C-9042-4E09-A645-730CF9DAB673}:38",
+   "z_range": [
+    0.0,
+    0.0
+   ],
+   "handle": "38",
+   "type": "INSERT",
+   "layer": "0",
+   "space": "model",
+   "parent_id": null,
+   "block_path": [],
+   "visible": true,
+   "supported": true,
+   "source": {
+    "kind": "insert",
+    "points": [],
+    "closed": false,
+    "center": null,
+    "radius": null,
+    "start_angle": null,
+    "end_angle": null,
+    "paths": [],
+    "insert": [
+     0.0,
+     0.0
+    ],
+    "text": null,
+    "height": null,
+    "rotation": null,
+    "measurement": null,
+    "frame": "SRC"
+   },
+   "normalized": {
+    "kind": "insert",
+    "points": [],
+    "closed": false,
+    "center": null,
+    "radius": null,
+    "start_angle": null,
+    "end_angle": null,
+    "paths": [],
+    "insert": [
+     0.0,
+     0.0
+    ],
+    "text": null,
+    "height": null,
+    "rotation": null,
+    "measurement": null,
+    "frame": "LOCAL"
+   },
+   "attributes": {
+    "block": "ARCH-BASE",
+    "rotation": 0.0,
+    "xscale": 1.0,
+    "yscale": 1.0,
+    "xref": true
+   },
+   "provenance": {
+    "origin": "source",
+    "engine": "fireai",
+    "engine_version": null,
+    "rule_ids": [],
+    "derived_from": [],
+    "review": {
+     "status": "unreviewed",
+     "by": null,
+     "at": null,
+     "note": null
+    }
+   }
+  }
+ ],
+ "elements": [
+  {
+   "id": "W00001",
+   "uid": "e1101564-7a96-55f7-9116-1648462ffd4b",
+   "category": "wall",
+   "subtype": "wall_linework",
+   "label": null,
+   "confidence": 0.9,
+   "evidence": [
+    "layer 'A-WALL' token 'WALL' matches rule L-WALL (walls)",
+    "LINE geometry on wall layer",
+    "single linework entity; wall thickness and wall pairing not determined in this milestone"
+   ],
+   "rules": [
+    "L-WALL"
+   ],
+   "source_entity_ids": [
+    "E000001"
+   ],
+   "requires_verification": false,
+   "geometry": {
+    "kind": "line",
+    "points": [
+     [
+      0.0,
+      0.0
+     ],
+     [
+      40.0,
+      0.0
+     ]
+    ],
+    "closed": false,
+    "center": null,
+    "radius": null,
+    "start_angle": null,
+    "end_angle": null,
+    "paths": [],
+    "insert": null,
+    "text": null,
+    "height": null,
+    "rotation": null,
+    "measurement": null,
+    "frame": "LOCAL"
+   },
+   "properties": {
+    "length_ft": 40.0,
+    "view_region": "V1"
+   },
+   "placement": {
+    "building_id": null,
+    "level_id": null,
+    "assignment_status": "unassigned",
+    "elevation_ft": null,
+    "height_ft": null,
+    "thickness_ft": null,
+    "rotation_deg": null,
+    "z_status": "unknown"
+   },
+   "provenance": {
+    "origin": "deterministic_inference",
+    "engine": "fireai.interpret",
+    "engine_version": "0.1.0",
+    "rule_ids": [
+     "L-WALL"
+    ],
+    "derived_from": [
+     "e3c0df90-a52a-584e-8698-d174d9a6b0db"
+    ],
+    "review": {
+     "status": "unreviewed",
+     "by": null,
+     "at": null,
+     "note": null
+    }
+   }
+  },
+  {
+   "id": "W00002",
+   "uid": "e9c9da0d-7503-5ec3-9a48-c1bf6f096cc9",
+   "category": "wall",
+   "subtype": "wall_linework",
+   "label": null,
+   "confidence": 0.9,
+   "evidence": [
+    "layer 'A-WALL' token 'WALL' matches rule L-WALL (walls)",
+    "LINE geometry on wall layer",
+    "single linework entity; wall thickness and wall pairing not determined in this milestone"
+   ],
+   "rules": [
+    "L-WALL"
+   ],
+   "source_entity_ids": [
+    "E000002"
+   ],
+   "requires_verification": false,
+   "geometry": {
+    "kind": "line",
+    "points": [
+     [
+      40.0,
+      0.0
+     ],
+     [
+      40.0,
+      30.0
+     ]
+    ],
+    "closed": false,
+    "center": null,
+    "radius": null,
+    "start_angle": null,
+    "end_angle": null,
+    "paths": [],
+    "insert": null,
+    "text": null,
+    "height": null,
+    "rotation": null,
+    "measurement": null,
+    "frame": "LOCAL"
+   },
+   "properties": {
+    "length_ft": 30.0,
+    "view_region": "V1"
+   },
+   "placement": {
+    "building_id": null,
+    "level_id": null,
+    "assignment_status": "unassigned",
+    "elevation_ft": null,
+    "height_ft": null,
+    "thickness_ft": null,
+    "rotation_deg": null,
+    "z_status": "unknown"
+   },
+   "provenance": {
+    "origin": "deterministic_inference",
+    "engine": "fireai.interpret",
+    "engine_version": "0.1.0",
+    "rule_ids": [
+     "L-WALL"
+    ],
+    "derived_from": [
+     "5517c37d-90ac-5943-a8cc-fce20b17fcdd"
+    ],
+    "review": {
+     "status": "unreviewed",
+     "by": null,
+     "at": null,
+     "note": null
+    }
+   }
+  },
+  {
+   "id": "W00003",
+   "uid": "74751f7b-26ac-559d-806e-e2f1066aa3b9",
+   "category": "wall",
+   "subtype": "wall_linework",
+   "label": null,
+   "confidence": 0.9,
+   "evidence": [
+    "layer 'A-WALL' token 'WALL' matches rule L-WALL (walls)",
+    "LINE geometry on wall layer",
+    "single linework entity; wall thickness and wall pairing not determined in this milestone"
+   ],
+   "rules": [
+    "L-WALL"
+   ],
+   "source_entity_ids": [
+    "E000003"
+   ],
+   "requires_verification": false,
+   "geometry": {
+    "kind": "line",
+    "points": [
+     [
+      40.0,
+      30.0
+     ],
+     [
+      0.0,
+      30.0
+     ]
+    ],
+    "closed": false,
+    "center": null,
+    "radius": null,
+    "start_angle": null,
+    "end_angle": null,
+    "paths": [],
+    "insert": null,
+    "text": null,
+    "height": null,
+    "rotation": null,
+    "measurement": null,
+    "frame": "LOCAL"
+   },
+   "properties": {
+    "length_ft": 40.0,
+    "view_region": "V1"
+   },
+   "placement": {
+    "building_id": null,
+    "level_id": null,
+    "assignment_status": "unassigned",
+    "elevation_ft": null,
+    "height_ft": null,
+    "thickness_ft": null,
+    "rotation_deg": null,
+    "z_status": "unknown"
+   },
+   "provenance": {
+    "origin": "deterministic_inference",
+    "engine": "fireai.interpret",
+    "engine_version": "0.1.0",
+    "rule_ids": [
+     "L-WALL"
+    ],
+    "derived_from": [
+     "f884c843-fbe4-58a7-899b-dd1fb4439a71"
+    ],
+    "review": {
+     "status": "unreviewed",
+     "by": null,
+     "at": null,
+     "note": null
+    }
+   }
+  },
+  {
+   "id": "W00004",
+   "uid": "cf9ac0c7-a895-5ad8-a6ca-c37f5fd18c66",
+   "category": "wall",
+   "subtype": "wall_linework",
+   "label": null,
+   "confidence": 0.9,
+   "evidence": [
+    "layer 'A-WALL' token 'WALL' matches rule L-WALL (walls)",
+    "LINE geometry on wall layer",
+    "single linework entity; wall thickness and wall pairing not determined in this milestone"
+   ],
+   "rules": [
+    "L-WALL"
+   ],
+   "source_entity_ids": [
+    "E000004"
+   ],
+   "requires_verification": false,
+   "geometry": {
+    "kind": "line",
+    "points": [
+     [
+      0.0,
+      30.0
+     ],
+     [
+      0.0,
+      0.0
+     ]
+    ],
+    "closed": false,
+    "center": null,
+    "radius": null,
+    "start_angle": null,
+    "end_angle": null,
+    "paths": [],
+    "insert": null,
+    "text": null,
+    "height": null,
+    "rotation": null,
+    "measurement": null,
+    "frame": "LOCAL"
+   },
+   "properties": {
+    "length_ft": 30.0,
+    "view_region": "V1"
+   },
+   "placement": {
+    "building_id": null,
+    "level_id": null,
+    "assignment_status": "unassigned",
+    "elevation_ft": null,
+    "height_ft": null,
+    "thickness_ft": null,
+    "rotation_deg": null,
+    "z_status": "unknown"
+   },
+   "provenance": {
+    "origin": "deterministic_inference",
+    "engine": "fireai.interpret",
+    "engine_version": "0.1.0",
+    "rule_ids": [
+     "L-WALL"
+    ],
+    "derived_from": [
+     "918a8e8b-dfc1-5d66-a79f-3c9284f3a057"
+    ],
+    "review": {
+     "status": "unreviewed",
+     "by": null,
+     "at": null,
+     "note": null
+    }
+   }
+  },
+  {
+   "id": "R00005",
+   "uid": "f8eca235-9f48-5a37-906a-65b0897bb135",
+   "category": "room",
+   "subtype": null,
+   "label": "1",
+   "confidence": 0.6,
+   "evidence": [
+    "region enclosed by wall linework (polygonize)",
+    "no room/area-layer boundary exists in this drawing",
+    "label text inside boundary: ['ROOM 1']"
+   ],
+   "rules": [
+    "G-POLYGONIZE-WALLS"
+   ],
+   "source_entity_ids": [
+    "E000001",
+    "E000002",
+    "E000003",
+    "E000004",
+    "E000005"
+   ],
+   "requires_verification": true,
+   "geometry": {
+    "kind": "polygon",
+    "points": [
+     [
+      40.0,
+      0.0
+     ],
+     [
+      0.0,
+      0.0
+     ],
+     [
+      0.0,
+      30.0
+     ],
+     [
+      40.0,
+      30.0
+     ]
+    ],
+    "closed": true,
+    "center": null,
+    "radius": null,
+    "start_angle": null,
+    "end_angle": null,
+    "paths": [],
+    "insert": null,
+    "text": null,
+    "height": null,
+    "rotation": null,
+    "measurement": null,
+    "frame": "LOCAL"
+   },
+   "properties": {
+    "area_sf": 1200.0,
+    "perimeter_ft": 140.0,
+    "name": null,
+    "number": "1",
+    "detection_method": "polygonized_wall_linework",
+    "label_entity_ids": [
+     "E000005"
+    ],
+    "view_region": "V1"
+   },
+   "placement": {
+    "building_id": null,
+    "level_id": null,
+    "assignment_status": "unassigned",
+    "elevation_ft": null,
+    "height_ft": null,
+    "thickness_ft": null,
+    "rotation_deg": null,
+    "z_status": "unknown"
+   },
+   "provenance": {
+    "origin": "deterministic_inference",
+    "engine": "fireai.interpret",
+    "engine_version": "0.1.0",
+    "rule_ids": [
+     "G-POLYGONIZE-WALLS"
+    ],
+    "derived_from": [
+     "e3c0df90-a52a-584e-8698-d174d9a6b0db",
+     "5517c37d-90ac-5943-a8cc-fce20b17fcdd",
+     "f884c843-fbe4-58a7-899b-dd1fb4439a71",
+     "918a8e8b-dfc1-5d66-a79f-3c9284f3a057",
+     "d0bc96af-da8d-55f1-b44c-f9cb962257fa"
+    ],
+    "review": {
+     "status": "unreviewed",
+     "by": null,
+     "at": null,
+     "note": null
+    }
+   }
+  }
+ ],
+ "unclassified_entity_ids": [
+  "E000006"
+ ],
+ "view_regions": [
+  {
+   "id": "V1",
+   "bbox_ft": [
+    0.0,
+    0.0,
+    40.0,
+    30.0
+   ],
+   "entity_count": 5,
+   "element_counts": {
+    "wall": 4,
+    "room": 1
+   },
+   "title_block_only": false,
+   "significant": true
+  },
+  {
+   "id": "V2",
+   "bbox_ft": [
+    10.0,
+    10.0,
+    10.0,
+    10.0
+   ],
+   "entity_count": 1,
+   "element_counts": {
+    "room": 1
+   },
+   "title_block_only": false,
+   "significant": true
+  }
+ ],
+ "title_block": null,
+ "diagnostics": {
+  "warnings": [],
+  "errors": [],
+  "review_triggers": [
+   {
+    "code": "XREF_NOT_RESOLVED",
+    "message": "1 external reference(s) not loaded: ['ARCH-BASE']. Their geometry is missing.",
+    "severity": "warning",
+    "entity_ids": [],
+    "element_ids": []
+   },
+   {
+    "code": "ELEMENTS_REQUIRE_VERIFICATION",
+    "message": "1 interpreted element(s) require human verification: room x1",
+    "severity": "warning",
+    "entity_ids": [],
+    "element_ids": [
+     "R00005"
+    ]
+   },
+   {
+    "code": "MULTIPLE_DRAWING_REGIONS",
+    "message": "Model space contains 2 separate drawing regions (e.g. several plans, sections, details or diagrams). FireAI does not decide which is the building plan or whether they are different levels. V1: 5 entities, walls=4, rooms=1; V2: 1 entities, walls=0, rooms=1",
+    "severity": "warning",
+    "entity_ids": [],
+    "element_ids": []
+   }
+  ]
+ },
+ "requires_human_review": true,
+ "geometry_is_synthetic": false,
+ "ready_for_design": false,
+ "engineering_review_status": "not_performed",
+ "assumptions": [
+  "Model-space geometry is drawn at full scale (1 drawing unit = 1 unit of the declared units); this is verified only where dimension text can be compared with measured geometry.",
+  "Only model space is interpreted as building geometry; paper space is inventoried for title-block text and viewport scales.",
+  "The drawing is treated as a single 2D plan level; Z coordinates are ignored and multiple levels in one model space are not separated.",
+  "Entities on off/frozen layers, or flagged invisible, are excluded from interpretation.",
+  "Block contents drawn on layer '0' take the layer of their INSERT (standard CAD convention).",
+  "Curves (arcs, bulges, splines, ellipses) are flattened with a chord tolerance of 0.2% of each entity's size.",
+  "Semantic roles come from layer/block naming conventions (NCS/AIA and common keywords); private layer standards are left unclassified."
+ ],
+ "ai_inference_used": false
+}

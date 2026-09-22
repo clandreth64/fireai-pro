@@ -31,7 +31,7 @@ from matplotlib.ticker import FixedLocator, FuncFormatter, MaxNLocator  # noqa: 
 
 from ezdxf import recover  # noqa: E402
 from ezdxf.addons.drawing import Frontend, RenderContext  # noqa: E402
-from ezdxf.addons.drawing.config import BackgroundPolicy, ColorPolicy, Configuration  # noqa: E402
+from ezdxf.addons.drawing.config import BackgroundPolicy, ColorPolicy, Configuration, HatchPolicy  # noqa: E402
 from ezdxf.addons.drawing.matplotlib import MatplotlibBackend  # noqa: E402
 
 from fireai.model import BuildingElement, BuildingModel, SourceEntity  # noqa: E402
@@ -70,15 +70,21 @@ class Inverse:
         return (p[0] / self.s + self.ox, p[1] / self.s + self.oy)
 
 
-def _load(dxf_path: Path):
-    doc, _ = recover.readfile(str(dxf_path))
+def _load(src):
+    """Accept the pipeline's already-loaded document (no re-parse) or a DXF path."""
+    if not isinstance(src, (str, Path)):
+        return src
+    doc, _ = recover.readfile(str(src))
     return doc
 
 
-def _draw_underlay(ax, doc, color: str | None):
+def _draw_underlay(ax, doc, color: str | None, hatch_outlines_only: bool = False):
+    # The overlay's grey underlay is context only: hatch PATTERNS are drawn as outlines there
+    # (pattern lines made hatch-heavy overlays take minutes). source.png keeps full hatches.
     cfg = Configuration(background_policy=BackgroundPolicy.WHITE,
                         color_policy=ColorPolicy.CUSTOM if color else ColorPolicy.COLOR,
-                        custom_fg_color=color or "#000000")
+                        custom_fg_color=color or "#000000",
+                        hatch_policy=HatchPolicy.SHOW_OUTLINE if hatch_outlines_only else HatchPolicy.NORMAL)
     ctx = RenderContext(doc)
     Frontend(ctx, MatplotlibBackend(ax), config=cfg).draw_layout(doc.modelspace(), finalize=False)
     # The ezdxf backend hides both axes and all spines; reviewers need the coordinate scale.
@@ -100,8 +106,8 @@ def _figure(bounds_src, width_in=16.0, header_in=1.1):
     return fig, ax, (x0 - pad, x1 + pad, y0 - pad, y1 + pad)
 
 
-def render_source_png(dxf_path: Path, bounds_src, out_png: Path, title: str) -> None:
-    doc = _load(dxf_path)
+def render_source_png(src, bounds_src, out_png: Path, title: str) -> None:
+    doc = _load(src)
     fig, ax, lim = _figure(bounds_src)
     _draw_underlay(ax, doc, None)
     ax.set_aspect("equal", adjustable="box"); ax.set_xlim(lim[0], lim[1]); ax.set_ylim(lim[2], lim[3])
@@ -158,8 +164,8 @@ def _anchor(el: BuildingElement, inv: Inverse):
     return None
 
 
-def render_overlay(dxf_path: Path, model: BuildingModel, out_png: Path, out_svg: Path) -> None:
-    doc = _load(dxf_path)
+def render_overlay(src, model: BuildingModel, out_png: Path, out_svg: Path) -> None:
+    doc = _load(src)
     inv = Inverse(model)
     by_id = {e.id: e for e in model.entities}
     by_parent: dict[str, list[SourceEntity]] = {}
@@ -168,7 +174,7 @@ def render_overlay(dxf_path: Path, model: BuildingModel, out_png: Path, out_svg:
             by_parent.setdefault(e.parent_id, []).append(e)
 
     fig, ax, lim = _figure(model.bounds_source)
-    _draw_underlay(ax, doc, "#c8c8c8")
+    _draw_underlay(ax, doc, "#c8c8c8", hatch_outlines_only=True)
 
     counts = Counter(el.category for el in model.elements)
     label_counts: Counter = Counter()
@@ -294,8 +300,10 @@ def render_overlay(dxf_path: Path, model: BuildingModel, out_png: Path, out_svg:
     plt.close(fig)
 
 
-def write_overlay_dxf(dxf_path: Path, model: BuildingModel, out_path: Path) -> None:
-    doc = _load(dxf_path)
+def write_overlay_dxf(src, model: BuildingModel, out_path: Path) -> None:
+    """Writes the source drawing plus FIREAI_* verification layers. MUTATES the document:
+    call it last when passing the pipeline's loaded document."""
+    doc = _load(src)
     inv = Inverse(model)
     by_id = {e.id: e for e in model.entities}
     by_parent: dict[str, list[SourceEntity]] = {}

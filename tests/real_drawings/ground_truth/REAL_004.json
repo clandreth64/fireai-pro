@@ -1,40 +1,68 @@
 {
+  "schema": "ground_truth/2",
   "id": "REAL_004",
-  "review": {
+  "review_status": "PENDING_HUMAN_VERIFICATION",
+  "source_sha256s": [
+    "0e74f0aa84b1323c922345f067739c42ee26213dea010b407b87a94212271654"
+  ],
+  "note": "claude_draft is an AI-assisted DRAFT, not ground truth. Human truth lives in a separate human-review file; FireAI output is never used as ground truth.",
+  "claude_draft": {
+    "author": "Claude (AI-assisted draft)",
     "method": "AI-assisted visual review of source.png + DXF tables; independent of FireAI output",
-    "status": "PENDING_HUMAN_CONFIRMATION",
-    "date": "2026-09-22"
-  },
-  "drawing_type": {
-    "value": "building/stair SECTIONS and details (4 views) \u2014 not a floor plan",
-    "assertion": "EXACT"
-  },
-  "units": {
-    "value": "in",
-    "assertion": "EXACT",
-    "note": "header $INSUNITS=1"
-  },
-  "separate_views_in_model_space": {
-    "value": 4,
-    "assertion": "APPROXIMATE"
-  },
-  "rooms": {
-    "value": 0,
-    "assertion": "EXACT",
-    "note": "no plan view; rooms cannot exist in a section"
-  },
-  "multileaders": {
-    "value": 36,
-    "assertion": "EXACT",
-    "note": "from entity census"
-  },
-  "doors": {
-    "value": "door ELEVATIONS in sections (not plan doors)",
-    "assertion": "APPROXIMATE"
-  },
-  "expected_behavior": [
-    "no rooms",
-    "multiple regions",
-    "section-view content must not be presented as a plan"
-  ]
+    "date": "2026-09-22",
+    "fields": {
+      "drawing_type": {
+        "value": "building/stair SECTIONS and details (4 views) \u2014 not a floor plan",
+        "assertion": "EXACT"
+      },
+      "units": {
+        "value": "in",
+        "assertion": "EXACT",
+        "note": "header $INSUNITS=1"
+      },
+      "separate_views_in_model_space": {
+        "value": 4,
+        "assertion": "APPROXIMATE"
+      },
+      "rooms": {
+        "value": 0,
+        "assertion": "EXACT",
+        "note": "no plan view; rooms cannot exist in a section"
+      },
+      "multileaders": {
+        "value": 36,
+        "assertion": "EXACT",
+        "note": "from entity census"
+      },
+      "doors": {
+        "value": "door ELEVATIONS in sections (not plan doors)",
+        "assertion": "APPROXIMATE"
+      }
+    },
+    "by_category": {
+      "drawing_type": [
+        "drawing_type"
+      ],
+      "units": [
+        "units"
+      ],
+      "view_count": [
+        "separate_views_in_model_space"
+      ],
+      "room_count": [
+        "rooms"
+      ],
+      "other": [
+        "multileaders"
+      ],
+      "doors": [
+        "doors"
+      ]
+    },
+    "expected_behavior": [
+      "no rooms",
+      "multiple regions",
+      "section-view content must not be presented as a plan"
+    ]
+  }
 }

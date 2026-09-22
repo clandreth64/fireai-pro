@@ -1,8 +1,10 @@
 """Writes tests/real_drawings/ground_truth/REAL_###.json (committed, anonymized).
 
-Ground truth was produced by AI-assisted visual review of each drawing's source
-rendering and file tables (NOT from FireAI's interpretation), and is PENDING HUMAN
-CONFIRMATION. Assertions: EXACT (verifiable fact from the file or unambiguous
+These records are Claude's DRAFT (AI-assisted visual review of each drawing's source
+rendering and file tables, NOT FireAI's interpretation). They are NOT ground truth:
+review_status is PENDING_HUMAN_VERIFICATION until a person reviews them with
+scripts/gt_review_server.py, which stores the human review in a SEPARATE file
+(see tests/real_drawings/gt.py). Assertions: EXACT (verifiable fact from the file or unambiguous
 drawing content), APPROXIMATE (visual count/estimate), NOT_EVALUATED (cannot be
 established from the drawing — never guessed).
 """
@@ -11,8 +13,18 @@ import json
 from pathlib import Path
 
 OUT = Path(__file__).parent / "ground_truth"
-REVIEW = {"method": "AI-assisted visual review of source.png + DXF tables; independent of FireAI output",
-          "status": "PENDING_HUMAN_CONFIRMATION", "date": "2026-09-22"}
+DRAFT_META = {"author": "Claude (AI-assisted draft)",
+              "method": "AI-assisted visual review of source.png + DXF tables; independent of FireAI output",
+              "date": "2026-09-22"}
+
+# draft field -> human review category (tests/real_drawings/gt.py CATEGORIES)
+CATEGORY_OF = {
+    "units": "units", "drawing_type": "drawing_type", "is_floor_plan_of_building": "drawing_type",
+    "is_building": "drawing_type", "separate_views_in_model_space": "view_count", "extents": "extents",
+    "extents_match_REAL_002_within": "extents", "rooms": "room_count", "rooms_labeled": "room_names",
+    "walls": "walls", "doors": "doors", "windows": "windows", "columns": "columns", "stairs": "stairs",
+    "existing_fire_protection": "sprinkler_components", "building_footprint": "other",
+}
 
 
 def A(value, assertion, note=None):
@@ -120,9 +132,22 @@ GT = {
 
 def main():
     OUT.mkdir(exist_ok=True)
+    corpus: dict[str, list[str]] = {}
+    for f in json.loads((OUT.parent / "corpus.json").read_text(encoding="utf-8"))["files"]:
+        corpus.setdefault(f["id"], []).append(f["sha256"])
     for k, v in GT.items():
-        (OUT / f"{k}.json").write_text(json.dumps({"id": k, "review": REVIEW, **v}, indent=2), encoding="utf-8")
-    print(f"wrote {len(GT)} ground-truth records")
+        v = dict(v)
+        expected = v.pop("expected_behavior", [])
+        by_cat: dict[str, list[str]] = {}
+        for field in v:
+            by_cat.setdefault(CATEGORY_OF.get(field, "other"), []).append(field)
+        rec = {"schema": "ground_truth/2", "id": k, "review_status": "PENDING_HUMAN_VERIFICATION",
+               "source_sha256s": sorted(corpus[k]),   # DWG and DXF editions of the same drawing
+               "note": "claude_draft is an AI-assisted DRAFT, not ground truth. Human truth lives in a separate "
+                       "human-review file; FireAI output is never used as ground truth.",
+               "claude_draft": {**DRAFT_META, "fields": v, "by_category": by_cat, "expected_behavior": expected}}
+        (OUT / f"{k}.json").write_text(json.dumps(rec, indent=2), encoding="utf-8")
+    print(f"wrote {len(GT)} ground-truth draft records")
 
 
 if __name__ == "__main__":

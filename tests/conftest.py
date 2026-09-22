@@ -46,10 +46,11 @@ def fx(tmp_path_factory) -> dict[str, Path]:
 
 
 def run_pipeline(path: Path, tmp: Path, name: str | None = None, units: str | None = None,
-                 converter=_USE_CONFIGURED, **settings_kw):
+                 converter=_USE_CONFIGURED, xref_files=None, review_store=_USE_CONFIGURED, **settings_kw):
     n = next(_counter)
     s = make_settings(tmp / f"data{n}", **settings_kw)
-    return understand_drawing(path, name or path.name, tmp / f"work{n}", tmp / f"out{n}", units, s, converter)
+    return understand_drawing(path, name or path.name, tmp / f"work{n}", tmp / f"out{n}", units, s, converter,
+                              xref_files, review_store)
 
 
 @pytest.fixture(scope="session")

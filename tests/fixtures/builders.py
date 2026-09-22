@@ -273,7 +273,7 @@ def make_walls_only(path: Path, with_door: bool = True, closed_wall_pieces: bool
         blk.add_line((0, 0), (3, 0))
         blk.add_arc((0, 0), 3, 0, 90)
         msp.add_blockref("DOOR", (20.25, 8), dxfattribs={"layer": "DOORS", "rotation": 90})
-    msp.add_mtext("OFFICE\PHRWD FLOOR", dxfattribs={"layer": "RMNAME", "char_height": 1, "insert": (8, 12)})
+    msp.add_mtext(r"OFFICE\PHRWD FLOOR", dxfattribs={"layer": "RMNAME", "char_height": 1, "insert": (8, 12)})
     msp.add_text(right_label, height=1, dxfattribs={"layer": "RMNAME"}).set_placement((27, 12))
     doc.saveas(path)
     return path

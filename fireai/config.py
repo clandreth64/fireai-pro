@@ -35,8 +35,14 @@ class Settings:
     oda_converter_path: str | None = field(default_factory=lambda: os.getenv("FIREAI_ODA_CONVERTER") or None)
     libredwg_path: str | None = field(default_factory=lambda: os.getenv("FIREAI_LIBREDWG_DWG2DXF") or None)
     dwg_timeout_s: int = field(default_factory=lambda: _int("FIREAI_DWG_TIMEOUT_S", 180))
+    # Address-space cap for each converter subprocess (0 = none). LibreDWG peaked at ~4.6 GB RSS on a 5 MB DWG.
+    dwg_max_memory_mb: int = field(default_factory=lambda: _int("FIREAI_DWG_MAX_MEMORY_MB", 8192))
     max_entities: int = field(default_factory=lambda: _int("FIREAI_MAX_ENTITIES", 500_000))
     max_concurrent_jobs: int = field(default_factory=lambda: _int("FIREAI_MAX_CONCURRENT_JOBS", 2))
+
+    @property
+    def review_dir(self) -> Path:
+        return self.data_dir / "reviews"
 
     @property
     def jobs_dir(self) -> Path:
