@@ -1,0 +1,280 @@
+"""Drawing-understanding pipeline: upload -> building model -> overlay -> report.
+
+Contract:
+* Returns processing_status in {"completed", "needs_human_input", "failed"}.
+* A failed stage never yields "completed". Any unexpected exception becomes
+  INTERNAL_ERROR / failed — never a success.
+* No stage fabricates geometry. If real geometry cannot be read, the job fails.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import shutil
+import time
+import uuid
+from collections import Counter
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+from fireai import __version__
+from fireai.config import Settings, get_settings
+from fireai.errors import NEEDS_HUMAN_INPUT_CODES, FailureCode, PipelineFailure
+from fireai.ingest.dwg import DwgConverter, select_converter
+from fireai.ingest.extract import (compute_source_bounds, extract, load_dxf, normalize_entities)
+from fireai.ingest.filetype import sanitize_filename, validate_upload
+from fireai.ingest.units import resolve_units, unit_requirement
+from fireai.interpret import rules as R
+from fireai.interpret.checks import dimension_checks, review_checks
+from fireai.interpret.elements import Interpreter
+from fireai.model import (BlockInfo, Bounds, BuildingModel, Issue, LayerInfo, ScaleInfo, SourceInfo, Transform,
+                          UnitsInfo)
+from fireai.report import build_report, build_summary_md
+
+_USE_CONFIGURED = object()
+
+ASSUMPTIONS = [
+    "Model-space geometry is drawn at full scale (1 drawing unit = 1 unit of the declared units); "
+    "this is verified only where dimension text can be compared with measured geometry.",
+    "Only model space is interpreted as building geometry; paper space is inventoried for title-block text and viewport scales.",
+    "The drawing is treated as a single 2D plan level; Z coordinates are ignored and multiple levels in one model space are not separated.",
+    "Entities on off/frozen layers, or flagged invisible, are excluded from interpretation.",
+    "Block contents drawn on layer '0' take the layer of their INSERT (standard CAD convention).",
+    "Curves (arcs, bulges, splines, ellipses) are flattened with a chord tolerance of 0.2% of each entity's size.",
+    "Semantic roles come from layer/block naming conventions (NCS/AIA and common keywords); private layer standards are left unclassified.",
+]
+
+DELIVERABLES = {
+    "model_json": ("building_model.json", "application/json"),
+    "report_json": ("understanding_report.json", "application/json"),
+    "summary_md": ("understanding_summary.md", "text/markdown; charset=utf-8"),
+    "source_png": ("source.png", "image/png"),
+    "overlay_png": ("overlay.png", "image/png"),
+    "overlay_svg": ("overlay.svg", "image/svg+xml"),
+    "overlay_dxf": ("overlay.dxf", "application/dxf"),
+}
+
+
+@dataclass
+class PipelineResult:
+    processing_status: str
+    model: BuildingModel | None
+    report: dict[str, Any]
+    deliverables: dict[str, str] = field(default_factory=dict)  # deliverable id -> filename in out_dir
+    failure: dict | None = None
+    out_dir: Path | None = None
+
+    def path(self, deliverable_id: str) -> Path:
+        return self.out_dir / self.deliverables[deliverable_id]
+
+    @property
+    def requires_human_review(self) -> bool:
+        return self.report.get("requires_human_review", True)
+
+
+class _Stages:
+    def __init__(self):
+        self.items: list[dict] = []
+
+    def run(self, name: str, fn, *a, **kw):
+        t0 = time.perf_counter()
+        try:
+            out = fn(*a, **kw)
+        except PipelineFailure as f:
+            self.items.append({"stage": name, "status": "failed", "duration_ms": _ms(t0), "detail": f.code.value})
+            raise
+        except Exception as exc:
+            self.items.append({"stage": name, "status": "failed", "duration_ms": _ms(t0),
+                               "detail": f"{type(exc).__name__}"})
+            raise
+        self.items.append({"stage": name, "status": "ok", "duration_ms": _ms(t0)})
+        return out
+
+
+def _ms(t0: float) -> int:
+    return int((time.perf_counter() - t0) * 1000)
+
+
+def _sha256(path: Path) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _write_json(path: Path, data) -> None:
+    path.write_text(json.dumps(data, indent=2, default=str), encoding="utf-8")
+
+
+def understand_drawing(upload_path: Path, original_filename: str | None, work_dir: Path, out_dir: Path,
+                       units_override: str | None = None, settings: Settings | None = None,
+                       converter: DwgConverter | None | object = _USE_CONFIGURED) -> PipelineResult:
+    settings = settings or get_settings()
+    work_dir.mkdir(parents=True, exist_ok=True)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    stages = _Stages()
+    model: BuildingModel | None = None
+    deliverables: dict[str, str] = {}
+
+    def finish(status: str, failure: PipelineFailure | None, requirement: dict | None = None) -> PipelineResult:
+        fail = failure.to_dict() if failure else None
+        rep = build_report(model, status, fail, stages.items, requirement)
+        if model is None or status != "completed":
+            rep["requires_human_review"] = True
+        _write_json(out_dir / DELIVERABLES["report_json"][0], rep)
+        deliverables["report_json"] = DELIVERABLES["report_json"][0]
+        (out_dir / DELIVERABLES["summary_md"][0]).write_text(build_summary_md(rep), encoding="utf-8")
+        deliverables["summary_md"] = DELIVERABLES["summary_md"][0]
+        if model is not None:
+            _write_json(out_dir / DELIVERABLES["model_json"][0], model.model_dump(mode="json"))
+            deliverables["model_json"] = DELIVERABLES["model_json"][0]
+        return PipelineResult(status, model, rep, dict(deliverables), fail, out_dir)
+
+    try:
+        display_name = sanitize_filename(original_filename)
+        fmt = stages.run("validate_upload", validate_upload, upload_path, original_filename)
+        sha = _sha256(upload_path)
+        conversion = None
+        dxf_path = upload_path
+        if fmt == "dwg":
+            conv = select_converter(settings) if converter is _USE_CONFIGURED else converter
+            if conv is None:
+                stages.items.append({"stage": "dwg_conversion", "status": "failed", "duration_ms": 0,
+                                     "detail": FailureCode.DWG_CONVERSION_UNAVAILABLE.value})
+                raise PipelineFailure(
+                    FailureCode.DWG_CONVERSION_UNAVAILABLE,
+                    "DWG files require a DWG->DXF converter (ODA File Converter or LibreDWG), which is not "
+                    "installed on this server. Export the drawing to DXF from your CAD software and upload the DXF.",
+                    {"configured": settings.dwg_converter})
+            conversion = stages.run("dwg_conversion", conv.convert, upload_path, work_dir / "dwg_convert",
+                                    settings.dwg_timeout_s)
+            dxf_path = conversion.dxf_path
+
+        try:
+            doc, audit_errors, audit_fixes = stages.run("load_dxf", load_dxf, dxf_path)
+        except PipelineFailure as f:
+            if fmt == "dwg":
+                raise PipelineFailure(FailureCode.DWG_CONVERSION_FAILED,
+                                      f"Converted DXF could not be read: {f.message}") from f
+            raise
+
+        ex = stages.run("extract_geometry", extract, doc, settings.max_entities, audit_errors, audit_fixes)
+        top_model = [e for e in ex.entities if e.space == "model" and e.parent_id is None]
+        if not top_model:
+            raise PipelineFailure(FailureCode.EMPTY_DRAWING, "The drawing's model space contains no entities.",
+                                  {"paper_space_items": sum(1 for e in ex.entities if e.space == "paper")})
+        bounds_src = compute_source_bounds(ex.entities)
+        if bounds_src is None:
+            raise PipelineFailure(
+                FailureCode.GEOMETRY_EXTRACTION_FAILED,
+                "No visible, supported geometry could be read from model space.",
+                {"unsupported": dict(ex.unsupported), "top_level_entities": len(top_model),
+                 "hidden": sum(1 for e in top_model if not e.visible)})
+
+        header = doc.header
+        insunits = header.get("$INSUNITS") if "$INSUNITS" in header else None
+        measurement = header.get("$MEASUREMENT") if "$MEASUREMENT" in header else None
+        ures = stages.run("resolve_units", resolve_units, insunits, measurement, units_override)
+
+        # Inventory (layers / blocks) — independent of units
+        layer_types: dict[str, Counter] = {}
+        for e in ex.entities:
+            layer_types.setdefault(e.layer, Counter())[e.type] += 1
+        layer_roles = {name: R.classify_layer(name) for name in set(layer_types) | set(ex.layer_table)}
+        layers = []
+        for name in sorted(set(layer_types) | set(ex.layer_table)):
+            info = ex.layer_table.get(name, {})
+            m = layer_roles.get(name)
+            layers.append(LayerInfo(name=name, color=info.get("color"), is_off=info.get("is_off", False),
+                                    is_frozen=info.get("is_frozen", False),
+                                    entity_count=sum(layer_types.get(name, Counter()).values()),
+                                    entity_types=dict(layer_types.get(name, Counter())),
+                                    inferred_role=m.role if m else None, role_confidence=m.confidence if m else 0.0,
+                                    role_rule=m.rule_id if m else None))
+        block_roles = {}
+        blocks = []
+        for name in sorted(set(ex.block_inserts) | ex.xref_blocks):
+            m = R.classify_block(name)
+            block_roles[name] = m
+            blocks.append(BlockInfo(name=name, insert_count=ex.block_inserts.get(name, 0),
+                                    is_xref=name in ex.xref_blocks, inferred_role=m.role if m else None,
+                                    role_confidence=m.confidence if m else 0.0, role_rule=m.rule_id if m else None))
+
+        model = BuildingModel(
+            model_id=uuid.uuid4().hex, created_at=datetime.now(timezone.utc).isoformat(), fireai_version=__version__,
+            source=SourceInfo(filename=display_name, format=fmt, sha256=sha, size_bytes=upload_path.stat().st_size,
+                              dxf_version=doc.dxfversion, converted_from_dwg=conversion is not None,
+                              converter=conversion.provenance() if conversion else None),
+            units=UnitsInfo(insunits_code=ures.insunits_code, detected_units=ures.detected_units,
+                            resolved_units=ures.resolved_units, resolution_method=ures.method,
+                            scale_to_normalized=ures.scale_to_ft, measurement_system_hint=ures.measurement_hint,
+                            resolved=ures.resolved, note=ures.note),
+            transform=Transform(origin=bounds_src.min, scale=ures.scale_to_ft),
+            bounds_source=bounds_src,
+            scale=ScaleInfo(viewport_scales=ex.viewport_scales),
+            layers=layers, blocks=blocks, entities=ex.entities,
+            assumptions=list(ASSUMPTIONS),
+        )
+        model.diagnostics.warnings.extend(ex.warnings)
+        if audit_fixes:
+            model.diagnostics.warnings.append(Issue(code="DXF_AUDIT_FIXES", severity="info",
+                                                    message=f"ezdxf repaired {audit_fixes} minor structural issue(s) while loading."))
+        for err in audit_errors:
+            model.diagnostics.errors.append(Issue(code="DXF_AUDIT_ERROR", severity="error", message=err))
+
+        # Source rendering is useful even when units are unresolved.
+        from fireai.render.overlay import render_source_png, render_overlay, write_overlay_dxf
+        try:
+            stages.run("render_source", render_source_png, dxf_path, bounds_src, out_dir / "source.png", display_name)
+            deliverables["source_png"] = "source.png"
+        except Exception as exc:
+            raise PipelineFailure(FailureCode.OVERLAY_GENERATION_FAILED, f"Source rendering failed: {exc}") from exc
+
+        if not ures.resolved:
+            req = unit_requirement(ures)
+            model.diagnostics.review_triggers.append(Issue(code="UNIT_DETECTION_FAILED", message=ures.note or "units unresolved"))
+            model.requires_human_review = True
+            raise PipelineFailure(FailureCode.UNIT_DETECTION_FAILED,
+                                  "Drawing units could not be determined from the file. FireAI will not assume units.",
+                                  {"unit_resolution_required": req})
+
+        normalize_entities(model.entities, model.transform)
+        s = model.transform.scale
+        model.bounds_normalized = Bounds(min=(0.0, 0.0), max=(bounds_src.width * s, bounds_src.height * s))
+
+        res = stages.run("interpret", Interpreter(model.entities, layer_roles, block_roles).run)
+        model.elements = res.elements
+        model.unclassified_entity_ids = res.unclassified_entity_ids
+        model.title_block = res.title_block
+        if model.title_block:
+            sc = model.title_block["fields"].get("scale_text")
+            model.scale.title_block_scale_text = sc["value"] if sc else None
+
+        checks, dim_warn, dim_trig = dimension_checks(model)
+        model.scale.dimension_checks = checks
+        hidden = sum(1 for e in model.entities if e.parent_id is None and not e.visible)
+        warn, trig = review_checks(model, ex.unsupported, ex.xref_blocks, hidden, audit_errors)
+        model.diagnostics.warnings.extend(dim_warn + warn)
+        model.diagnostics.review_triggers.extend(dim_trig + res.issues + trig)
+        model.requires_human_review = bool(model.diagnostics.review_triggers)
+
+        try:
+            stages.run("render_overlay", render_overlay, dxf_path, model, out_dir / "overlay.png", out_dir / "overlay.svg")
+            stages.run("write_overlay_dxf", write_overlay_dxf, dxf_path, model, out_dir / "overlay.dxf")
+        except Exception as exc:
+            raise PipelineFailure(FailureCode.OVERLAY_GENERATION_FAILED,
+                                  f"Verification overlay could not be generated: {type(exc).__name__}: {exc}") from exc
+        deliverables.update({"overlay_png": "overlay.png", "overlay_svg": "overlay.svg", "overlay_dxf": "overlay.dxf"})
+        return finish("completed", None)
+
+    except PipelineFailure as f:
+        status = "needs_human_input" if f.code in NEEDS_HUMAN_INPUT_CODES else "failed"
+        return finish(status, f, f.details.get("unit_resolution_required"))
+    except Exception as exc:  # never a success
+        return finish("failed", PipelineFailure(FailureCode.INTERNAL_ERROR, f"{type(exc).__name__}: {exc}"))
+    finally:
+        shutil.rmtree(work_dir, ignore_errors=True)

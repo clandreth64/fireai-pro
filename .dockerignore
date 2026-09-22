@@ -1,0 +1,8 @@
+.git
+.fireai_data
+__pycache__
+*.pyc
+.pytest_cache
+.ruff_cache
+.pytest_cache
+tests/real_drawings_local

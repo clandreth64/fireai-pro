@@ -1,0 +1,15 @@
+{
+  "_source": "tests/fixtures/builders.make_warehouse(); L-shaped 200x120 ft, rooms only from wall linework",
+  "processing_status": "completed",
+  "failure_code": null,
+  "units": "ft",
+  "bounds_ft": {"width": 200.0, "height": 130.0, "tol": 0.001},
+  "entity_counts": {"top_level": 10, "total": 14},
+  "element_counts": {"room": 2, "column": 4, "wall": 3, "door": 0, "title_block": 0},
+  "rooms": [{"label": "WAREHOUSE", "area_sf": 18800.0, "tol": 0.01},
+            {"label": "OFFICE 1", "area_sf": 2000.0, "tol": 0.01}],
+  "text_contains": ["ALL COLUMNS W10X33"],
+  "requires_human_review": true,
+  "review_triggers_include": ["ELEMENTS_REQUIRE_VERIFICATION"],
+  "review_triggers_exclude": ["NO_ROOMS_DETECTED", "EXTENTS_IMPLAUSIBLE"]
+}

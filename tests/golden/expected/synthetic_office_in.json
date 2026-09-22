@@ -1,0 +1,18 @@
+{
+  "_source": "tests/fixtures/builders.make_office(unit='in'); 100x60 ft building, values from construction; width 143.7 = title block right edge (138) minus vertical dimension text at x=-5.7 (dim line -5, dimgap 0.2 + dimtxt/2 0.5)",
+  "processing_status": "completed",
+  "failure_code": null,
+  "units": "in",
+  "bounds_ft": {"width": 143.7, "height": 81.5, "tol": 0.001},
+  "entity_counts": {"top_level": 59, "total": 77},
+  "element_counts": {"room": 3, "door": 3, "window": 2, "column": 3, "stair": 1, "grid_line": 4,
+                     "existing_fire_protection": 3, "dimension": 3, "title_block": 1, "wall": 12},
+  "rooms": [{"label": "OFFICE 101", "area_sf": 2918.0625, "tol": 0.01},
+            {"label": "STORAGE 102", "area_sf": 1933.0625, "tol": 0.01},
+            {"label": "CORRIDOR C1", "area_sf": 915.75, "tol": 0.01}],
+  "text_contains": ["STORAGE 102", "GENERAL NOTE", "SHEET NO: A1.01"],
+  "requires_human_review": true,
+  "review_triggers_include": ["ELEMENTS_REQUIRE_VERIFICATION"],
+  "review_triggers_exclude": ["DIMENSION_TEXT_DISAGREES", "EXTENTS_IMPLAUSIBLE", "NO_ROOMS_DETECTED",
+                              "NO_WALLS_DETECTED", "GEOMETRY_OUTSIDE_BUILDING", "UNIT_DETECTION_FAILED"]
+}

@@ -1,0 +1,3 @@
+{"_source": "DWG magic bytes followed by garbage; no converter installed",
+ "processing_status": "failed", "failure_code": "DWG_CONVERSION_UNAVAILABLE", "requires_human_review": true,
+ "skip_if_dwg_converter_available": true}

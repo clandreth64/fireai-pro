@@ -1,0 +1,18 @@
+[project]
+name = "fireai-pro"
+version = "2.0.0.dev0"
+requires-python = ">=3.12"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = [".", "tests"]
+addopts = "-ra"
+filterwarnings = ["ignore::UserWarning:matplotlib"]
+
+[tool.ruff]
+line-length = 130
+include = ["fireai/**/*.py", "tests/**/*.py", "api/app.py", "scripts/**/*.py"]
+
+[tool.ruff.lint]
+select = ["E9", "F", "B"]
+ignore = ["B008"]

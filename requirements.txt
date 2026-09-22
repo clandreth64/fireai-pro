@@ -38,3 +38,7 @@ aiofiles>=23.0.0           # async file operations
 pytesseract
 ifcopenshell
 pillow
+
+# ── Geometry (FireAI 2.0 drawing understanding) ─────────────────────────────
+shapely>=2.0
+numpy>=1.26

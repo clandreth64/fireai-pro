@@ -1,0 +1,1068 @@
+{
+  "$defs": {
+    "BlockInfo": {
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "insert_count": {
+          "default": 0,
+          "title": "Insert Count",
+          "type": "integer"
+        },
+        "is_xref": {
+          "default": false,
+          "title": "Is Xref",
+          "type": "boolean"
+        },
+        "inferred_role": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Inferred Role"
+        },
+        "role_confidence": {
+          "default": 0.0,
+          "title": "Role Confidence",
+          "type": "number"
+        },
+        "role_rule": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Role Rule"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "BlockInfo",
+      "type": "object"
+    },
+    "Bounds": {
+      "properties": {
+        "min": {
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Min",
+          "type": "array"
+        },
+        "max": {
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Max",
+          "type": "array"
+        }
+      },
+      "required": [
+        "min",
+        "max"
+      ],
+      "title": "Bounds",
+      "type": "object"
+    },
+    "BuildingElement": {
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "category": {
+          "enum": [
+            "wall",
+            "door",
+            "window",
+            "room",
+            "area",
+            "column",
+            "stair",
+            "shaft",
+            "structural",
+            "grid_line",
+            "text_annotation",
+            "dimension",
+            "title_block",
+            "ceiling",
+            "existing_fire_protection",
+            "existing_mep"
+          ],
+          "title": "Category",
+          "type": "string"
+        },
+        "subtype": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Subtype"
+        },
+        "label": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Label"
+        },
+        "confidence": {
+          "title": "Confidence",
+          "type": "number"
+        },
+        "evidence": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Evidence",
+          "type": "array"
+        },
+        "rules": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Rules",
+          "type": "array"
+        },
+        "source_entity_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Source Entity Ids",
+          "type": "array"
+        },
+        "requires_verification": {
+          "title": "Requires Verification",
+          "type": "boolean"
+        },
+        "geometry": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Geometry"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "properties": {
+          "type": "object",
+          "additionalProperties": true,
+          "title": "Properties"
+        }
+      },
+      "required": [
+        "id",
+        "category",
+        "confidence",
+        "evidence",
+        "source_entity_ids",
+        "requires_verification"
+      ],
+      "title": "BuildingElement",
+      "type": "object"
+    },
+    "Diagnostics": {
+      "properties": {
+        "warnings": {
+          "items": {
+            "$ref": "#/$defs/Issue"
+          },
+          "title": "Warnings",
+          "type": "array"
+        },
+        "errors": {
+          "items": {
+            "$ref": "#/$defs/Issue"
+          },
+          "title": "Errors",
+          "type": "array"
+        },
+        "review_triggers": {
+          "items": {
+            "$ref": "#/$defs/Issue"
+          },
+          "title": "Review Triggers",
+          "type": "array"
+        }
+      },
+      "title": "Diagnostics",
+      "type": "object"
+    },
+    "DimensionCheck": {
+      "properties": {
+        "entity_id": {
+          "title": "Entity Id",
+          "type": "string"
+        },
+        "stated_text": {
+          "title": "Stated Text",
+          "type": "string"
+        },
+        "stated_length_ft": {
+          "title": "Stated Length Ft",
+          "type": "number"
+        },
+        "measured_length_ft": {
+          "title": "Measured Length Ft",
+          "type": "number"
+        },
+        "relative_error": {
+          "title": "Relative Error",
+          "type": "number"
+        },
+        "agrees": {
+          "title": "Agrees",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "entity_id",
+        "stated_text",
+        "stated_length_ft",
+        "measured_length_ft",
+        "relative_error",
+        "agrees"
+      ],
+      "title": "DimensionCheck",
+      "type": "object"
+    },
+    "Geometry": {
+      "description": "2D geometry. ``kind`` determines which fields are populated.",
+      "properties": {
+        "kind": {
+          "enum": [
+            "line",
+            "polyline",
+            "arc",
+            "circle",
+            "text",
+            "point",
+            "insert",
+            "dimension",
+            "hatch",
+            "polygon",
+            "multi"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "points": {
+          "items": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "type": "array"
+          },
+          "title": "Points",
+          "type": "array"
+        },
+        "closed": {
+          "default": false,
+          "title": "Closed",
+          "type": "boolean"
+        },
+        "center": {
+          "anyOf": [
+            {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "number"
+                }
+              ],
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Center"
+        },
+        "radius": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Radius"
+        },
+        "start_angle": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Start Angle"
+        },
+        "end_angle": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "End Angle"
+        },
+        "paths": {
+          "items": {
+            "items": {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "number"
+                }
+              ],
+              "type": "array"
+            },
+            "type": "array"
+          },
+          "title": "Paths",
+          "type": "array"
+        },
+        "insert": {
+          "anyOf": [
+            {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "number"
+                }
+              ],
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Insert"
+        },
+        "text": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Text"
+        },
+        "height": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Height"
+        },
+        "rotation": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rotation"
+        },
+        "measurement": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Measurement"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "Geometry",
+      "type": "object"
+    },
+    "Issue": {
+      "properties": {
+        "code": {
+          "title": "Code",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "severity": {
+          "default": "warning",
+          "enum": [
+            "info",
+            "warning",
+            "error"
+          ],
+          "title": "Severity",
+          "type": "string"
+        },
+        "entity_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Entity Ids",
+          "type": "array"
+        },
+        "element_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Element Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ],
+      "title": "Issue",
+      "type": "object"
+    },
+    "LayerInfo": {
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "color": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Color"
+        },
+        "is_off": {
+          "default": false,
+          "title": "Is Off",
+          "type": "boolean"
+        },
+        "is_frozen": {
+          "default": false,
+          "title": "Is Frozen",
+          "type": "boolean"
+        },
+        "entity_count": {
+          "default": 0,
+          "title": "Entity Count",
+          "type": "integer"
+        },
+        "entity_types": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "title": "Entity Types",
+          "type": "object"
+        },
+        "inferred_role": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Inferred Role"
+        },
+        "role_confidence": {
+          "default": 0.0,
+          "title": "Role Confidence",
+          "type": "number"
+        },
+        "role_rule": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Role Rule"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "LayerInfo",
+      "type": "object"
+    },
+    "ScaleInfo": {
+      "properties": {
+        "model_space_full_scale_assumed": {
+          "default": true,
+          "title": "Model Space Full Scale Assumed",
+          "type": "boolean"
+        },
+        "dimension_checks": {
+          "items": {
+            "$ref": "#/$defs/DimensionCheck"
+          },
+          "title": "Dimension Checks",
+          "type": "array"
+        },
+        "viewport_scales": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Viewport Scales",
+          "type": "array"
+        },
+        "title_block_scale_text": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Title Block Scale Text"
+        }
+      },
+      "title": "ScaleInfo",
+      "type": "object"
+    },
+    "SourceEntity": {
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "handle": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Handle"
+        },
+        "type": {
+          "title": "Type",
+          "type": "string"
+        },
+        "layer": {
+          "title": "Layer",
+          "type": "string"
+        },
+        "space": {
+          "default": "model",
+          "enum": [
+            "model",
+            "paper"
+          ],
+          "title": "Space",
+          "type": "string"
+        },
+        "parent_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Parent Id"
+        },
+        "block_path": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Block Path",
+          "type": "array"
+        },
+        "visible": {
+          "default": true,
+          "title": "Visible",
+          "type": "boolean"
+        },
+        "supported": {
+          "default": true,
+          "title": "Supported",
+          "type": "boolean"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Geometry"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "normalized": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Geometry"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "attributes": {
+          "additionalProperties": true,
+          "title": "Attributes",
+          "type": "object"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "layer"
+      ],
+      "title": "SourceEntity",
+      "type": "object"
+    },
+    "SourceInfo": {
+      "properties": {
+        "filename": {
+          "title": "Filename",
+          "type": "string"
+        },
+        "format": {
+          "enum": [
+            "dxf",
+            "dwg"
+          ],
+          "title": "Format",
+          "type": "string"
+        },
+        "sha256": {
+          "title": "Sha256",
+          "type": "string"
+        },
+        "size_bytes": {
+          "title": "Size Bytes",
+          "type": "integer"
+        },
+        "dxf_version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Dxf Version"
+        },
+        "converted_from_dwg": {
+          "default": false,
+          "title": "Converted From Dwg",
+          "type": "boolean"
+        },
+        "converter": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Converter"
+        }
+      },
+      "required": [
+        "filename",
+        "format",
+        "sha256",
+        "size_bytes"
+      ],
+      "title": "SourceInfo",
+      "type": "object"
+    },
+    "Transform": {
+      "properties": {
+        "origin": {
+          "default": [
+            0.0,
+            0.0
+          ],
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Origin",
+          "type": "array"
+        },
+        "scale": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Scale"
+        }
+      },
+      "title": "Transform",
+      "type": "object"
+    },
+    "UnitsInfo": {
+      "properties": {
+        "insunits_code": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Insunits Code"
+        },
+        "detected_units": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Detected Units"
+        },
+        "resolved_units": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Resolved Units"
+        },
+        "resolution_method": {
+          "default": "unresolved",
+          "enum": [
+            "drawing_header",
+            "user_override",
+            "unresolved"
+          ],
+          "title": "Resolution Method",
+          "type": "string"
+        },
+        "normalized_units": {
+          "const": "ft",
+          "default": "ft",
+          "title": "Normalized Units",
+          "type": "string"
+        },
+        "scale_to_normalized": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Scale To Normalized"
+        },
+        "measurement_system_hint": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Measurement System Hint"
+        },
+        "resolved": {
+          "default": false,
+          "title": "Resolved",
+          "type": "boolean"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Note"
+        }
+      },
+      "title": "UnitsInfo",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "schema_version": {
+      "default": "0.1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "model_id": {
+      "title": "Model Id",
+      "type": "string"
+    },
+    "created_at": {
+      "title": "Created At",
+      "type": "string"
+    },
+    "fireai_version": {
+      "title": "Fireai Version",
+      "type": "string"
+    },
+    "source": {
+      "$ref": "#/$defs/SourceInfo"
+    },
+    "units": {
+      "$ref": "#/$defs/UnitsInfo"
+    },
+    "transform": {
+      "$ref": "#/$defs/Transform"
+    },
+    "bounds_source": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Bounds"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "bounds_normalized": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Bounds"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "scale": {
+      "$ref": "#/$defs/ScaleInfo"
+    },
+    "layers": {
+      "items": {
+        "$ref": "#/$defs/LayerInfo"
+      },
+      "title": "Layers",
+      "type": "array"
+    },
+    "blocks": {
+      "items": {
+        "$ref": "#/$defs/BlockInfo"
+      },
+      "title": "Blocks",
+      "type": "array"
+    },
+    "entities": {
+      "items": {
+        "$ref": "#/$defs/SourceEntity"
+      },
+      "title": "Entities",
+      "type": "array"
+    },
+    "elements": {
+      "items": {
+        "$ref": "#/$defs/BuildingElement"
+      },
+      "title": "Elements",
+      "type": "array"
+    },
+    "unclassified_entity_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Unclassified Entity Ids",
+      "type": "array"
+    },
+    "title_block": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Title Block"
+    },
+    "diagnostics": {
+      "$ref": "#/$defs/Diagnostics"
+    },
+    "requires_human_review": {
+      "default": true,
+      "title": "Requires Human Review",
+      "type": "boolean"
+    },
+    "geometry_is_synthetic": {
+      "const": false,
+      "default": false,
+      "title": "Geometry Is Synthetic",
+      "type": "boolean"
+    },
+    "ready_for_design": {
+      "const": false,
+      "default": false,
+      "title": "Ready For Design",
+      "type": "boolean"
+    },
+    "engineering_review_status": {
+      "const": "not_performed",
+      "default": "not_performed",
+      "title": "Engineering Review Status",
+      "type": "string"
+    },
+    "assumptions": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Assumptions",
+      "type": "array"
+    },
+    "ai_inference_used": {
+      "const": false,
+      "default": false,
+      "title": "Ai Inference Used",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "model_id",
+    "created_at",
+    "fireai_version",
+    "source",
+    "units",
+    "transform"
+  ],
+  "title": "BuildingModel",
+  "type": "object"
+}

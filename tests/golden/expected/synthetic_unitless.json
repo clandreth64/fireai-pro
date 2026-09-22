@@ -1,0 +1,7 @@
+{
+  "_source": "simple rect with $INSUNITS=0 (unitless): FireAI must not assume units",
+  "processing_status": "needs_human_input",
+  "failure_code": "UNIT_DETECTION_FAILED",
+  "requires_human_review": true,
+  "review_triggers_include": ["UNIT_DETECTION_FAILED"]
+}

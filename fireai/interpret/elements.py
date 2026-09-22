@@ -1,0 +1,514 @@
+"""Deterministic semantic interpretation: source entities -> building elements.
+
+Every element carries: category, source entity ids, confidence, evidence,
+rule ids, and ``requires_verification``. Nothing is generated that is not
+backed by drawing entities. There is no area-based or template geometry.
+
+All thresholds are in normalized feet (units must be resolved before this runs).
+"""
+
+from __future__ import annotations
+
+import math
+from collections import defaultdict
+from dataclasses import dataclass, field
+
+from shapely.geometry import LineString, Point, Polygon
+from shapely.ops import polygonize, unary_union
+from shapely.prepared import prep
+from shapely.validation import make_valid
+
+from fireai.ingest.extract import geometry_points
+from fireai.interpret import rules as R
+from fireai.interpret.text import parse_room_label, parse_title_block, split_lines
+from fireai.model import BuildingElement, Geometry, Issue, SourceEntity
+
+VERIFY_BELOW = 0.80           # elements below this confidence require human verification
+MIN_ROOM_AREA_SF = 4.0
+MIN_POLYGONIZED_ROOM_SF = 16.0
+WALL_CAVITY_MAX_WIDTH_FT = 1.5  # faces thinner than this between wall lines are wall cavities
+CLUSTER_TOL_FT = 0.25
+MAX_COLUMN_SIZE_FT = 5.0
+AREA_LABEL_TOLERANCE = 0.05
+
+DRAWABLE = {"line", "polyline", "arc", "circle", "hatch", "point"}
+POINT_ROLES = {"existing_fire_protection", "existing_mep", "structural", "ceiling"}
+CLUSTER_ROLES = {"door": "door", "window": "window", "column": "column", "stair": "stair", "shaft": "shaft"}
+
+
+@dataclass
+class InterpretResult:
+    elements: list[BuildingElement] = field(default_factory=list)
+    unclassified_entity_ids: list[str] = field(default_factory=list)
+    issues: list[Issue] = field(default_factory=list)
+    title_block: dict | None = None
+
+
+def _bbox(pts):
+    xs = [p[0] for p in pts]; ys = [p[1] for p in pts]
+    return (min(xs), min(ys), max(xs), max(ys))
+
+
+def _bbox_poly(b) -> Geometry:
+    x0, y0, x1, y1 = b
+    return Geometry(kind="polygon", points=[(x0, y0), (x1, y0), (x1, y1), (x0, y1)], closed=True)
+
+
+def _conf_flag(c: float) -> bool:
+    return c < VERIFY_BELOW
+
+
+class Interpreter:
+    def __init__(self, entities: list[SourceEntity], layer_roles: dict[str, R.RoleMatch | None],
+                 block_roles: dict[str, R.RoleMatch | None]):
+        self.all = entities
+        self.by_id = {e.id: e for e in entities}
+        self.children: dict[str, list[SourceEntity]] = defaultdict(list)
+        for e in entities:
+            if e.parent_id:
+                self.children[e.parent_id].append(e)
+        self.layer_roles = layer_roles
+        self.block_roles = block_roles
+        self.claimed: set[str] = set()
+        self.out = InterpretResult()
+        self._n = 0
+
+    # ── helpers ──────────────────────────────────────────────────────────────
+    def _id(self, prefix: str) -> str:
+        self._n += 1
+        return f"{prefix}{self._n:05d}"
+
+    def descendants(self, ent: SourceEntity) -> list[SourceEntity]:
+        out, stack = [], list(self.children.get(ent.id, []))
+        while stack:
+            c = stack.pop()
+            out.append(c)
+            stack.extend(self.children.get(c.id, []))
+        return out
+
+    def pts(self, ent: SourceEntity) -> list[tuple[float, float]]:
+        if ent.type == "INSERT":
+            p = []
+            for d in self.descendants(ent):
+                if d.visible and d.supported and d.type != "INSERT":
+                    p.extend(geometry_points(d.normalized))
+            if not p and ent.normalized and ent.normalized.insert:
+                p = [ent.normalized.insert]
+            return p
+        return geometry_points(ent.normalized)
+
+    def role(self, ent: SourceEntity) -> R.RoleMatch | None:
+        return self.layer_roles.get(ent.layer)
+
+    def model_entities(self, top_level_only: bool = False):
+        for e in self.all:
+            if e.space != "model" or not e.visible or not e.supported:
+                continue
+            if top_level_only and e.parent_id:
+                continue
+            yield e
+
+    def claim(self, ents) -> list[str]:
+        ids = []
+        for e in ents:
+            self.claimed.add(e.id)
+            ids.append(e.id)
+            for d in (self.descendants(e) if e.type == "INSERT" else []):
+                self.claimed.add(d.id)
+        return ids
+
+    def add(self, category, confidence, evidence, rules, source_ents, geometry=None, label=None,
+            subtype=None, properties=None, force_verify=False) -> BuildingElement:
+        el = BuildingElement(
+            id=self._id({"wall": "W", "door": "D", "window": "WN", "room": "R", "area": "A", "column": "C",
+                         "stair": "ST", "shaft": "SH", "structural": "S", "grid_line": "G",
+                         "text_annotation": "T", "dimension": "DM", "title_block": "TB", "ceiling": "CL",
+                         "existing_fire_protection": "FP", "existing_mep": "MEP"}[category]),
+            category=category, subtype=subtype, label=label, confidence=round(confidence, 3),
+            evidence=evidence, rules=sorted(set(rules)), source_entity_ids=self.claim(source_ents),
+            requires_verification=force_verify or _conf_flag(confidence),
+            geometry=geometry, properties=properties or {},
+        )
+        self.out.elements.append(el)
+        return el
+
+    # ── pipeline ─────────────────────────────────────────────────────────────
+    def run(self) -> InterpretResult:
+        self._inserts()
+        self._title_block_layers()
+        self._dimensions()
+        self._walls()
+        self._clustered_roles()
+        self._grid()
+        self._point_roles()
+        self._rooms()
+        self._text()
+        self._unclassified()
+        return self.out
+
+    # Block references (doors, windows, columns, title blocks, FP symbols ...)
+    def _inserts(self):
+        for e in self.all:
+            if e.type != "INSERT" or e.id in self.claimed or not e.visible:
+                continue
+            block = e.attributes.get("block", "")
+            b = self.block_roles.get(block)
+            lr = self.role(e)
+            lr = lr if lr and lr.role in {"door", "window", "column", "stair", "title_block", "existing_fire_protection"} else None
+            if not b and not lr:
+                continue
+            role = (b or lr).role
+            conf, evidence, rule_ids = 0.0, [], []
+            for m in (b, lr):
+                if m and m.role == role:
+                    conf = max(conf, m.confidence)
+                    evidence.append(m.evidence); rule_ids.append(m.rule_id)
+            if b and lr and b.role == lr.role:
+                conf = min(0.95, conf + 0.05)
+                evidence.append("block name and layer agree")
+            elif b and lr and b.role != lr.role:
+                evidence.append(f"CONFLICT: block suggests {b.role}, layer suggests {lr.role}")
+                conf = min(conf, 0.5)
+            p = self.pts(e)
+            if role == "title_block":
+                self._title_block([e], conf, evidence, rule_ids)
+                continue
+            if not p and e.space == "model":
+                continue
+            bb = _bbox(p) if p else None
+            props = {"block": block, "insert_point": e.normalized.insert if e.normalized else None,
+                     "rotation_deg": e.attributes.get("rotation")}
+            if bb:
+                props["footprint_ft"] = (round(bb[2] - bb[0], 3), round(bb[3] - bb[1], 3))
+            if role in ("door", "window") and bb:
+                props["nominal_width_ft"] = round(max(bb[2] - bb[0], bb[3] - bb[1]), 3)
+                evidence.append("width = larger side of block footprint (not a verified opening width)")
+            category = role if role != "stair" else "stair"
+            self.add(category, conf, evidence, rule_ids, [e], geometry=_bbox_poly(bb) if bb else None,
+                     label=block, subtype="block_reference", properties=props)
+
+    def _title_block_layers(self):
+        ents = [e for e in self.model_entities() if e.id not in self.claimed and e.type != "INSERT"
+                and (r := self.role(e)) and r.role == "title_block"]
+        if ents:
+            m = self.role(ents[0])
+            self._title_block(ents, m.confidence, [m.evidence], [m.rule_id])
+
+    def _title_block(self, ents, conf, evidence, rule_ids):
+        pts = [p for e in ents for p in self.pts(e)]
+        bb = _bbox(pts) if pts else None
+        texts, text_ents = [], []
+        for e in ents:
+            for t in [e] + (self.descendants(e) if e.type == "INSERT" else []):
+                if t.source and t.source.kind == "text" and t.source.text:
+                    texts.append(t.source.text); text_ents.append(t)
+            for tag, val in (e.attributes.get("attribs") or {}).items():
+                texts.append(f"{tag}: {val}")
+        if bb:  # loose text inside the title-block footprint belongs to it
+            x0, y0, x1, y1 = bb
+            for t in self.model_entities():
+                if t.id in self.claimed or t.source is None or t.source.kind != "text" or t.parent_id:
+                    continue
+                ip = t.normalized.insert if t.normalized else None
+                if ip and x0 <= ip[0] <= x1 and y0 <= ip[1] <= y1:
+                    texts.append(t.source.text or ""); text_ents.append(t)
+        fields = parse_title_block("\n".join(texts))
+        el = self.add("title_block", conf, evidence + [f"{len(texts)} text item(s) read"], rule_ids,
+                      list(ents) + text_ents, geometry=_bbox_poly(bb) if bb else None,
+                      properties={"fields": fields, "raw_text": texts[:200],
+                                  "space": ents[0].space}, force_verify=True)
+        tb = self.out.title_block or {"element_ids": [], "fields": {}}
+        tb["element_ids"].append(el.id)
+        for k, v in fields.items():
+            tb["fields"].setdefault(k, v)
+        tb["note"] = "Regex extraction from drawing text; every field requires human verification."
+        self.out.title_block = tb
+
+    def _dimensions(self):
+        for e in self.model_entities(top_level_only=True):
+            if e.type != "DIMENSION" or e.id in self.claimed:
+                continue
+            g = e.normalized
+            self.add("dimension", 1.0, ["DIMENSION entity"], ["E-DIMENSION"], [e],
+                     geometry=g, label=(g.text if g and g.text else None),
+                     properties={"measurement_ft": g.measurement if g else None,
+                                 "text_override": e.attributes.get("text_override"),
+                                 "dimtype": e.attributes.get("dimtype")})
+
+    def _walls(self):
+        for e in self.model_entities():
+            if e.id in self.claimed or e.type == "INSERT":
+                continue
+            r = self.role(e)
+            if not r or r.role != "wall" or e.normalized is None or e.normalized.kind not in DRAWABLE:
+                continue
+            subtype = "poche_fill" if e.normalized.kind == "hatch" else "wall_linework"
+            ev = [r.evidence, f"{e.type} geometry on wall layer",
+                  "single linework entity; wall thickness and wall pairing not determined in this milestone"]
+            if e.block_path:
+                ev.append(f"inside block(s) {' > '.join(e.block_path)}")
+            self.add("wall", r.confidence, ev, [r.rule_id], [e], geometry=e.normalized, subtype=subtype,
+                     properties={"length_ft": round(_length(e.normalized), 3)})
+
+    def _clustered_roles(self):
+        by_role: dict[str, list[SourceEntity]] = defaultdict(list)
+        for e in self.model_entities():
+            if e.id in self.claimed or e.type in ("INSERT", "DIMENSION") or e.normalized is None:
+                continue
+            if e.normalized.kind == "text":
+                continue
+            r = self.role(e)
+            if r and r.role in CLUSTER_ROLES:
+                by_role[r.role].append(e)
+        for role, ents in by_role.items():
+            for cluster in _cluster(ents, self.pts, CLUSTER_TOL_FT):
+                pts = [p for e in cluster for p in self.pts(e)]
+                bb = _bbox(pts)
+                r = self.role(cluster[0])
+                conf = r.confidence
+                ev = [r.evidence, f"{len(cluster)} linework entit{'y' if len(cluster) == 1 else 'ies'} grouped by proximity"]
+                subtype = "linework_group"
+                size = max(bb[2] - bb[0], bb[3] - bb[1])
+                props = {"footprint_ft": (round(bb[2] - bb[0], 3), round(bb[3] - bb[1], 3))}
+                if role == "door":
+                    has_arc = any(e.normalized.kind == "arc" for e in cluster)
+                    if has_arc:
+                        ev.append("contains a door-swing arc")
+                        conf = min(conf, 0.7)
+                        radius = max(e.normalized.radius or 0 for e in cluster if e.normalized.kind == "arc")
+                        props["swing_radius_ft"] = round(radius, 3)
+                    else:
+                        ev.append("no swing arc found")
+                        conf = min(conf, 0.5)
+                if role == "column":
+                    if size > MAX_COLUMN_SIZE_FT:
+                        ev.append(f"group is {size:.1f} ft across — larger than a typical column ({MAX_COLUMN_SIZE_FT} ft)")
+                        conf = min(conf, 0.4)
+                    else:
+                        subtype = "column_outline"
+                self.add(role, conf, ev, [r.rule_id], cluster, geometry=_bbox_poly(bb), subtype=subtype,
+                         properties=props)
+
+    def _grid(self):
+        for e in self.model_entities():
+            if e.id in self.claimed or e.normalized is None:
+                continue
+            r = self.role(e)
+            if r and r.role == "grid" and e.normalized.kind == "line":
+                self.add("grid_line", r.confidence, [r.evidence, "LINE on grid layer"], [r.rule_id], [e],
+                         geometry=e.normalized, properties={"length_ft": round(_length(e.normalized), 3)})
+
+    def _point_roles(self):
+        for e in self.model_entities(top_level_only=True):
+            if e.id in self.claimed or e.normalized is None or e.normalized.kind == "text":
+                continue
+            r = self.role(e)
+            if not r or r.role not in POINT_ROLES:
+                continue
+            pts = self.pts(e)
+            if not pts:
+                continue
+            self.add(r.role, r.confidence, [r.evidence, f"{e.type} on {r.role.replace('_', ' ')} layer"],
+                     [r.rule_id], [e], geometry=_bbox_poly(_bbox(pts)), subtype=e.type.lower())
+
+    # Rooms / areas
+    def _rooms(self):
+        cands = []  # (polygon, source entities, confidence, evidence, rules, method)
+        for e in self.model_entities():
+            if e.id in self.claimed or e.normalized is None:
+                continue
+            r = self.role(e)
+            if not r or r.role != "room_boundary":
+                continue
+            g = e.normalized
+            if g.kind == "polyline" and g.closed and len(g.points) >= 3:
+                poly, repaired = _polygon(g.points)
+                if poly is None or poly.area < MIN_ROOM_AREA_SF:
+                    continue
+                ev = [r.evidence, "closed polyline on room/area layer"]
+                if repaired:
+                    ev.append("self-intersecting boundary was repaired (make_valid)")
+                cands.append((poly, [e], r.confidence if not repaired else min(r.confidence, 0.6), ev,
+                              [r.rule_id], "area_layer_polyline"))
+
+        method = "area_layer_polyline"
+        if not cands:
+            walls = [el for el in self.out.elements if el.category == "wall" and el.subtype == "wall_linework"]
+            lines = []
+            for w in walls:
+                pts = w.geometry.points if w.geometry else []
+                if w.geometry and w.geometry.kind == "polyline" and w.geometry.closed and pts:
+                    pts = pts + [pts[0]]
+                if len(pts) >= 2:
+                    lines.append(LineString(pts))
+            if lines:
+                method = "polygonized_wall_linework"
+                for face in polygonize(unary_union(lines)):
+                    if face.area < MIN_POLYGONIZED_ROOM_SF:
+                        continue
+                    mrr = face.minimum_rotated_rectangle
+                    xs, ys = mrr.exterior.coords.xy
+                    sides = [math.dist((xs[i], ys[i]), (xs[i + 1], ys[i + 1])) for i in range(2)]
+                    if min(sides) < WALL_CAVITY_MAX_WIDTH_FT:
+                        continue  # cavity between parallel wall lines
+                    ring = face.exterior.buffer(0.05)
+                    src_ids = [sid for w in walls for sid in w.source_entity_ids
+                               if ring.intersects(LineString(w.geometry.points))] if walls else []
+                    src = [self.by_id[i] for i in dict.fromkeys(src_ids)]
+                    cands.append((face, src, 0.6,
+                                  ["region fully enclosed by wall linework (polygonize)",
+                                   "no room/area-layer boundary exists in this drawing"],
+                                  ["G-POLYGONIZE-WALLS"], method))
+
+        # Gross boundaries: polygons containing >= 2 other candidates are areas, not rooms.
+        rooms, areas = [], []
+        for i, c in enumerate(cands):
+            inner = sum(1 for j, o in enumerate(cands)
+                        if j != i and o[0].area < c[0].area and c[0].buffer(0.01).contains(o[0]))
+            (areas if inner >= 2 else rooms).append((c, inner))
+
+        # Label association (text inside boundary, smallest containing polygon wins)
+        texts = [t for t in self.model_entities() if t.id not in self.claimed and t.normalized is not None
+                 and t.normalized.kind == "text" and t.normalized.text]
+        prepared = [(prep(c[0]), c) for c, _ in rooms]
+        labels: dict[int, list[SourceEntity]] = defaultdict(list)
+        for t in texts:
+            p = Point(t.normalized.insert)
+            inside = [(c[0].area, idx) for idx, (pp, c) in enumerate(prepared) if pp.contains(p)]
+            if inside:
+                labels[min(inside)[1]].append(t)
+        label_role_texts = [t for t in texts if (r := self.role(t)) and r.role == "room_label"]
+
+        for idx, ((poly, src, conf, ev, rule_ids, meth), _) in enumerate(rooms):
+            ev = list(ev)
+            candidates = labels.get(idx, [])
+            # Prefer text on room-label layers; otherwise short text only.
+            preferred = [t for t in candidates if (r := self.role(t)) and r.role in ("room_label", "room_boundary")]
+            chosen = preferred or [t for t in candidates if len(t.normalized.text) <= 40]
+            parsed = parse_room_label([ln for t in chosen for ln in split_lines(t.normalized.text)])
+            name = " ".join(parsed["name_parts"]) or None
+            props = {"area_sf": round(poly.area, 2), "perimeter_ft": round(poly.length, 2),
+                     "name": name, "number": parsed["number"], "detection_method": meth,
+                     "label_entity_ids": [t.id for t in chosen]}
+            verify = False
+            if chosen:
+                ev.append(f"label text inside boundary: {[t.normalized.text for t in chosen]}")
+                if not preferred:
+                    ev.append("label text is not on a room-label layer")
+                if len(parsed["name_parts"]) > 1:
+                    ev.append("multiple name candidates — ambiguous label")
+                    verify = True
+            else:
+                ev.append("no label text found inside boundary")
+                verify = True
+            if parsed["stated_area_sf"] is not None:
+                stated = parsed["stated_area_sf"]
+                err = abs(stated - poly.area) / poly.area
+                props["stated_area_sf"] = round(stated, 2)
+                props["stated_vs_computed_error"] = round(err, 4)
+                if err <= AREA_LABEL_TOLERANCE:
+                    ev.append(f"stated area {stated:,.0f} sf agrees with computed {poly.area:,.0f} sf ({err:.1%})")
+                else:
+                    ev.append(f"stated area {stated:,.0f} sf DISAGREES with computed {poly.area:,.0f} sf ({err:.1%})")
+                    verify = True
+            label = " ".join(x for x in (name, parsed["number"]) if x) or None
+            el = self.add("room", conf, ev, rule_ids, list(src) + chosen, geometry=_poly_geom(poly),
+                          label=label, properties=props, force_verify=verify)
+            if "stated_area_sf" in props and props["stated_vs_computed_error"] > AREA_LABEL_TOLERANCE:
+                self.out.issues.append(Issue(code="ROOM_AREA_LABEL_MISMATCH", element_ids=[el.id],
+                                             message=f"Room {label or el.id}: stated area {props['stated_area_sf']:,.0f} sf vs "
+                                                     f"computed {props['area_sf']:,.0f} sf. Units, scale, or boundary may be wrong."))
+
+        for (poly, src, conf, ev, rule_ids, meth), inner in areas:
+            self.add("area", conf, ev + [f"contains {inner} other boundaries — treated as a gross/overall area, not a room"],
+                     rule_ids, src, geometry=_poly_geom(poly), subtype="gross_boundary",
+                     properties={"area_sf": round(poly.area, 2), "detection_method": meth})
+
+        unassoc = [t for t in label_role_texts if t.id not in self.claimed]
+        if unassoc:
+            self.out.issues.append(Issue(code="UNASSOCIATED_ROOM_LABELS", entity_ids=[t.id for t in unassoc],
+                                         message=f"{len(unassoc)} room-label text item(s) are not inside any detected room boundary: "
+                                                 + ", ".join(repr(t.normalized.text) for t in unassoc[:10])))
+
+    def _text(self):
+        for e in self.all:
+            if e.id in self.claimed or not e.visible or e.type not in ("TEXT", "MTEXT") or e.parent_id:
+                continue
+            g = e.normalized if e.space == "model" else None
+            self.add("text_annotation", 1.0, [f"{e.type} entity ({e.space} space)"], ["E-TEXT"], [e],
+                     geometry=g, label=(e.source.text if e.source else None),
+                     properties={"space": e.space, "layer_role": (self.role(e).role if self.role(e) else None)})
+
+    def _unclassified(self):
+        referenced = set(self.claimed)
+        out = []
+        for e in self.all:
+            if e.space != "model" or not e.visible or e.id in referenced:
+                continue
+            if e.parent_id and e.parent_id not in referenced:
+                continue  # represented by its (unclassified) parent INSERT
+            if e.type == "INSERT" and any(d.id in referenced for d in self.descendants(e)):
+                # partially interpreted block: list its uninterpreted children individually
+                out.extend(d.id for d in self.descendants(e) if d.id not in referenced and d.type != "INSERT"
+                           and d.visible)
+                continue
+            out.append(e.id)
+        self.out.unclassified_entity_ids = out
+
+
+# ── geometry utilities ───────────────────────────────────────────────────────
+
+def _length(g: Geometry) -> float:
+    pts = g.points
+    total = sum(math.dist(pts[i], pts[i + 1]) for i in range(len(pts) - 1)) if len(pts) > 1 else 0.0
+    if g.closed and len(pts) > 2:
+        total += math.dist(pts[-1], pts[0])
+    return total
+
+
+def _polygon(points) -> tuple[Polygon | None, bool]:
+    try:
+        poly = Polygon(points)
+    except Exception:
+        return None, False
+    if poly.is_valid:
+        return poly, False
+    fixed = make_valid(poly)
+    polys = [g for g in getattr(fixed, "geoms", [fixed]) if isinstance(g, Polygon)]
+    return (max(polys, key=lambda p: p.area), True) if polys else (None, True)
+
+
+def _poly_geom(poly: Polygon) -> Geometry:
+    return Geometry(kind="polygon", points=[(float(x), float(y)) for x, y in list(poly.exterior.coords)[:-1]],
+                    closed=True)
+
+
+def _cluster(ents, pts_fn, tol):
+    boxes = []
+    for e in ents:
+        p = pts_fn(e)
+        if p:
+            boxes.append((e, _bbox(p)))
+    parent = list(range(len(boxes)))
+
+    def find(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    order = sorted(range(len(boxes)), key=lambda i: boxes[i][1][0])
+    active: list[int] = []
+    for i in order:
+        bx = boxes[i][1]
+        active = [j for j in active if boxes[j][1][2] + tol >= bx[0]]
+        for j in active:
+            by = boxes[j][1]
+            if bx[1] <= by[3] + tol and by[1] <= bx[3] + tol:
+                parent[find(i)] = find(j)
+        active.append(i)
+    groups: dict[int, list] = defaultdict(list)
+    for i, (e, _) in enumerate(boxes):
+        groups[find(i)].append(e)
+    # Deterministic order: by the first (lowest-id) entity in each group.
+    return sorted(groups.values(), key=lambda g: g[0].id)

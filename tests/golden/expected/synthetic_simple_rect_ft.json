@@ -1,0 +1,11 @@
+{
+  "_source": "tests/fixtures/builders.make_simple_rect(); 40x30 ft, one labeled room",
+  "processing_status": "completed",
+  "failure_code": null,
+  "units": "ft",
+  "bounds_ft": {"width": 40.0, "height": 30.0, "tol": 0.001},
+  "entity_counts": {"top_level": 4, "total": 4},
+  "element_counts": {"room": 1, "wall": 2},
+  "rooms": [{"label": "OPEN AREA 100", "area_sf": 1131.0, "tol": 0.01}],
+  "requires_human_review": false
+}

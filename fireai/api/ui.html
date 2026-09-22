@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FireAI Drawing Understanding</title>
+<style>
+  :root { --fg:#1b1f24; --muted:#5b6470; --bg:#f6f7f9; --card:#fff; --line:#d9dde3; --bad:#b00020; --ok:#1b5e20; --warn:#8a5a00; --accent:#1f4e9c; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; color:var(--fg); background:var(--bg); }
+  header { background:#1b1f24; color:#fff; padding:14px 20px; }
+  header h1 { margin:0; font-size:18px; }
+  header p { margin:4px 0 0; color:#c9ced6; font-size:13px; }
+  .banner { background:#fff4f4; border-bottom:1px solid #f1c6c6; color:var(--bad); padding:8px 20px; font-weight:600; font-size:13px; }
+  main { max-width:1400px; margin:0 auto; padding:16px; display:grid; gap:16px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:16px; }
+  h2 { margin:0 0 10px; font-size:15px; }
+  form { display:flex; flex-wrap:wrap; gap:10px; align-items:end; }
+  label { display:flex; flex-direction:column; gap:4px; font-size:12px; color:var(--muted); }
+  input, select, button { font:inherit; padding:7px 10px; border:1px solid var(--line); border-radius:6px; background:#fff; }
+  button { background:var(--accent); color:#fff; border-color:var(--accent); cursor:pointer; }
+  button:disabled { opacity:.5; cursor:default; }
+  .status { font-weight:700; }
+  .status.completed { color:var(--ok); } .status.failed { color:var(--bad); } .status.needs_human_input { color:var(--warn); }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  @media (max-width: 900px) { .grid2 { grid-template-columns:1fr; } }
+  figure { margin:0; } figure img { width:100%; border:1px solid var(--line); border-radius:6px; background:#fff; }
+  figcaption { font-size:12px; color:var(--muted); margin-top:4px; }
+  table { border-collapse:collapse; width:100%; font-size:13px; }
+  th, td { text-align:left; padding:5px 8px; border-bottom:1px solid var(--line); }
+  ul { margin:6px 0; padding-left:18px; }
+  code { background:#eef1f5; padding:1px 4px; border-radius:4px; }
+  .muted { color:var(--muted); }
+  .hidden { display:none; }
+</style>
+</head>
+<body>
+<header>
+  <h1>FireAI Pro — Drawing Understanding</h1>
+  <p>Upload a DXF or DWG. FireAI reports what it read from the drawing so a person can check it.</p>
+</header>
+<div class="banner">Not for design or permit. No sprinkler design, hydraulic calculation, or code-compliance evaluation is performed.</div>
+<main>
+  <section class="card">
+    <h2>1. Upload drawing</h2>
+    <form id="upload">
+      <label>Drawing file (.dxf, .dwg)<input type="file" id="file" accept=".dxf,.dwg" required></label>
+      <label>Units
+        <select id="units">
+          <option value="">From drawing header (recommended)</option>
+          <option value="in">inches</option><option value="ft">feet</option>
+          <option value="mm">millimeters</option><option value="cm">centimeters</option><option value="m">meters</option>
+        </select>
+      </label>
+      <label class="hidden" id="tokenWrap">API token<input type="password" id="token" autocomplete="off"></label>
+      <button type="submit" id="go">Analyze drawing</button>
+    </form>
+    <p class="muted" id="msg"></p>
+  </section>
+
+  <section class="card hidden" id="result">
+    <h2>2. Result</h2>
+    <p>Status: <span class="status" id="status"></span> &nbsp;|&nbsp; Requires human review: <strong id="review"></strong>
+       &nbsp;|&nbsp; Engineering review: <strong>not performed</strong></p>
+    <div id="failure" class="hidden"></div>
+    <div id="unitsNeeded" class="hidden">
+      <p><strong>Units required.</strong> <span id="unitsReason"></span></p>
+      <form id="resolve"><label>Drawing units
+        <select id="resolveUnits"><option value="in">inches</option><option value="ft">feet</option><option value="mm">millimeters</option><option value="cm">centimeters</option><option value="m">meters</option></select></label>
+        <button type="submit">Re-run with these units</button></form>
+    </div>
+    <div id="counts"></div>
+    <div id="triggers"></div>
+  </section>
+
+  <section class="card hidden" id="visual">
+    <h2>3. Compare: source drawing vs FireAI interpretation</h2>
+    <div class="grid2">
+      <figure><img id="srcImg" alt="Source drawing as rendered from the file"><figcaption>Source drawing, rendered directly from the file.</figcaption></figure>
+      <figure><img id="ovlImg" alt="FireAI interpretation overlay"><figcaption>FireAI interpretation over the source (grey). Orange dotted = not interpreted. Dashed = needs verification.</figcaption></figure>
+    </div>
+    <p>Did FireAI understand this building? If anything is wrong or missing, the drawing is not ready for design.</p>
+  </section>
+
+  <section class="card hidden" id="files">
+    <h2>4. Downloads</h2>
+    <ul id="fileList"></ul>
+  </section>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+let jobId = null, timer = null;
+function authHeaders() { const t = $("token").value; return t ? { "Authorization": "Bearer " + t } : {}; }
+fetch("/health").then(r => r.json()).then(h => { if (h.authentication === "bearer-token") $("tokenWrap").classList.remove("hidden"); });
+
+function el(tag, text, cls) { const e = document.createElement(tag); if (text !== undefined) e.textContent = text; if (cls) e.className = cls; return e; }
+
+$("upload").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const f = $("file").files[0]; if (!f) return;
+  const fd = new FormData(); fd.append("file", f); if ($("units").value) fd.append("units", $("units").value);
+  $("go").disabled = true; $("msg").textContent = "Uploading…";
+  const r = await fetch("/api/v2/drawings", { method: "POST", body: fd, headers: authHeaders() });
+  const body = await r.json();
+  $("go").disabled = false;
+  if (!r.ok) { $("msg").textContent = "Rejected: " + (body.detail?.code || r.status) + " — " + (body.detail?.message || ""); return; }
+  start(body.job_id);
+});
+
+$("resolve").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const r = await fetch(`/api/v2/drawings/${jobId}/resolve-units`, { method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders() }, body: JSON.stringify({ units: $("resolveUnits").value }) });
+  const body = await r.json(); if (r.ok) start(body.job_id);
+});
+
+function start(id) { jobId = id; $("msg").textContent = "Job " + id + " queued."; clearInterval(timer); timer = setInterval(poll, 1200); poll(); }
+
+async function blobUrl(did) {
+  const r = await fetch(`/api/v2/drawings/${jobId}/deliverables/${did}`, { headers: authHeaders() });
+  return r.ok ? URL.createObjectURL(await r.blob()) : "";
+}
+
+async function poll() {
+  const r = await fetch(`/api/v2/drawings/${jobId}`, { headers: authHeaders() });
+  if (!r.ok) return;
+  const j = await r.json();
+  $("result").classList.remove("hidden");
+  $("status").textContent = j.processing_status; $("status").className = "status " + j.processing_status;
+  $("review").textContent = j.requires_human_review === null ? "pending" : (j.requires_human_review ? "YES" : "no automatic triggers");
+  if (["queued", "running"].includes(j.processing_status)) return;
+  clearInterval(timer); $("msg").textContent = "";
+  const fail = $("failure"); fail.replaceChildren(); fail.classList.add("hidden");
+  $("unitsNeeded").classList.add("hidden");
+  if (j.failure) {
+    fail.classList.remove("hidden");
+    const p = el("p"); p.append(el("strong", j.failure.code + ": ")); p.append(j.failure.message); fail.append(p);
+  }
+  if (j.processing_status === "needs_human_input" && j.unit_resolution_required) {
+    $("unitsNeeded").classList.remove("hidden"); $("unitsReason").textContent = j.unit_resolution_required.reason || "";
+  }
+  const counts = $("counts"); counts.replaceChildren();
+  if (j.summary) {
+    const t = el("table"); const hr = el("tr"); hr.append(el("th", "Interpreted category"), el("th", "Count")); t.append(hr);
+    for (const [k, v] of Object.entries(j.summary.element_counts || {})) { const tr = el("tr"); tr.append(el("td", k), el("td", String(v))); t.append(tr); }
+    const tr = el("tr"); tr.append(el("td", "unclassified entities"), el("td", String(j.summary.unclassified_count))); t.append(tr);
+    counts.append(el("p", `Units: ${j.summary.units} → normalized to feet. Extents: ${j.summary.bounds_normalized_ft ? j.summary.bounds_normalized_ft.width.toFixed(1) + " × " + j.summary.bounds_normalized_ft.height.toFixed(1) + " ft" : "n/a"}`), t);
+  }
+  const trig = $("triggers"); trig.replaceChildren();
+  const codes = j.summary?.review_trigger_codes || [];
+  if (codes.length) { trig.append(el("h2", "Review triggers")); const ul = el("ul"); codes.forEach(c => ul.append(el("li", c))); trig.append(ul); }
+  const ids = (j.deliverables || []).map(d => d.id);
+  if (ids.includes("source_png")) {
+    $("visual").classList.remove("hidden");
+    $("srcImg").src = await blobUrl("source_png");
+    $("ovlImg").src = ids.includes("overlay_png") ? await blobUrl("overlay_png") : "";
+  }
+  const list = $("fileList"); list.replaceChildren(); $("files").classList.remove("hidden");
+  for (const d of j.deliverables || []) {
+    const li = el("li"); const a = el("a", d.filename); a.href = "#";
+    a.addEventListener("click", async (e) => { e.preventDefault(); const u = await blobUrl(d.id); const x = document.createElement("a"); x.href = u; x.download = d.filename; x.click(); });
+    li.append(a, el("span", ` (${Math.ceil(d.size_bytes / 1024)} KB)`, "muted")); list.append(li);
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,5 @@
+# Drawing fixtures must stay byte-exact across platforms (models record source SHA-256)
+*.dxf -text
+*.DXF -text
+*.dwg binary
+*.DWG binary
