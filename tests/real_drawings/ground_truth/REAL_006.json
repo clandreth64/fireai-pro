@@ -1,0 +1,15 @@
+{
+  "id": "REAL_006",
+  "review": {
+    "method": "AI-assisted visual review of source.png + DXF tables; independent of FireAI output",
+    "status": "PENDING_HUMAN_CONFIRMATION",
+    "date": "2026-09-22"
+  },
+  "drawing_type": {
+    "value": "3D visualization model (solids/meshes); no 2D plan linework",
+    "assertion": "APPROXIMATE"
+  },
+  "expected_behavior": [
+    "fail closed (GEOMETRY_EXTRACTION_FAILED) \u2014 no invented 2D geometry"
+  ]
+}

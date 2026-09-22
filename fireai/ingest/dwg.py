@@ -16,8 +16,10 @@ Adapters:
 
 from __future__ import annotations
 
+import json
 import shutil
 import subprocess
+from collections import Counter
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -35,6 +37,9 @@ class ConversionResult:
     command: list[str]
     log_tail: str = ""
     warnings: list[str] = field(default_factory=list)
+    # Independent count of entities in the source DWG vs the produced DXF (converter-neutral shape):
+    # {"status": "ok"|"unavailable"|"failed", "method", "source_counts", "output_counts", "lost", "note"}
+    audit: dict | None = None
 
     def provenance(self) -> dict:
         return {"name": self.converter, "version": self.version, "command": self.command}
@@ -78,7 +83,16 @@ class DwgConverter(ABC):
                 raise PipelineFailure(FailureCode.DWG_CONVERSION_FAILED,
                                       f"Converter '{self.name}' output is not a valid DXF.",
                                       {"log_tail": result.log_tail[-2000:]})
+        try:
+            result.audit = self.audit(dwg_path, dxf, out_dir, timeout_s)
+        except Exception as exc:  # an audit failure is reported, never ignored
+            result.audit = {"status": "failed", "note": f"{type(exc).__name__}: {exc}"}
         return result
+
+    def audit(self, dwg_path: Path, dxf_path: Path, work_dir: Path, timeout_s: int) -> dict:
+        """Count entities in the source DWG independently of the conversion and compare
+        with the produced DXF. Adapters that cannot do this return status 'unavailable'."""
+        return {"status": "unavailable", "note": f"converter '{self.name}' provides no independent entity count"}
 
 
 def _run_cmd(cmd: list[str], timeout_s: int, cwd: Path | None = None) -> subprocess.CompletedProcess:
@@ -111,6 +125,58 @@ class LibreDwgConverter(DwgConverter):
             raise PipelineFailure(FailureCode.DWG_CONVERSION_FAILED,
                                   f"dwg2dxf exited with code {proc.returncode}.", {"log_tail": log[-2000:]})
         return ConversionResult(out, self.name, self.version(), cmd, log)
+
+    def audit(self, dwg_path: Path, dxf_path: Path, work_dir: Path, timeout_s: int) -> dict:
+        dwgread = Path(self.executable).with_name("dwgread")
+        if not dwgread.exists():
+            return {"status": "unavailable", "note": "dwgread not installed next to dwg2dxf"}
+        out = work_dir / "dwgread.json"
+        proc = _run_cmd([str(dwgread), "-O", "JSON", "-o", str(out), str(dwg_path)], timeout_s)
+        if not out.is_file():
+            return {"status": "failed", "note": f"dwgread exited {proc.returncode} without output"}
+        data = json.loads(out.read_text(encoding="utf-8", errors="replace"))
+        src = Counter()
+        for o in data.get("OBJECTS", []):
+            t = normalize_dwg_entity_type(o.get("entity"))
+            if t:
+                src[t] += 1
+        return compare_entity_counts(src, count_dxf_entities(dxf_path), "libredwg dwgread JSON object census")
+
+
+# LibreDWG object names that are structural records, not drawable entities in DXF terms.
+_DWG_STRUCTURAL = {"BLOCK", "ENDBLK", "SEQEND", "VERTEX_2D", "VERTEX_3D", "VERTEX_MESH", "VERTEX_PFACE",
+                   "VERTEX_PFACE_FACE"}
+_DWG_TO_DXF = {"POLYLINE_2D": "POLYLINE", "POLYLINE_3D": "POLYLINE", "POLYLINE_PFACE": "POLYLINE",
+               "POLYLINE_MESH": "POLYLINE", "_3DFACE": "3DFACE", "_3DSOLID": "3DSOLID", "PROXY_ENTITY": "ACAD_PROXY_ENTITY",
+               "TABLE": "ACAD_TABLE", "MINSERT": "INSERT", "LARGE_RADIAL_DIMENSION": "LARGE_RADIAL_DIMENSION"}
+
+
+def normalize_dwg_entity_type(name: str | None) -> str | None:
+    if not name or name in _DWG_STRUCTURAL:
+        return None
+    if name.startswith("DIMENSION_"):
+        return "DIMENSION"
+    return _DWG_TO_DXF.get(name, name)
+
+
+def count_dxf_entities(dxf_path: Path) -> Counter:
+    """Entity census of a DXF across ALL block definitions and layouts (incl. ATTRIBs)."""
+    from ezdxf import recover
+    doc, _ = recover.readfile(str(dxf_path))
+    c = Counter()
+    for block in doc.blocks:
+        for e in block:
+            c[e.dxftype()] += 1
+            if e.dxftype() == "INSERT":
+                c["ATTRIB"] += len(e.attribs)
+    return c
+
+
+def compare_entity_counts(source: Counter, output: Counter, method: str) -> dict:
+    lost = {t: n - output.get(t, 0) for t, n in source.items() if n > output.get(t, 0)}
+    return {"status": "ok", "method": method, "source_counts": dict(source), "output_counts": dict(output),
+            "lost": dict(sorted(lost.items())),
+            "note": "entity types present in the DWG but missing from the converted DXF" if lost else "no losses detected"}
 
 
 class OdaFileConverter(DwgConverter):

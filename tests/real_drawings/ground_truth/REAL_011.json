@@ -1,0 +1,21 @@
+{
+  "id": "REAL_011",
+  "review": {
+    "method": "AI-assisted visual review of source.png + DXF tables; independent of FireAI output",
+    "status": "PENDING_HUMAN_CONFIRMATION",
+    "date": "2026-09-22"
+  },
+  "drawing_type": {
+    "value": "nested block transform test matrix (rotation 0/45/90 x mirror X/Y)",
+    "assertion": "EXACT"
+  },
+  "is_building": {
+    "value": false,
+    "assertion": "EXACT"
+  },
+  "nested_block_placement": {
+    "value": "FireAI-extracted linework coincides with ezdxf rendering for all inserts",
+    "assertion": "EXACT",
+    "note": "visual check of overlay"
+  }
+}

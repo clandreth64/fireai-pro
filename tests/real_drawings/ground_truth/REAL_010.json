@@ -1,0 +1,24 @@
+{
+  "id": "REAL_010",
+  "review": {
+    "method": "AI-assisted visual review of source.png + DXF tables; independent of FireAI output",
+    "status": "PENDING_HUMAN_CONFIRMATION",
+    "date": "2026-09-22"
+  },
+  "drawing_type": {
+    "value": "dynamic-block library sheet (cars, trees, furniture, north arrows, wall/door blocks, test dims)",
+    "assertion": "EXACT"
+  },
+  "is_building": {
+    "value": false,
+    "assertion": "EXACT"
+  },
+  "rooms": {
+    "value": 0,
+    "assertion": "EXACT"
+  },
+  "notes": {
+    "value": "north arrow is on layer 'Title Box' (title-block classification is layer-driven and defensible)",
+    "assertion": "EXACT"
+  }
+}

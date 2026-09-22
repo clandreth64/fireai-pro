@@ -129,6 +129,16 @@ def review_checks(model: BuildingModel, unsupported: Counter, xrefs: set[str], h
                                   message=f"{frac:.0%} of top-level entities could not be classified."))
 
     if model.source.converted_from_dwg:
+        audit = model.source.conversion_audit or {}
+        if audit.get("status") != "ok":
+            triggers.append(Issue(code="DWG_CONVERSION_AUDIT_UNAVAILABLE",
+                                  message="Could not independently verify that the DWG->DXF conversion kept every entity "
+                                          f"({audit.get('note', 'no audit')}). Entities may be missing without notice."))
+        elif audit.get("lost"):
+            triggers.append(Issue(code="DWG_CONVERSION_LOST_ENTITIES",
+                                  message="The converted DXF is missing entities that exist in the DWG: "
+                                          + ", ".join(f"{t} x{n}" for t, n in audit["lost"].items())
+                                          + ". Their geometry is absent from this model."))
         warnings.append(Issue(code="DWG_CONVERTED",
                               message=f"Geometry was read from a DXF produced by DWG converter "
                                       f"'{model.source.converter.get('name') if model.source.converter else '?'}'. "

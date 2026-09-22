@@ -21,7 +21,7 @@ Governing rule: **never guess, never silently default, never report success when
 | Status | `complete` whenever AI flag true; errors swallowed | `processing_status` ∈ completed / needs_human_input / failed; `engineering_review_status` always `not_performed` |
 | Downloads | `Path(output_dir) / filename` (DB disclosure) | registered deliverable ids only, resolved inside the job's deliverables dir |
 | CORS / auth | `*` / none | same-origin by default / optional bearer token hook |
-| Tests | none | 110 tests + golden-file framework |
+| Tests | none | 156 tests (153 pass + 3 environment-dependent skips with LibreDWG installed) + golden-file framework + real-drawing validation harness |
 
 ```
                      POST /api/v2/drawings  (multipart: file, units?)
@@ -46,7 +46,7 @@ Governing rule: **never guess, never silently default, never report success when
 |---|---|
 | `fireai/errors.py` | `FailureCode` enum, `PipelineFailure` |
 | `fireai/config.py` | env settings with restrictive defaults |
-| `fireai/model.py` | canonical building model (Pydantic, schema `0.1.0`; JSON schema in `docs/building_model.schema.json`) |
+| `fireai/model.py` | canonical building model (Pydantic, schema `0.2.0`; JSON schema in `docs/building_model.schema.json`; migrations in `fireai/schema.py`) |
 | `fireai/ingest/filetype.py` | extension + content sniffing, filename sanitising |
 | `fireai/ingest/dwg.py` | `DwgConverter` interface, `OdaFileConverter`, `LibreDwgConverter`, `select_converter` |
 | `fireai/ingest/units.py` | `$INSUNITS` resolution, exact factors, unit-resolution requirement |
@@ -61,7 +61,7 @@ Governing rule: **never guess, never silently default, never report success when
 | `fireai/jobs/` | SQLite job store, isolated per-job storage, runner |
 | `fireai/api/` | FastAPI app factory, routes, security middleware, UI |
 
-## 3. Building model (schema 0.1.0)
+## 3. Building model (schema 0.2.0 — see docs/SPATIAL_BIM_ARCHITECTURE.md for identity, frames, placement, provenance)
 
 Two strictly separate layers:
 
@@ -107,8 +107,26 @@ A completed model that still needs a person carries `requires_human_review = tru
 | `DXF_AUDIT_ERRORS` | unrepairable structural errors |
 | `ELEMENTS_REQUIRE_VERIFICATION` | any element with confidence < 0.80, ambiguous/missing room label, polygonized rooms, title-block fields, conflicting block/layer evidence |
 | `HIGH_UNCLASSIFIED_FRACTION` | > 30% of top-level entities unclassified |
+| `MULTIPLE_DRAWING_REGIONS` | ≥ 2 significant separate regions in model space (several plans, sections, details) — added 1.5 |
+| `ROOM_BOUNDARY_SPANS_MULTIPLE_LABELS` | one derived boundary contains several different room names (merged through openings) — added 1.5 |
+| `DWG_CONVERSION_LOST_ENTITIES` | independent DWG entity census shows types missing from the converted DXF — added 1.5 |
+| `DWG_CONVERSION_AUDIT_UNAVAILABLE` | a DWG was converted but its entity census could not be verified — added 1.5 |
 
 Even with no triggers the model is **not** ready for design: a person must still compare `source.png` with `overlay.png`.
+
+## 5b. Interpretation rules added in Milestone 1.5 (from real-drawing failures)
+
+| Rule | Behaviour |
+|---|---|
+| `G-VIEW-REGIONS` | Clusters visible model-space geometry by gap (max(5 ft, 3% of extent)); regions reported, elements tagged `view_region`; never decides which region is the building |
+| `G-DOOR-OPENING-CLOSURE` | When rooms are derived from wall linework, wall vertices within a detected door's footprint are bridged (1.5–8 ft, shortest first, never crossing walls) with *analysis lines* stored on the room (`door_closures`) — never walls. Rooms using them are verification-required (confidence 0.55) |
+| label handling | Each text entity is parsed separately; different names inside one boundary are never concatenated — the region becomes `suspected_merged_region`, unnamed, confidence ≤ 0.3 |
+| `T-FINISH-NOTE` | Label lines made only of finish/annotation vocabulary (HRWD FLOOR, TILE, 9'-0" CLG, GFI…) are notes, not names |
+| dynamic blocks | Anonymous `*U/*B` copies are classified by their effective name (AcDbBlockRepBTag) |
+| `L-WALL-QUALIFIER` | Wall layers qualified ABOVE/BELOW/OVHD/DEMO/EXIST/FUTURE… become `qualified_*` walls, confidence ≤ 0.5, verification required |
+| MULTILEADER | Text content extracted (leader lines not) |
+| cavity filter | Faces with mean width 2A/P < 1.5 ft (incl. rings around the building) are wall cavities, not rooms |
+| unit evidence | When units are missing: viewport scale × stated scale × plot paper units → `suggested_units`, returned with the requirement, **never applied** |
 
 ## 6. Where AI/LLM inference is used
 
@@ -163,8 +181,8 @@ The Dockerfile lives in `docker/` so it does not change how Railway builds the s
 
 ## 11. Known limitations
 
-* No DWG converter in this environment; the converter adapters are tested with stub executables, not real DWGs.
-* Only synthetic fixtures so far; no real architectural drawing has been validated.
+* DWG conversion uses GNU LibreDWG 0.14.8597 (built in `docker/Dockerfile`); ODA is not used. LibreDWG drops some entity types (ACAD_TABLE, WIPEOUT, some INSERTs/proxies on R14) — detected by the conversion audit.
+* Real-drawing validation: 11 drawings / 15 files (see `docs/REAL_DRAWING_VALIDATION.md`); ground truth pending human confirmation.
 * Rooms come from closed polylines on room/area layers, or from regions fully enclosed by wall linework. Door gaps break enclosure, so wall-only drawings with open doorways yield few rooms (reported as `NO_ROOMS_DETECTED` rather than invented).
 * No wall-thickness/centerline derivation; no door-to-wall hosting; no opening detection from wall gaps.
 * No XREF resolution, no multi-level separation, no hatch-based room detection, no MLEADER/TABLE text, no proxy/ACIS entities.

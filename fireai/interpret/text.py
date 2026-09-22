@@ -16,6 +16,24 @@ _IMPERIAL = re.compile(
 _PLAIN_NUMBER = re.compile(r"^\s*(\d+(?:\.\d+)?)\s*(mm|cm|m)?\s*$", re.I)
 
 
+# Rule T-FINISH-NOTE: a label line made ONLY of finish/annotation vocabulary is a note,
+# not a room name ("HRWD FLOOR", "TILE FLOOR", "9'-0\" CLG"). "SALES FLOOR" stays a name
+# because SALES is not finish vocabulary.
+FINISH_VOCAB = {
+    "HRWD", "HARDWOOD", "WOOD", "TILE", "CERAMIC", "PORCELAIN", "VCT", "LVT", "VINYL", "LINO", "LINOLEUM",
+    "CARPET", "CPT", "CONC", "CONCRETE", "EPOXY", "SEALED", "STAINED", "POLISHED", "RUBBER", "BASE",
+    "FLOOR", "FLR", "FLOORING", "FIN", "FINISH", "CLG", "CEILING", "ACT", "GYP", "GWB", "EXPOSED",
+    "GFI", "GFCI", "TYP", "&", "/", "-", "AND", "W", "ON",
+}
+_HEIGHT_TOKEN = re.compile(r"^\d+'?(-?\d+(\s*\d+/\d+)?\"?)?$|^A\.?F\.?F\.?$")
+
+
+def is_finish_note(line: str) -> bool:
+    toks = [t for t in re.split(r"[\s,.:]+", line.upper()) if t]
+    return bool(toks) and all(t in FINISH_VOCAB or _HEIGHT_TOKEN.match(t) or t.isdigit() for t in toks) \
+        and any(t in FINISH_VOCAB for t in toks)
+
+
 def split_lines(text: str) -> list[str]:
     return [ln.strip() for ln in re.split(r"[\r\n]+|\\P", text or "") if ln.strip()]
 

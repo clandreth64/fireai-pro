@@ -74,3 +74,14 @@ def test_entity_limit_fails_closed(fx, tmp_path):
     r = run_pipeline(fx["office_ft"], tmp_path, max_entities=10)
     assert r.failure["code"] == "GEOMETRY_EXTRACTION_FAILED"
     _assert_not_successful(r)
+
+
+def test_fake_dwg_with_real_converter_fails_conversion(fx, tmp_path):
+    """With LibreDWG installed, a garbage .dwg must fail in conversion — never produce a model."""
+    import shutil
+    if not shutil.which("dwg2dxf"):
+        pytest.skip("dwg2dxf not installed")
+    r = run_pipeline(fx["fake_dwg"], tmp_path, dwg_converter="libredwg")
+    assert r.failure["code"] == "DWG_CONVERSION_FAILED", r.failure
+    assert r.model is None
+    _assert_not_successful(r)

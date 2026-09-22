@@ -1,0 +1,25 @@
+{
+  "id": "REAL_005",
+  "review": {
+    "method": "AI-assisted visual review of source.png + DXF tables; independent of FireAI output",
+    "status": "PENDING_HUMAN_CONFIRMATION",
+    "date": "2026-09-22"
+  },
+  "drawing_type": {
+    "value": "civil site plan: parcel, pond, road, one building footprint",
+    "assertion": "EXACT"
+  },
+  "units": {
+    "value": "NOT_EVALUATED",
+    "assertion": "NOT_EVALUATED",
+    "note": "header says inches, which makes the parcel ~66 ft wide \u2014 implausible for a site with a road and pond; likely feet, but no dimension or scale text exists to verify"
+  },
+  "rooms": {
+    "value": 0,
+    "assertion": "EXACT"
+  },
+  "building_footprint": {
+    "value": 1,
+    "assertion": "APPROXIMATE"
+  }
+}

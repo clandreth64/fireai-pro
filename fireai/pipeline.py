@@ -24,15 +24,18 @@ from fireai import __version__
 from fireai.config import Settings, get_settings
 from fireai.errors import NEEDS_HUMAN_INPUT_CODES, FailureCode, PipelineFailure
 from fireai.ingest.dwg import DwgConverter, select_converter
-from fireai.ingest.extract import (compute_source_bounds, extract, load_dxf, normalize_entities)
+from fireai.ingest.extract import (compute_source_bounds, extract, load_dxf, normalize_entities,
+                                   source_uid_for)
 from fireai.ingest.filetype import sanitize_filename, validate_upload
-from fireai.ingest.units import resolve_units, unit_requirement
+from fireai.ingest.units import resolve_units, unit_evidence, unit_requirement
 from fireai.interpret import rules as R
 from fireai.interpret.checks import dimension_checks, review_checks
 from fireai.interpret.elements import Interpreter
+from fireai.interpret.regions import detect_regions
 from fireai.model import (BlockInfo, Bounds, BuildingModel, Issue, LayerInfo, ScaleInfo, SourceInfo, Transform,
                           UnitsInfo)
 from fireai.report import build_report, build_summary_md
+from fireai.spatial import build_frames
 
 _USE_CONFIGURED = object()
 
@@ -106,6 +109,18 @@ def _sha256(path: Path) -> str:
     return h.hexdigest()
 
 
+def _converter_messages(log: str | None, limit: int = 50) -> list[str]:
+    """Converter log lines that report problems (kept verbatim, never interpreted away)."""
+    out = []
+    for ln in (log or "").splitlines():
+        low = ln.lower()
+        if "warning" in low or "error" in low or "unhandled" in low or "unsupported" in low:
+            out.append(ln.strip()[:300])
+            if len(out) >= limit:
+                break
+    return out
+
+
 def _write_json(path: Path, data) -> None:
     path.write_text(json.dumps(data, indent=2, default=str), encoding="utf-8")
 
@@ -162,7 +177,12 @@ def understand_drawing(upload_path: Path, original_filename: str | None, work_di
                                       f"Converted DXF could not be read: {f.message}") from f
             raise
 
-        ex = stages.run("extract_geometry", extract, doc, settings.max_entities, audit_errors, audit_fixes)
+        header = doc.header
+        source_uid = source_uid_for(sha)
+        document_guid = header.get("$FINGERPRINTGUID") if "$FINGERPRINTGUID" in header else None
+        version_guid = header.get("$VERSIONGUID") if "$VERSIONGUID" in header else None
+        ex = stages.run("extract_geometry", extract, doc, settings.max_entities, audit_errors, audit_fixes,
+                        source_uid, document_guid)
         top_model = [e for e in ex.entities if e.space == "model" and e.parent_id is None]
         if not top_model:
             raise PipelineFailure(FailureCode.EMPTY_DRAWING, "The drawing's model space contains no entities.",
@@ -175,7 +195,6 @@ def understand_drawing(upload_path: Path, original_filename: str | None, work_di
                 {"unsupported": dict(ex.unsupported), "top_level_entities": len(top_model),
                  "hidden": sum(1 for e in top_model if not e.visible)})
 
-        header = doc.header
         insunits = header.get("$INSUNITS") if "$INSUNITS" in header else None
         measurement = header.get("$MEASUREMENT") if "$MEASUREMENT" in header else None
         ures = stages.run("resolve_units", resolve_units, insunits, measurement, units_override)
@@ -197,10 +216,16 @@ def understand_drawing(upload_path: Path, original_filename: str | None, work_di
                                     role_rule=m.rule_id if m else None))
         block_roles = {}
         blocks = []
+        effective = {e.attributes["block"]: e.attributes["effective_block"] for e in ex.entities
+                     if e.type == "INSERT" and e.attributes.get("effective_block")}
         for name in sorted(set(ex.block_inserts) | ex.xref_blocks):
-            m = R.classify_block(name)
+            eff = effective.get(name)
+            m = R.classify_block(eff or name)
+            if m and eff:
+                m = R.RoleMatch(m.role, m.confidence, m.rule_id,
+                                m.evidence + f" (effective name of anonymous dynamic block '{name}')")
             block_roles[name] = m
-            blocks.append(BlockInfo(name=name, insert_count=ex.block_inserts.get(name, 0),
+            blocks.append(BlockInfo(name=name, effective_name=eff, insert_count=ex.block_inserts.get(name, 0),
                                     is_xref=name in ex.xref_blocks, inferred_role=m.role if m else None,
                                     role_confidence=m.confidence if m else 0.0, role_rule=m.rule_id if m else None))
 
@@ -208,12 +233,18 @@ def understand_drawing(upload_path: Path, original_filename: str | None, work_di
             model_id=uuid.uuid4().hex, created_at=datetime.now(timezone.utc).isoformat(), fireai_version=__version__,
             source=SourceInfo(filename=display_name, format=fmt, sha256=sha, size_bytes=upload_path.stat().st_size,
                               dxf_version=doc.dxfversion, converted_from_dwg=conversion is not None,
-                              converter=conversion.provenance() if conversion else None),
+                              converter=conversion.provenance() if conversion else None,
+                              source_uid=source_uid, document_guid=document_guid, version_guid=version_guid,
+                              converted_dxf_sha256=_sha256(dxf_path) if conversion else None,
+                              converter_log_tail=(conversion.log_tail or "")[-4000:] if conversion else None,
+                              converter_warnings=_converter_messages(conversion.log_tail) if conversion else [],
+                              conversion_audit=conversion.audit if conversion else None),
             units=UnitsInfo(insunits_code=ures.insunits_code, detected_units=ures.detected_units,
                             resolved_units=ures.resolved_units, resolution_method=ures.method,
                             scale_to_normalized=ures.scale_to_ft, measurement_system_hint=ures.measurement_hint,
                             resolved=ures.resolved, note=ures.note),
             transform=Transform(origin=bounds_src.min, scale=ures.scale_to_ft),
+            coordinate_frames=build_frames(ures.resolved_units, ures.scale_to_ft, bounds_src.min),
             bounds_source=bounds_src,
             scale=ScaleInfo(viewport_scales=ex.viewport_scales),
             layers=layers, blocks=blocks, entities=ex.entities,
@@ -235,7 +266,10 @@ def understand_drawing(upload_path: Path, original_filename: str | None, work_di
             raise PipelineFailure(FailureCode.OVERLAY_GENERATION_FAILED, f"Source rendering failed: {exc}") from exc
 
         if not ures.resolved:
-            req = unit_requirement(ures)
+            texts = [e.source.text for e in ex.entities if e.source is not None and e.source.text]
+            evidence = unit_evidence(ex.viewport_scales, texts)
+            model.units.evidence = evidence
+            req = unit_requirement(ures, evidence)
             model.diagnostics.review_triggers.append(Issue(code="UNIT_DETECTION_FAILED", message=ures.note or "units unresolved"))
             model.requires_human_review = True
             raise PipelineFailure(FailureCode.UNIT_DETECTION_FAILED,
@@ -246,7 +280,7 @@ def understand_drawing(upload_path: Path, original_filename: str | None, work_di
         s = model.transform.scale
         model.bounds_normalized = Bounds(min=(0.0, 0.0), max=(bounds_src.width * s, bounds_src.height * s))
 
-        res = stages.run("interpret", Interpreter(model.entities, layer_roles, block_roles).run)
+        res = stages.run("interpret", Interpreter(model.entities, layer_roles, block_roles, source_uid).run)
         model.elements = res.elements
         model.unclassified_entity_ids = res.unclassified_entity_ids
         model.title_block = res.title_block
@@ -254,12 +288,13 @@ def understand_drawing(upload_path: Path, original_filename: str | None, work_di
             sc = model.title_block["fields"].get("scale_text")
             model.scale.title_block_scale_text = sc["value"] if sc else None
 
+        model.view_regions, region_issues = detect_regions(model)
         checks, dim_warn, dim_trig = dimension_checks(model)
         model.scale.dimension_checks = checks
         hidden = sum(1 for e in model.entities if e.parent_id is None and not e.visible)
         warn, trig = review_checks(model, ex.unsupported, ex.xref_blocks, hidden, audit_errors)
         model.diagnostics.warnings.extend(dim_warn + warn)
-        model.diagnostics.review_triggers.extend(dim_trig + res.issues + trig)
+        model.diagnostics.review_triggers.extend(dim_trig + res.issues + trig + region_issues)
         model.requires_human_review = bool(model.diagnostics.review_triggers)
 
         try:

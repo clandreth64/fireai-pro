@@ -15,6 +15,7 @@ interpretation happens here.
 from __future__ import annotations
 
 import math
+import uuid
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -31,8 +32,24 @@ from fireai.model import Bounds, Geometry, Issue, SourceEntity, Transform
 SUPPORTED_TYPES = {
     "LINE", "LWPOLYLINE", "POLYLINE", "ARC", "CIRCLE", "ELLIPSE", "SPLINE",
     "TEXT", "MTEXT", "ATTRIB", "DIMENSION", "HATCH", "POINT", "INSERT", "SOLID", "TRACE",
+    "MULTILEADER", "MLEADER",
 }
 MAX_BLOCK_DEPTH = 16
+
+# Fixed namespace for FireAI deterministic uids (never change: persisted ids depend on it).
+FIREAI_UID_NAMESPACE = uuid.UUID("6f1b1c0e-3a52-5d0a-9c7e-f1e2a0000001")
+
+# Z values seen while reading the current entity (source drawing units). Recorded as
+# SourceEntity.z_range; never interpreted as an elevation.
+_Z: list[float] = []
+
+
+def source_uid_for(sha256: str) -> str:
+    return str(uuid.uuid5(FIREAI_UID_NAMESPACE, "source:" + sha256))
+
+
+def uid_for(namespace_uid: str, key: str) -> str:
+    return str(uuid.uuid5(uuid.UUID(namespace_uid), key))
 
 
 @dataclass
@@ -66,6 +83,8 @@ def load_dxf(path: Path) -> tuple[Drawing, list[str], int]:
 # ── geometry helpers ─────────────────────────────────────────────────────────
 
 def _xy(v) -> tuple[float, float]:
+    if len(v) > 2:
+        _Z.append(float(v[2]))
     return (float(v[0]), float(v[1]))
 
 
@@ -151,8 +170,21 @@ def _geometry(e) -> tuple[Geometry | None, dict]:
         anchor = _xy(d.text_midpoint) if d.hasattr("text_midpoint") else (pts[0] if pts else None)
         return Geometry(kind="dimension", points=pts, insert=anchor, measurement=measurement,
                         text=override if override not in ("", "<>") else None), attrs
+    if t in ("MULTILEADER", "MLEADER"):
+        # Text content only: leader lines/arrows are not extracted (recorded as partial support).
+        ctx = e.context
+        mt = getattr(ctx, "mtext", None)
+        if mt is None or not getattr(mt, "default_content", None):
+            return None, {"reason": "multileader without MTEXT content (block-content leaders not supported)"}
+        from ezdxf.tools.text import plain_mtext
+        attrs["partial"] = "text only; leader lines not extracted"
+        return Geometry(kind="text", insert=_xy(mt.insert), text=plain_mtext(mt.default_content, split=False),
+                        height=float(getattr(mt, "char_height", 0) or 0) or None), attrs
     if t == "INSERT":
         attrs["block"] = e.dxf.name
+        eff = effective_block_name(e.doc, e.dxf.name) if e.doc is not None else None
+        if eff:
+            attrs["effective_block"] = eff
         attrs["rotation"] = float(e.dxf.get("rotation", 0.0))
         attrs["xscale"] = float(e.dxf.get("xscale", 1.0))
         attrs["yscale"] = float(e.dxf.get("yscale", 1.0))
@@ -160,6 +192,24 @@ def _geometry(e) -> tuple[Geometry | None, dict]:
             attrs["attribs"] = {a.dxf.tag: a.dxf.text for a in e.attribs}
         return Geometry(kind="insert", insert=_xy(e.ocs().to_wcs(e.dxf.insert))), attrs
     return None, {"reason": f"entity type {t} not supported"}
+
+
+def effective_block_name(doc, name: str) -> str | None:
+    """Original name of an anonymous dynamic-block copy (*Unn / *Bnn), from the
+    AcDbBlockRepBTag XDATA link on its BLOCK_RECORD. None if not resolvable."""
+    if not name or not name.startswith("*"):
+        return None
+    try:
+        br = doc.blocks.get(name).block_record
+        if not br.has_xdata("AcDbBlockRepBTag"):
+            return None
+        for code, val in br.get_xdata("AcDbBlockRepBTag"):
+            if code == 1005:
+                rec = doc.entitydb.get(val)
+                return rec.dxf.name if rec is not None else None
+    except Exception:
+        return None
+    return None
 
 
 def _path_size(p) -> float:
@@ -186,8 +236,11 @@ def geometry_points(g: Geometry | None) -> list[tuple[float, float]]:
 # ── extraction ───────────────────────────────────────────────────────────────
 
 class _Collector:
-    def __init__(self, doc: Drawing, max_entities: int):
+    def __init__(self, doc: Drawing, max_entities: int, source_uid: str | None = None,
+                 document_guid: str | None = None):
         self.doc = doc
+        self.source_uid = source_uid
+        self.document_guid = document_guid
         self.max_entities = max_entities
         self.entities: list[SourceEntity] = []
         self.unsupported: Counter = Counter()
@@ -209,7 +262,7 @@ class _Collector:
         return self.layer_state.get(e.dxf.layer.upper(), True)
 
     def add(self, e, space: str, parent: SourceEntity | None, block_path: list[str],
-            depth: int, parent_visible: bool = True) -> None:
+            depth: int, parent_visible: bool = True, path_suffix: list[str] | None = None) -> None:
         if len(self.entities) >= self.max_entities:
             raise PipelineFailure(FailureCode.GEOMETRY_EXTRACTION_FAILED,
                                   f"Drawing exceeds the {self.max_entities:,} entity limit for this milestone.")
@@ -220,6 +273,7 @@ class _Collector:
             layer = parent.layer
         supported = t in SUPPORTED_TYPES
         geom, attrs = (None, {"reason": f"entity type {t} not supported"})
+        _Z.clear()
         if supported:
             try:
                 geom, attrs = _geometry(e)
@@ -229,9 +283,24 @@ class _Collector:
         if not supported:
             self.unsupported[t] += 1
         visible = self._visible(e, parent_visible)
+        if geom is not None:
+            geom.frame = "SRC"
+        z_range = (min(_Z), max(_Z)) if _Z else None
+        handle = None if parent is not None else e.dxf.get("handle")
+        if parent is not None:
+            handle_path, basis = parent.handle_path + (path_suffix or []), parent.uid_basis
+        elif handle:
+            handle_path, basis = [handle], "handle"
+        else:  # DXF written without handles (e.g. some R12 writers): order-based, unstable across edits
+            handle_path, basis = [f"seq{len(self.entities) + 1}"], "sequence"
+        key = "/".join(handle_path)
         ent = SourceEntity(
             id=self._next_id(),
-            handle=None if parent is not None else e.dxf.get("handle"),
+            uid=uid_for(self.source_uid, key) if self.source_uid else None,
+            handle_path=handle_path, uid_basis=basis,
+            source_object_key=f"{self.document_guid}:{key}" if self.document_guid and basis == "handle" else None,
+            z_range=z_range,
+            handle=handle,
             type=t, layer=layer, space=space,
             parent_id=parent.id if parent else None,
             block_path=list(block_path),
@@ -261,26 +330,29 @@ class _Collector:
                                        message=f"Block nesting deeper than {MAX_BLOCK_DEPTH} at '{name}'; not expanded.",
                                        entity_ids=[ent.id]))
             return
-        inserts: Iterable = e.multi_insert() if e.mcount > 1 else [e]
-        for ins in inserts:
+        multi = e.mcount > 1
+        inserts: Iterable = e.multi_insert() if multi else [e]
+        for mi, ins in enumerate(inserts):
+            prefix = [f"@{mi}"] if multi else []
             try:
                 children = list(ins.virtual_entities())
             except Exception as exc:
                 self.warnings.append(Issue(code="BLOCK_EXPLODE_FAILED",
                                            message=f"Could not expand block '{name}': {exc}", entity_ids=[ent.id]))
                 continue
-            for child in children:
+            for ci, child in enumerate(children):
                 if child.dxftype() == "ATTDEF":
                     continue  # attribute definitions are templates, not drawn geometry
-                self.add(child, space, ent, block_path + [name], depth + 1, visible)
+                self.add(child, space, ent, block_path + [name], depth + 1, visible, prefix + [f"#{ci}"])
             # Attribute values (e.g. room-tag name/number) are real drawing text.
-            for att in getattr(ins, "attribs", []) or []:
+            for ai, att in enumerate(getattr(ins, "attribs", []) or []):
                 if not att.is_invisible:
-                    self.add(att, space, ent, block_path + [name], depth + 1, visible)
+                    self.add(att, space, ent, block_path + [name], depth + 1, visible, prefix + [f"#a{ai}"])
 
 
-def extract(doc: Drawing, max_entities: int, audit_errors: list[str], audit_fixes: int) -> Extraction:
-    col = _Collector(doc, max_entities)
+def extract(doc: Drawing, max_entities: int, audit_errors: list[str], audit_fixes: int,
+            source_uid: str | None = None, document_guid: str | None = None) -> Extraction:
+    col = _Collector(doc, max_entities, source_uid, document_guid)
     for e in doc.modelspace():
         col.add(e, "model", None, [], 0)
     viewport_scales = []
@@ -295,8 +367,9 @@ def extract(doc: Drawing, max_entities: int, audit_errors: list[str], audit_fixe
                 vh = float(e.dxf.get("view_height", 0) or 0)
                 h = float(e.dxf.get("height", 0) or 0)
                 if vh > 0 and h > 0:
+                    pu = {0: "in", 1: "mm", 2: "px"}.get(layout.dxf_layout.dxf.get("plot_paper_units"))
                     viewport_scales.append({"layout": layout.name, "handle": e.dxf.handle,
-                                            "paper_units_per_model_unit": h / vh})
+                                            "paper_units_per_model_unit": h / vh, "paper_units": pu})
 
     layer_table: dict[str, dict] = {}
     for layer in doc.layers:
@@ -334,6 +407,7 @@ def _tx(p, t: Transform):
 def normalize_geometry(g: Geometry, t: Transform) -> Geometry:
     s = t.scale
     n = g.model_copy(deep=True)
+    n.frame = "LOCAL"
     n.points = [_tx(p, t) for p in g.points]
     n.paths = [[_tx(p, t) for p in path] for path in g.paths]
     if g.center is not None:

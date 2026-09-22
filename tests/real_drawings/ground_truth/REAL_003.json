@@ -1,0 +1,33 @@
+{
+  "id": "REAL_003",
+  "review": {
+    "method": "AI-assisted visual review of source.png + DXF tables; independent of FireAI output",
+    "status": "PENDING_HUMAN_CONFIRMATION",
+    "date": "2026-09-22"
+  },
+  "drawing_type": {
+    "value": "same plan as REAL_002, metric edition",
+    "assertion": "EXACT"
+  },
+  "units": {
+    "value": "m",
+    "assertion": "EXACT",
+    "note": "header $INSUNITS=6"
+  },
+  "extents_match_REAL_002_within": {
+    "value": "1%",
+    "assertion": "APPROXIMATE"
+  },
+  "structural_difference_from_REAL_002": {
+    "value": "walls drawn as exploded LINEs (not polylines); porch posts not on a column layer",
+    "assertion": "EXACT"
+  },
+  "separate_views_in_model_space": {
+    "value": 2,
+    "assertion": "EXACT"
+  },
+  "stairs": {
+    "value": 2,
+    "assertion": "EXACT"
+  }
+}

@@ -13,6 +13,7 @@ Conversion factors are exact (inch = 25.4 mm by definition).
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 from fireai.errors import FailureCode, PipelineFailure
@@ -104,7 +105,71 @@ def resolve_units(insunits: int | None, measurement: int | None, user_override: 
     return UnitResolution(insunits, None, None, "unresolved", None, hint, note)
 
 
-def unit_requirement(res: UnitResolution) -> dict:
+_ARCH_SCALE = re.compile(r"(\d+(?:\s+\d+/\d+|/\d+)?)\s*\"\s*=\s*1\s*'\s*-?\s*0?\s*\"?")
+_ENG_SCALE = re.compile(r"1\s*\"\s*=\s*(\d+(?:\.\d+)?)\s*'")
+_METRIC_SCALE = re.compile(r"\b1\s*:\s*(\d{1,5})\b")
+
+
+def _frac(txt: str) -> float:
+    total = 0.0
+    for part in txt.split():
+        if "/" in part:
+            a, b = part.split("/")
+            total += float(a) / float(b)
+        else:
+            total += float(part)
+    return total
+
+
+def stated_scale_ratios(texts: list[str]) -> list[dict]:
+    """Paper-length / real-length ratios stated in drawing text (e.g. SCALE: 1/8" = 1'-0" -> 1/96)."""
+    out = []
+    for t in texts:
+        if not t or "SCALE" not in t.upper():
+            continue
+        for m in _ARCH_SCALE.finditer(t):
+            out.append({"text": m.group(0), "ratio": _frac(m.group(1)) / 12.0})
+        for m in _ENG_SCALE.finditer(t):
+            out.append({"text": m.group(0), "ratio": 1.0 / (float(m.group(1)) * 12.0)})
+        for m in _METRIC_SCALE.finditer(t):
+            out.append({"text": m.group(0), "ratio": 1.0 / float(m.group(1))})
+    uniq = {}
+    for o in out:
+        uniq.setdefault(round(o["ratio"], 9), o)
+    return list(uniq.values())
+
+
+_CANDIDATES = {"in": [("in", 1.0), ("ft", 12.0)], "mm": [("mm", 1.0), ("cm", 10.0), ("m", 1000.0)]}
+
+
+def unit_evidence(viewports: list[dict], texts: list[str], tol: float = 0.02) -> dict:
+    """Evidence about model units from the drawing's own statements. NEVER applied
+    automatically: returned to the human with the unit-resolution requirement.
+
+    For a viewport showing r paper-units per model-unit and a stated scale with
+    paper/real ratio s, one model unit = r / s paper units of real length."""
+    stated = stated_scale_ratios(texts)
+    combos = []
+    for vp in viewports:
+        pu = vp.get("paper_units")
+        if pu not in _CANDIDATES:
+            continue
+        for st in stated:
+            length = vp["paper_units_per_model_unit"] / st["ratio"]
+            match = [u for u, ref in _CANDIDATES[pu] if abs(length - ref) / ref <= tol]
+            combos.append({"layout": vp.get("layout"), "viewport_ratio": vp["paper_units_per_model_unit"],
+                           "paper_units": pu, "stated_scale": st["text"], "model_unit_length_in_paper_units": length,
+                           "consistent_with": match[0] if match else None})
+    units = sorted({c["consistent_with"] for c in combos if c["consistent_with"]})
+    return {"status": "suggestion_only_not_applied",
+            "suggested_units": units[0] if len(units) == 1 else None,
+            "conflicting": len(units) > 1,
+            "consistent_units": units,
+            "stated_scales": [s["text"] for s in stated],
+            "viewports": viewports, "combinations": combos[:20]}
+
+
+def unit_requirement(res: UnitResolution, evidence: dict | None = None) -> dict:
     """The structured request returned to the user when units are unresolved."""
     return {
         "reason": res.note,
@@ -112,4 +177,5 @@ def unit_requirement(res: UnitResolution) -> dict:
         "measurement_system_hint": res.measurement_hint,
         "action": "Re-submit this drawing with an explicit 'units' value.",
         "accepted_units": sorted(FEET_PER_UNIT),
+        "evidence": evidence,
     }

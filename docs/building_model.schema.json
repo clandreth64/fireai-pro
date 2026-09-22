@@ -6,6 +6,18 @@
           "title": "Name",
           "type": "string"
         },
+        "effective_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Effective Name"
+        },
         "insert_count": {
           "default": 0,
           "title": "Insert Count",
@@ -95,6 +107,18 @@
         "id": {
           "title": "Id",
           "type": "string"
+        },
+        "uid": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Uid"
         },
         "category": {
           "enum": [
@@ -186,6 +210,12 @@
           "type": "object",
           "additionalProperties": true,
           "title": "Properties"
+        },
+        "placement": {
+          "$ref": "#/$defs/Placement"
+        },
+        "provenance": {
+          "$ref": "#/$defs/Provenance"
         }
       },
       "required": [
@@ -197,6 +227,88 @@
         "requires_verification"
       ],
       "title": "BuildingElement",
+      "type": "object"
+    },
+    "CoordinateFrame": {
+      "description": "A named coordinate frame and its affine transform to its parent frame.\n\n``matrix`` is a row-major 4x4 homogeneous matrix mapping a point in THIS\nframe's parent into this frame: p_this = M @ p_parent. ``None`` with\nstatus \"unresolved\" means the relationship is unknown (never assumed).",
+      "properties": {
+        "id": {
+          "enum": [
+            "SRC",
+            "SRC_FT",
+            "LOCAL",
+            "PROJECT"
+          ],
+          "title": "Id",
+          "type": "string"
+        },
+        "parent": {
+          "anyOf": [
+            {
+              "enum": [
+                "SRC",
+                "SRC_FT",
+                "LOCAL",
+                "PROJECT"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Parent"
+        },
+        "units": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Units"
+        },
+        "status": {
+          "default": "defined",
+          "enum": [
+            "defined",
+            "unresolved"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "matrix": {
+          "anyOf": [
+            {
+              "items": {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Matrix"
+        },
+        "description": {
+          "default": "",
+          "title": "Description",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "CoordinateFrame",
       "type": "object"
     },
     "Diagnostics": {
@@ -265,7 +377,7 @@
       "type": "object"
     },
     "Geometry": {
-      "description": "2D geometry. ``kind`` determines which fields are populated.",
+      "description": "2D plan geometry. ``kind`` determines which fields are populated.\n``frame`` names the coordinate frame the coordinates are expressed in.",
       "properties": {
         "kind": {
           "enum": [
@@ -453,6 +565,24 @@
           ],
           "default": null,
           "title": "Measurement"
+        },
+        "frame": {
+          "anyOf": [
+            {
+              "enum": [
+                "SRC",
+                "SRC_FT",
+                "LOCAL",
+                "PROJECT"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Frame"
         }
       },
       "required": [
@@ -579,6 +709,212 @@
       "title": "LayerInfo",
       "type": "object"
     },
+    "Placement": {
+      "description": "Spatial placement of an element. Everything defaults to UNKNOWN.\nValues are set only when the source establishes them \u2014 never inferred to\nmake the model look complete.",
+      "properties": {
+        "building_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Building Id"
+        },
+        "level_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Level Id"
+        },
+        "assignment_status": {
+          "default": "unassigned",
+          "enum": [
+            "unassigned",
+            "from_source",
+            "user"
+          ],
+          "title": "Assignment Status",
+          "type": "string"
+        },
+        "elevation_ft": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Elevation Ft"
+        },
+        "height_ft": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Height Ft"
+        },
+        "thickness_ft": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Thickness Ft"
+        },
+        "rotation_deg": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rotation Deg"
+        },
+        "z_status": {
+          "default": "unknown",
+          "enum": [
+            "unknown",
+            "from_source",
+            "user"
+          ],
+          "title": "Z Status",
+          "type": "string"
+        }
+      },
+      "title": "Placement",
+      "type": "object"
+    },
+    "Provenance": {
+      "description": "Where an object came from. Designed to extend (design, coordination,\nfabrication release) without changing its meaning.",
+      "properties": {
+        "origin": {
+          "enum": [
+            "source",
+            "deterministic_inference",
+            "design",
+            "human"
+          ],
+          "title": "Origin",
+          "type": "string"
+        },
+        "engine": {
+          "default": "fireai",
+          "title": "Engine",
+          "type": "string"
+        },
+        "engine_version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Engine Version"
+        },
+        "rule_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Rule Ids",
+          "type": "array"
+        },
+        "derived_from": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Derived From",
+          "type": "array"
+        },
+        "review": {
+          "$ref": "#/$defs/ReviewState"
+        }
+      },
+      "required": [
+        "origin"
+      ],
+      "title": "Provenance",
+      "type": "object"
+    },
+    "ReviewState": {
+      "properties": {
+        "status": {
+          "default": "unreviewed",
+          "enum": [
+            "unreviewed",
+            "confirmed",
+            "rejected",
+            "modified"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "by": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "By"
+        },
+        "at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "At"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Note"
+        }
+      },
+      "title": "ReviewState",
+      "type": "object"
+    },
     "ScaleInfo": {
       "properties": {
         "model_space_full_scale_assumed": {
@@ -622,6 +958,68 @@
         "id": {
           "title": "Id",
           "type": "string"
+        },
+        "uid": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Uid"
+        },
+        "handle_path": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Handle Path",
+          "type": "array"
+        },
+        "uid_basis": {
+          "default": "handle",
+          "enum": [
+            "handle",
+            "sequence"
+          ],
+          "title": "Uid Basis",
+          "type": "string"
+        },
+        "source_object_key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Object Key"
+        },
+        "z_range": {
+          "anyOf": [
+            {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "number"
+                }
+              ],
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Z Range"
         },
         "handle": {
           "anyOf": [
@@ -707,6 +1105,9 @@
           "additionalProperties": true,
           "title": "Attributes",
           "type": "object"
+        },
+        "provenance": {
+          "$ref": "#/$defs/Provenance"
         }
       },
       "required": [
@@ -768,6 +1169,86 @@
           ],
           "default": null,
           "title": "Converter"
+        },
+        "source_uid": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Uid"
+        },
+        "document_guid": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Document Guid"
+        },
+        "version_guid": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Version Guid"
+        },
+        "converted_dxf_sha256": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Converted Dxf Sha256"
+        },
+        "converter_log_tail": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Converter Log Tail"
+        },
+        "converter_warnings": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Converter Warnings",
+          "type": "array"
+        },
+        "conversion_audit": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Conversion Audit"
         }
       },
       "required": [
@@ -777,6 +1258,56 @@
         "size_bytes"
       ],
       "title": "SourceInfo",
+      "type": "object"
+    },
+    "SpatialStructure": {
+      "description": "Project -> Building -> Level hierarchy. Empty/unassigned until the source\n(or a person) establishes it; FireAI does not invent buildings or levels.",
+      "properties": {
+        "project_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Project Id"
+        },
+        "buildings": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Buildings",
+          "type": "array"
+        },
+        "levels": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Levels",
+          "type": "array"
+        },
+        "status": {
+          "default": "unassigned",
+          "enum": [
+            "unassigned",
+            "from_source",
+            "user"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "note": {
+          "default": "Building/level assignment not established from this source.",
+          "title": "Note",
+          "type": "string"
+        }
+      },
+      "title": "SpatialStructure",
       "type": "object"
     },
     "Transform": {
@@ -909,6 +1440,19 @@
           ],
           "default": null,
           "title": "Note"
+        },
+        "evidence": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Evidence"
         }
       },
       "title": "UnitsInfo",
@@ -917,7 +1461,7 @@
   },
   "properties": {
     "schema_version": {
-      "default": "0.1.0",
+      "default": "0.2.0",
       "title": "Schema Version",
       "type": "string"
     },
@@ -941,6 +1485,16 @@
     },
     "transform": {
       "$ref": "#/$defs/Transform"
+    },
+    "coordinate_frames": {
+      "items": {
+        "$ref": "#/$defs/CoordinateFrame"
+      },
+      "title": "Coordinate Frames",
+      "type": "array"
+    },
+    "spatial_structure": {
+      "$ref": "#/$defs/SpatialStructure"
     },
     "bounds_source": {
       "anyOf": [
@@ -1000,6 +1554,14 @@
         "type": "string"
       },
       "title": "Unclassified Entity Ids",
+      "type": "array"
+    },
+    "view_regions": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "View Regions",
       "type": "array"
     },
     "title_block": {

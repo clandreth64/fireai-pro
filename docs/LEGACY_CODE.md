@@ -4,7 +4,11 @@ Determined by a static AST import graph from `api/app.py` (including lazy/functi
 imports) after milestone 1. **Nothing has been deleted.** Deletion requires separate approval.
 
 Labels: **ACTIVE** (served app uses it) · **REUSABLE** (not used, worth keeping or porting) ·
-**OBSOLETE** (unreachable and not worth porting) · **UNCERTAIN** (decide with the owner).
+**OBSOLETE** (unreachable and not worth porting) · **DANGEROUS** (would produce false engineering
+claims or invented geometry if ever reconnected — must never be re-wired) · **UNCERTAIN** (decide with the owner).
+
+_Updated Milestone 1.5 (2026-09-22): import graph re-verified — the served app reaches only the `fireai/`
+package plus `TextExtractor` regexes in `fireai_project_extractor.py`. No legacy module was reconnected._
 
 ## Active
 
@@ -24,6 +28,19 @@ Labels: **ACTIVE** (served app uses it) · **REUSABLE** (not used, worth keeping
 | `s3_uploader.py` | Reasonable boto3 + presigned-URL pattern (unwired, boto3 missing) | Artifact storage |
 | `enhanced_hydraulics_engine.py` (Hardy-Cross class only) | Structurally plausible loop solver — reference only, untested | Hydraulics |
 | `geometry_extraction_engine.py`, `room_extractor.py` | shapely polygonize approach — reference only | Drawing understanding v2 |
+
+## Dangerous (never reconnect; remove first once deletion is approved)
+
+| File(s) | Why dangerous |
+|---|---|
+| `fireai_nfpa13_design_engine.py` (`_synthetic`, `_fill_zone_gaps`) | Invents buildings from floor area; reports `geometry_synthetic: False` in some paths |
+| `hydraulic_worksheet.py` | Wrong supply-curve exponent (0.54 vs 1.85) is non-conservative above test flow; density not enforced |
+| `agentic/` (`size_fire_pump`, auditor) | Flips failed §22 checks to "pass" by adding a pump |
+| `fireai_orchestrator_v2.py` | Treats a failed LLM review as compliant; AHJ agent writes permit text |
+| `fireai_document_processor.py`, `fireai_document_intelligence.py`, `pdf_building_extractor.py`, `document_analyzer.py` | DWG bytes sent to an LLM as PNG; LLM-guessed coordinates; synthetic dimensions and gap-fill rooms |
+| `master_fireai_orchestrator.py` | Placeholder "compliance" PDFs, mock routing |
+| `improvement_loop.py` | Rewrites prompts autonomously (unused output, unauthenticated trigger) |
+| `fireai_upload_ui.html`, `format_selector.html` | Advertise AHJ-ready / stamped deliverables |
 
 ## Obsolete (propose removal from the working tree; remains in git history)
 

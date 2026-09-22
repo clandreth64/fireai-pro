@@ -223,3 +223,117 @@ def make_hidden_only(path: Path) -> Path:
     layer.off()
     doc.saveas(path)
     return path
+
+
+# ── Milestone 1.5: fixtures reproducing real-world failure CLASSES (synthetic, no proprietary data) ──
+
+def make_two_plans(path: Path) -> Path:
+    """Two floor plans side by side in one model space (MULTIPLE_DRAWING_REGIONS)."""
+    doc = _new("ft")
+    for n in ("A-WALL", "A-AREA", "A-AREA-IDEN"):
+        doc.layers.add(n)
+    msp = doc.modelspace()
+    for ox, names in ((0, ("LOBBY", "OFFICE")), (150, ("BEDROOM", "BATH"))):
+        msp.add_lwpolyline([(ox, 0), (ox + 60, 0), (ox + 60, 40), (ox, 40)], close=True, dxfattribs={"layer": "A-WALL"})
+        msp.add_line((ox + 30, 0), (ox + 30, 40), dxfattribs={"layer": "A-WALL"})
+        for i, nm in enumerate(names):
+            x0 = ox + i * 30
+            msp.add_lwpolyline([(x0, 0), (x0 + 30, 0), (x0 + 30, 40), (x0, 40)], close=True, dxfattribs={"layer": "A-AREA"})
+            msp.add_text(nm, height=1, dxfattribs={"layer": "A-AREA-IDEN"}).set_placement((x0 + 10, 20))
+    doc.saveas(path)
+    return path
+
+
+def make_walls_only(path: Path, with_door: bool = True, closed_wall_pieces: bool = False,
+                    right_label: str = "SALES FLOOR") -> Path:
+    """Two rooms (20 x 20 ft) drawn only with double-line walls (0.5 ft), sharing a
+    wall with a 3 ft opening at y=8..11. No room/area layer. Labels: 'OFFICE' +
+    finish note 'HRWD FLOOR' (left), right_label (right). Optional door block in the
+    opening. closed_wall_pieces draws each wall piece as a closed polyline (like
+    real files) instead of exploded lines."""
+    doc = _new("ft")
+    for n in ("WALLS", "RMNAME", "DOORS"):
+        doc.layers.add(n)
+    msp = doc.modelspace()
+    if closed_wall_pieces:
+        pieces = [((0, 0), (40, 0.5)), ((0, 19.5), (40, 20)), ((0, 0), (0.5, 20)), ((39.5, 0), (40, 20)),
+                  ((19.75, 0.5), (20.25, 8)), ((19.75, 11), (20.25, 19.5))]
+        for (x0, y0), (x1, y1) in pieces:
+            msp.add_lwpolyline([(x0, y0), (x1, y0), (x1, y1), (x0, y1)], close=True, dxfattribs={"layer": "WALLS"})
+    else:
+        segs = [((0, 0), (40, 0)), ((40, 0), (40, 20)), ((40, 20), (0, 20)), ((0, 20), (0, 0)),       # outer face
+                ((0.5, 0.5), (39.5, 0.5)), ((39.5, 0.5), (39.5, 19.5)), ((39.5, 19.5), (0.5, 19.5)),  # inner face
+                ((0.5, 19.5), (0.5, 0.5)),
+                ((19.75, 0.5), (19.75, 8)), ((20.25, 0.5), (20.25, 8)), ((19.75, 8), (20.25, 8)),     # partition + jambs
+                ((19.75, 11), (19.75, 19.5)), ((20.25, 11), (20.25, 19.5)), ((19.75, 11), (20.25, 11))]
+        for a, b in segs:
+            msp.add_line(a, b, dxfattribs={"layer": "WALLS"})
+    if with_door:
+        blk = doc.blocks.new("DOOR")
+        blk.add_line((0, 0), (3, 0))
+        blk.add_arc((0, 0), 3, 0, 90)
+        msp.add_blockref("DOOR", (20.25, 8), dxfattribs={"layer": "DOORS", "rotation": 90})
+    msp.add_mtext("OFFICE\PHRWD FLOOR", dxfattribs={"layer": "RMNAME", "char_height": 1, "insert": (8, 12)})
+    msp.add_text(right_label, height=1, dxfattribs={"layer": "RMNAME"}).set_placement((27, 12))
+    doc.saveas(path)
+    return path
+
+
+def make_dynamic_door(path: Path) -> Path:
+    """A door inserted as an anonymous dynamic-block copy (*U) on a NON-door layer;
+    only the effective name ('Door') identifies it."""
+    doc = _new("ft")
+    doc.layers.add("A-WALL"); doc.layers.add("MISC")
+    doc.appids.add("AcDbBlockRepBTag")
+    door = doc.blocks.new("Door")
+    door.add_line((0, 0), (3, 0)); door.add_arc((0, 0), 3, 0, 90)
+    anon = doc.blocks.new_anonymous_block("U")
+    anon.add_line((0, 0), (3, 0)); anon.add_arc((0, 0), 3, 0, 90)
+    anon.block_record.set_xdata("AcDbBlockRepBTag", [(1070, 1), (1005, door.block_record.dxf.handle)])
+    msp = doc.modelspace()
+    msp.add_lwpolyline([(0, 0), (30, 0), (30, 20), (0, 20)], close=True, dxfattribs={"layer": "A-WALL"})
+    msp.add_blockref(anon.name, (10, 0), dxfattribs={"layer": "MISC"})
+    doc.saveas(path)
+    return path
+
+
+def make_multileader(path: Path) -> Path:
+    doc = _new("ft")
+    doc.layers.add("A-WALL"); doc.layers.add("A-ANNO-NOTE")
+    msp = doc.modelspace()
+    msp.add_lwpolyline([(0, 0), (30, 0), (30, 20), (0, 20)], close=True, dxfattribs={"layer": "A-WALL"})
+    ml = msp.add_multileader_mtext("Standard", dxfattribs={"layer": "A-ANNO-NOTE"})
+    ml.set_content("GYP BD CEILING", char_height=0.5)
+    from ezdxf.render.mleader import ConnectionSide
+    ml.add_leader_line(ConnectionSide.left, [(10, 10)])
+    from ezdxf.math import Vec2
+    ml.build(insert=Vec2(15, 15))
+    doc.saveas(path)
+    return path
+
+
+def make_wall_qualifiers(path: Path) -> Path:
+    doc = _new("ft")
+    for n in ("A-WALL", "A-WALL-ABOVE", "A-WALL-DEMO"):
+        doc.layers.add(n)
+    msp = doc.modelspace()
+    msp.add_lwpolyline([(0, 0), (30, 0), (30, 20), (0, 20)], close=True, dxfattribs={"layer": "A-WALL"})
+    msp.add_line((10, 0), (10, 20), dxfattribs={"layer": "A-WALL-ABOVE"})
+    msp.add_line((20, 0), (20, 20), dxfattribs={"layer": "A-WALL-DEMO"})
+    doc.saveas(path)
+    return path
+
+
+def make_unitless_with_scale_evidence(path: Path, viewport_ratio: float = 1 / 96,
+                                      scale_text: str = "SCALE: 1/8\" = 1'-0\"") -> Path:
+    """Unitless drawing whose paper space states its scale (viewport + title text)."""
+    make_simple_rect(path)
+    doc = ezdxf.readfile(path)
+    doc.header["$INSUNITS"] = 0
+    layout = doc.layouts.new("A1")
+    layout.dxf_layout.dxf.plot_paper_units = 0          # inches
+    h = 6.0
+    layout.add_viewport(center=(5, 4), size=(8, h), view_center_point=(240, 180), view_height=h / viewport_ratio)
+    layout.add_text(scale_text, height=0.1).set_placement((1, 0.5))
+    doc.saveas(path)
+    return path

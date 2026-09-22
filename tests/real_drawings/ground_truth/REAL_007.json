@@ -1,0 +1,29 @@
+{
+  "id": "REAL_007",
+  "review": {
+    "method": "AI-assisted visual review of source.png + DXF tables; independent of FireAI output",
+    "status": "PENDING_HUMAN_CONFIRMATION",
+    "date": "2026-09-22"
+  },
+  "drawing_type": {
+    "value": "LibreDWG 'example' feature test drawing (not a building)",
+    "assertion": "EXACT"
+  },
+  "units": {
+    "value": "mm",
+    "assertion": "EXACT",
+    "note": "header $INSUNITS=4"
+  },
+  "extents": {
+    "value": "~11 km zig-zag polyline + giant text",
+    "assertion": "EXACT"
+  },
+  "rooms": {
+    "value": 0,
+    "assertion": "EXACT"
+  },
+  "dwg_dxf_equivalence": {
+    "value": "geometry identical for shared entities; converter omits ACAD_TABLE",
+    "assertion": "EXACT"
+  }
+}

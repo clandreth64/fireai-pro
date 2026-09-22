@@ -6,3 +6,4 @@ __pycache__
 .ruff_cache
 .pytest_cache
 tests/real_drawings_local
+tests/real_drawings_outputs_local

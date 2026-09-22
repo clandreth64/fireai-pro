@@ -18,10 +18,11 @@ from shapely.ops import polygonize, unary_union
 from shapely.prepared import prep
 from shapely.validation import make_valid
 
-from fireai.ingest.extract import geometry_points
+from fireai import __version__
+from fireai.ingest.extract import geometry_points, uid_for
 from fireai.interpret import rules as R
-from fireai.interpret.text import parse_room_label, parse_title_block, split_lines
-from fireai.model import BuildingElement, Geometry, Issue, SourceEntity
+from fireai.interpret.text import is_finish_note, parse_room_label, parse_title_block, split_lines
+from fireai.model import BuildingElement, Geometry, Issue, Placement, Provenance, SourceEntity
 
 VERIFY_BELOW = 0.80           # elements below this confidence require human verification
 MIN_ROOM_AREA_SF = 4.0
@@ -30,6 +31,11 @@ WALL_CAVITY_MAX_WIDTH_FT = 1.5  # faces thinner than this between wall lines are
 CLUSTER_TOL_FT = 0.25
 MAX_COLUMN_SIZE_FT = 5.0
 AREA_LABEL_TOLERANCE = 0.05
+DOOR_CLOSURE_MIN_FT = 1.5      # shorter pairs are wall thickness, not an opening
+DOOR_CLOSURE_MAX_FT = 8.0      # widest opening bridged (pair of doors)
+DOOR_CLOSURE_MARGIN_FT = 0.75  # search margin around a door's footprint
+WALL_QUALIFIER_TOKENS = {"ABOVE", "BELOW", "OVHD", "OVERHEAD", "HIDDEN", "DEMO", "DEMOLITION", "DEMOLISH",
+                         "FUTURE", "NIC", "EXIST", "EXISTING", "REMOVE", "RMV"}
 
 DRAWABLE = {"line", "polyline", "arc", "circle", "hatch", "point"}
 POINT_ROLES = {"existing_fire_protection", "existing_mep", "structural", "ceiling"}
@@ -60,7 +66,8 @@ def _conf_flag(c: float) -> bool:
 
 class Interpreter:
     def __init__(self, entities: list[SourceEntity], layer_roles: dict[str, R.RoleMatch | None],
-                 block_roles: dict[str, R.RoleMatch | None]):
+                 block_roles: dict[str, R.RoleMatch | None], source_uid: str | None = None):
+        self.source_uid = source_uid
         self.all = entities
         self.by_id = {e.id: e for e in entities}
         self.children: dict[str, list[SourceEntity]] = defaultdict(list)
@@ -118,8 +125,18 @@ class Interpreter:
         return ids
 
     def add(self, category, confidence, evidence, rules, source_ents, geometry=None, label=None,
-            subtype=None, properties=None, force_verify=False) -> BuildingElement:
+            subtype=None, properties=None, force_verify=False, placement: Placement | None = None) -> BuildingElement:
+        if geometry is not None and geometry.frame is None:
+            geometry = geometry.model_copy(update={"frame": "LOCAL"})
+        src_uids = [e.uid for e in source_ents if e.uid]
+        rule_ids = sorted(set(rules))
+        uid = (uid_for(self.source_uid, f"element|{category}|{subtype}|{'|'.join(sorted(src_uids))}|{','.join(rule_ids)}")
+               if self.source_uid and src_uids else None)
         el = BuildingElement(
+            uid=uid,
+            placement=placement or Placement(),
+            provenance=Provenance(origin="deterministic_inference", engine="fireai.interpret",
+                                  engine_version=__version__, rule_ids=rule_ids, derived_from=src_uids),
             id=self._id({"wall": "W", "door": "D", "window": "WN", "room": "R", "area": "A", "column": "C",
                          "stair": "ST", "shaft": "SH", "structural": "S", "grid_line": "G",
                          "text_annotation": "T", "dimension": "DM", "title_block": "TB", "ceiling": "CL",
@@ -158,6 +175,13 @@ class Interpreter:
             if not b and not lr:
                 continue
             role = (b or lr).role
+            if role == "view_title":
+                texts = [d for d in self.descendants(e) if d.source and d.source.kind == "text" and d.source.text]
+                label = " / ".join(" ".join(d.source.text.split()) for d in texts)[:120] or None
+                self.add("text_annotation", b.confidence, [b.evidence, f"{len(texts)} text item(s) in view title"],
+                         [b.rule_id], [e], label=label, subtype="view_title",
+                         properties={"space": e.space, "block": block})
+                continue
             conf, evidence, rule_ids = 0.0, [], []
             for m in (b, lr):
                 if m and m.role == role:
@@ -185,7 +209,8 @@ class Interpreter:
                 evidence.append("width = larger side of block footprint (not a verified opening width)")
             category = role if role != "stair" else "stair"
             self.add(category, conf, evidence, rule_ids, [e], geometry=_bbox_poly(bb) if bb else None,
-                     label=block, subtype="block_reference", properties=props)
+                     label=block, subtype="block_reference", properties=props,
+                     placement=Placement(rotation_deg=e.attributes.get("rotation")))
 
     def _title_block_layers(self):
         ents = [e for e in self.model_entities() if e.id not in self.claimed and e.type != "INSERT"
@@ -245,6 +270,14 @@ class Interpreter:
             subtype = "poche_fill" if e.normalized.kind == "hatch" else "wall_linework"
             ev = [r.evidence, f"{e.type} geometry on wall layer",
                   "single linework entity; wall thickness and wall pairing not determined in this milestone"]
+            qual = sorted(set(R.tokens(e.layer)) & WALL_QUALIFIER_TOKENS)
+            if qual:
+                ev.append(f"layer qualifier {qual}: wall may be above/below the cut plane, existing-to-remove, or "
+                          "future - it may not be a wall at this level")
+                self.add("wall", min(r.confidence, 0.5), ev, [r.rule_id, "L-WALL-QUALIFIER"], [e], geometry=e.normalized,
+                         subtype="qualified_" + qual[0].lower(), force_verify=True,
+                         properties={"length_ft": round(_length(e.normalized), 3), "layer_qualifiers": qual})
+                continue
             if e.block_path:
                 ev.append(f"inside block(s) {' > '.join(e.block_path)}")
             self.add("wall", r.confidence, ev, [r.rule_id], [e], geometry=e.normalized, subtype=subtype,
@@ -329,7 +362,7 @@ class Interpreter:
                 if repaired:
                     ev.append("self-intersecting boundary was repaired (make_valid)")
                 cands.append((poly, [e], r.confidence if not repaired else min(r.confidence, 0.6), ev,
-                              [r.rule_id], "area_layer_polyline"))
+                              [r.rule_id], "area_layer_polyline", []))
 
         method = "area_layer_polyline"
         if not cands:
@@ -343,22 +376,35 @@ class Interpreter:
                     lines.append(LineString(pts))
             if lines:
                 method = "polygonized_wall_linework"
-                for face in polygonize(unary_union(lines)):
+                closures = self._door_closures(walls, lines)
+                closure_lines = [c["line"] for c in closures]
+                for face in polygonize(unary_union(lines + closure_lines)):
                     if face.area < MIN_POLYGONIZED_ROOM_SF:
                         continue
                     mrr = face.minimum_rotated_rectangle
                     xs, ys = mrr.exterior.coords.xy
                     sides = [math.dist((xs[i], ys[i]), (xs[i + 1], ys[i + 1])) for i in range(2)]
-                    if min(sides) < WALL_CAVITY_MAX_WIDTH_FT:
-                        continue  # cavity between parallel wall lines
+                    mean_width = 2.0 * face.area / face.length if face.length else 0.0
+                    if min(sides) < WALL_CAVITY_MAX_WIDTH_FT or mean_width < WALL_CAVITY_MAX_WIDTH_FT:
+                        continue  # cavity between parallel wall lines (incl. rings around the building)
                     ring = face.exterior.buffer(0.05)
                     src_ids = [sid for w in walls for sid in w.source_entity_ids
                                if ring.intersects(LineString(w.geometry.points))] if walls else []
                     src = [self.by_id[i] for i in dict.fromkeys(src_ids)]
-                    cands.append((face, src, 0.6,
-                                  ["region fully enclosed by wall linework (polygonize)",
-                                   "no room/area-layer boundary exists in this drawing"],
-                                  ["G-POLYGONIZE-WALLS"], method))
+                    used = [c for c in closures if ring.intersects(c["line"])]
+                    ev = ["region enclosed by wall linework (polygonize)",
+                          "no room/area-layer boundary exists in this drawing"]
+                    rules_used = ["G-POLYGONIZE-WALLS"]
+                    conf = 0.6
+                    if used:
+                        door_ids = ", ".join(sorted({c["door_id"] for c in used}))
+                        ev.append(f"closed across {len(used)} door opening line(s) ({door_ids}) with analysis lines "
+                                  "between wall vertices at the door; these lines are not walls")
+                        rules_used.append("G-DOOR-OPENING-CLOSURE")
+                        conf = 0.55
+                    cands.append((face, src, conf, ev, rules_used, method,
+                                  [{"door_id": c["door_id"], "from": list(c["line"].coords[0]),
+                                    "to": list(c["line"].coords[-1])} for c in used]))
 
         # Gross boundaries: polygons containing >= 2 other candidates are areas, not rooms.
         rooms, areas = [], []
@@ -379,27 +425,57 @@ class Interpreter:
                 labels[min(inside)[1]].append(t)
         label_role_texts = [t for t in texts if (r := self.role(t)) and r.role == "room_label"]
 
-        for idx, ((poly, src, conf, ev, rule_ids, meth), _) in enumerate(rooms):
+        for idx, ((poly, src, conf, ev, rule_ids, meth, door_closures), _) in enumerate(rooms):
             ev = list(ev)
+            rule_ids = list(rule_ids)
             candidates = labels.get(idx, [])
             # Prefer text on room-label layers; otherwise short text only.
             preferred = [t for t in candidates if (r := self.role(t)) and r.role in ("room_label", "room_boundary")]
             chosen = preferred or [t for t in candidates if len(t.normalized.text) <= 40]
-            parsed = parse_room_label([ln for t in chosen for ln in split_lines(t.normalized.text)])
-            name = " ".join(parsed["name_parts"]) or None
+            # Parse each text entity separately; never concatenate different entities into one name.
+            names, numbers, stated_areas, notes = [], [], [], []
+            for t in chosen:
+                lines = split_lines(t.normalized.text)
+                keep = [ln for ln in lines if not is_finish_note(ln)]
+                notes += [ln for ln in lines if is_finish_note(ln)]
+                pt = parse_room_label(keep)
+                if pt["name_parts"]:
+                    names.append(" ".join(pt["name_parts"]))
+                if pt["number"]:
+                    numbers.append(pt["number"])
+                if pt["stated_area_sf"] is not None:
+                    stated_areas.append(pt["stated_area_sf"])
+            names_u, numbers_u = list(dict.fromkeys(names)), list(dict.fromkeys(numbers))
+            ambiguous = len(names_u) > 1 or len(numbers_u) > 1 or len(set(stated_areas)) > 1
+            parsed = {"stated_area_sf": stated_areas[0] if len(set(stated_areas)) == 1 else None}
+            name = names_u[0] if len(names_u) == 1 else None
+            number = numbers_u[0] if len(numbers_u) == 1 else None
             props = {"area_sf": round(poly.area, 2), "perimeter_ft": round(poly.length, 2),
-                     "name": name, "number": parsed["number"], "detection_method": meth,
-                     "label_entity_ids": [t.id for t in chosen]}
+                     "name": None if ambiguous else name, "number": None if ambiguous else number,
+                     "detection_method": meth, "label_entity_ids": [t.id for t in chosen]}
+            if door_closures:
+                props["door_closures"] = door_closures
+            if notes:
+                props["finish_notes"] = notes
+                rule_ids.append("T-FINISH-NOTE")
             verify = False
+            subtype = None
             if chosen:
                 ev.append(f"label text inside boundary: {[t.normalized.text for t in chosen]}")
                 if not preferred:
                     ev.append("label text is not on a room-label layer")
-                if len(parsed["name_parts"]) > 1:
-                    ev.append("multiple name candidates — ambiguous label")
-                    verify = True
+                if notes:
+                    ev.append(f"finish/annotation notes not used as names: {notes}")
             else:
                 ev.append("no label text found inside boundary")
+                verify = True
+            if ambiguous:
+                props["name_candidates"] = names_u
+                props["number_candidates"] = numbers_u
+                ev.append(f"{len(names_u)} distinct room names / {len(numbers_u)} numbers inside ONE boundary - "
+                          "the boundary probably spans several rooms (e.g. through openings); no name assigned")
+                subtype = "suspected_merged_region"
+                conf = min(conf, 0.3)
                 verify = True
             if parsed["stated_area_sf"] is not None:
                 stated = parsed["stated_area_sf"]
@@ -411,15 +487,20 @@ class Interpreter:
                 else:
                     ev.append(f"stated area {stated:,.0f} sf DISAGREES with computed {poly.area:,.0f} sf ({err:.1%})")
                     verify = True
-            label = " ".join(x for x in (name, parsed["number"]) if x) or None
+            label = None if ambiguous else (" ".join(x for x in (name, number) if x) or None)
             el = self.add("room", conf, ev, rule_ids, list(src) + chosen, geometry=_poly_geom(poly),
-                          label=label, properties=props, force_verify=verify)
+                          label=label, properties=props, force_verify=verify, subtype=subtype)
+            if ambiguous:
+                shown = ", ".join(names_u[:6]) + ("..." if len(names_u) > 6 else "")
+                self.out.issues.append(Issue(code="ROOM_BOUNDARY_SPANS_MULTIPLE_LABELS", element_ids=[el.id],
+                                             message=f"Region {el.id} ({poly.area:,.0f} sf) contains {len(names_u)} different "
+                                                     f"room names ({shown}); it is probably several rooms merged through openings."))
             if "stated_area_sf" in props and props["stated_vs_computed_error"] > AREA_LABEL_TOLERANCE:
                 self.out.issues.append(Issue(code="ROOM_AREA_LABEL_MISMATCH", element_ids=[el.id],
                                              message=f"Room {label or el.id}: stated area {props['stated_area_sf']:,.0f} sf vs "
                                                      f"computed {props['area_sf']:,.0f} sf. Units, scale, or boundary may be wrong."))
 
-        for (poly, src, conf, ev, rule_ids, meth), inner in areas:
+        for (poly, src, conf, ev, rule_ids, meth, _dc), inner in areas:
             self.add("area", conf, ev + [f"contains {inner} other boundaries — treated as a gross/overall area, not a room"],
                      rule_ids, src, geometry=_poly_geom(poly), subtype="gross_boundary",
                      properties={"area_sf": round(poly.area, 2), "detection_method": meth})
@@ -429,6 +510,50 @@ class Interpreter:
             self.out.issues.append(Issue(code="UNASSOCIATED_ROOM_LABELS", entity_ids=[t.id for t in unassoc],
                                          message=f"{len(unassoc)} room-label text item(s) are not inside any detected room boundary: "
                                                  + ", ".join(repr(t.normalized.text) for t in unassoc[:10])))
+
+    def _door_closures(self, walls, wall_lines) -> list[dict]:
+        """Analysis-only segments bridging wall openings at detected doors (rule
+        G-DOOR-OPENING-CLOSURE). Vertices of wall linework inside a door's footprint
+        (+margin) are paired shortest-first within [MIN, MAX] ft; pairs that would cross
+        existing wall linework are rejected. Never stored as walls."""
+        doors = [el for el in self.out.elements if el.category == "door" and el.geometry and el.geometry.points]
+        if not doors:
+            return []
+        verts = []
+        for w in walls:
+            for p in (w.geometry.points if w.geometry else []):
+                verts.append((round(p[0], 6), round(p[1], 6)))
+        verts = list(dict.fromkeys(verts))
+        wall_union = unary_union(wall_lines)
+        out = []
+        for d in doors:
+            xs = [p[0] for p in d.geometry.points]
+            ys = [p[1] for p in d.geometry.points]
+            m = DOOR_CLOSURE_MARGIN_FT
+            near = [v for v in verts if min(xs) - m <= v[0] <= max(xs) + m and min(ys) - m <= v[1] <= max(ys) + m]
+            pairs = sorted((math.dist(a, b), a, b) for i, a in enumerate(near) for b in near[i + 1:]
+                           if DOOR_CLOSURE_MIN_FT <= math.dist(a, b) <= DOOR_CLOSURE_MAX_FT)
+            used: set = set()
+            for _dist, a, b in pairs:
+                if a in used or b in used:
+                    continue
+                seg = LineString([a, b])
+                if seg.within(wall_union.buffer(1e-6)):
+                    continue  # runs along an existing wall line: not an opening
+                inter = seg.intersection(wall_union)
+                crossing = False
+                if not inter.is_empty:
+                    if inter.geom_type not in ("Point", "MultiPoint"):
+                        crossing = True
+                    else:
+                        for q in getattr(inter, "geoms", [inter]):
+                            if min(math.dist((q.x, q.y), a), math.dist((q.x, q.y), b)) > 1e-4:
+                                crossing = True
+                if crossing:
+                    continue  # would cross a wall between its endpoints
+                used.update((a, b))
+                out.append({"door_id": d.id, "line": seg})
+        return out
 
     def _text(self):
         for e in self.all:

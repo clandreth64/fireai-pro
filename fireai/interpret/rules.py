@@ -123,10 +123,17 @@ def classify_layer(name: str) -> RoleMatch | None:
     return None
 
 
+VIEW_TITLE_QUALIFIERS = {"DRAWING", "VIEW", "DETAIL", "SECTION", "PLAN", "ELEVATION", "ELEV", "DWG"}
+
+
 def classify_block(name: str) -> RoleMatch | None:
     if name.startswith("*"):  # anonymous blocks (dimensions, hatches, dynamic block copies)
         return None
     toks = tokens(name)
+    # Rule B-VIEW-TITLE: "Drawing Title", "View Title", "Section Title"... label a VIEW, not the sheet.
+    if "TITLE" in toks and set(toks) & VIEW_TITLE_QUALIFIERS:
+        return RoleMatch("view_title", CONF_KEYWORD + 0.05, "B-VIEW-TITLE",
+                         f"block name '{name}' combines TITLE with a view word -> view title callout (rule B-VIEW-TITLE)")
     for rule in BLOCK_RULES:
         hit = next((t for t in toks if t in rule.tokens), None)
         if hit:

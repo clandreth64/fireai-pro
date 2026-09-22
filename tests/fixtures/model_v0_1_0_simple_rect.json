@@ -1,0 +1,600 @@
+{
+ "schema_version": "0.1.0",
+ "model_id": "615539df87e548348958236111148586",
+ "created_at": "2026-09-22T20:44:09.088778+00:00",
+ "fireai_version": "0.1.0",
+ "source": {
+  "filename": "synthetic_simple_rect_ft.dxf",
+  "format": "dxf",
+  "sha256": "a61cbfda532d9c36e6ea9226b8671624cc701e90bb32c9b247adc5deaed60a13",
+  "size_bytes": 55446,
+  "dxf_version": "AC1032",
+  "converted_from_dwg": false,
+  "converter": null
+ },
+ "units": {
+  "insunits_code": 2,
+  "detected_units": "ft",
+  "resolved_units": "ft",
+  "resolution_method": "drawing_header",
+  "normalized_units": "ft",
+  "scale_to_normalized": 1.0,
+  "measurement_system_hint": "metric",
+  "resolved": true,
+  "note": null
+ },
+ "transform": {
+  "origin": [
+   0.0,
+   0.0
+  ],
+  "scale": 1.0
+ },
+ "bounds_source": {
+  "min": [
+   0.0,
+   0.0
+  ],
+  "max": [
+   40.0,
+   30.0
+  ]
+ },
+ "bounds_normalized": {
+  "min": [
+   0.0,
+   0.0
+  ],
+  "max": [
+   40.0,
+   30.0
+  ]
+ },
+ "scale": {
+  "model_space_full_scale_assumed": true,
+  "dimension_checks": [],
+  "viewport_scales": [],
+  "title_block_scale_text": null
+ },
+ "layers": [
+  {
+   "name": "0",
+   "color": 7,
+   "is_off": false,
+   "is_frozen": false,
+   "entity_count": 0,
+   "entity_types": {},
+   "inferred_role": null,
+   "role_confidence": 0.0,
+   "role_rule": null
+  },
+  {
+   "name": "A-AREA",
+   "color": 7,
+   "is_off": false,
+   "is_frozen": false,
+   "entity_count": 1,
+   "entity_types": {
+    "LWPOLYLINE": 1
+   },
+   "inferred_role": "room_boundary",
+   "role_confidence": 0.9,
+   "role_rule": "L-ROOM"
+  },
+  {
+   "name": "A-AREA-IDEN",
+   "color": 7,
+   "is_off": false,
+   "is_frozen": false,
+   "entity_count": 1,
+   "entity_types": {
+    "TEXT": 1
+   },
+   "inferred_role": "room_label",
+   "role_confidence": 0.9,
+   "role_rule": "L-ROOM-LABEL"
+  },
+  {
+   "name": "A-WALL",
+   "color": 7,
+   "is_off": false,
+   "is_frozen": false,
+   "entity_count": 2,
+   "entity_types": {
+    "LWPOLYLINE": 2
+   },
+   "inferred_role": "wall",
+   "role_confidence": 0.9,
+   "role_rule": "L-WALL"
+  },
+  {
+   "name": "Defpoints",
+   "color": 7,
+   "is_off": false,
+   "is_frozen": false,
+   "entity_count": 0,
+   "entity_types": {},
+   "inferred_role": "ignore",
+   "role_confidence": 0.75,
+   "role_rule": "L-IGNORE-DEFPOINTS"
+  }
+ ],
+ "blocks": [],
+ "entities": [
+  {
+   "id": "E000001",
+   "handle": "8D",
+   "type": "LWPOLYLINE",
+   "layer": "A-WALL",
+   "space": "model",
+   "parent_id": null,
+   "block_path": [],
+   "visible": true,
+   "supported": true,
+   "source": {
+    "kind": "polyline",
+    "points": [
+     [
+      0.0,
+      0.0
+     ],
+     [
+      40.0,
+      0.0
+     ],
+     [
+      40.0,
+      30.0
+     ],
+     [
+      0.0,
+      30.0
+     ]
+    ],
+    "closed": true,
+    "center": null,
+    "radius": null,
+    "start_angle": null,
+    "end_angle": null,
+    "paths": [],
+    "insert": null,
+    "text": null,
+    "height": null,
+    "rotation": null,
+    "measurement": null
+   },
+   "normalized": {
+    "kind": "polyline",
+    "points": [
+     [
+      0.0,
+      0.0
+     ],
+     [
+      40.0,
+      0.0
+     ],
+     [
+      40.0,
+      30.0
+     ],
+     [
+      0.0,
+      30.0
+     ]
+    ],
+    "closed": true,
+    "center": null,
+    "radius": null,
+    "start_angle": null,
+    "end_angle": null,
+    "paths": [],
+    "insert": null,
+    "text": null,
+    "height": null,
+    "rotation": null,
+    "measurement": null
+   },
+   "attributes": {
+    "has_arc_segments": false
+   }
+  },
+  {
+   "id": "E000002",
+   "handle": "8E",
+   "type": "LWPOLYLINE",
+   "layer": "A-WALL",
+   "space": "model",
+   "parent_id": null,
+   "block_path": [],
+   "visible": true,
+   "supported": true,
+   "source": {
+    "kind": "polyline",
+    "points": [
+     [
+      0.5,
+      0.5
+     ],
+     [
+      39.5,
+      0.5
+     ],
+     [
+      39.5,
+      29.5
+     ],
+     [
+      0.5,
+      29.5
+     ]
+    ],
+    "closed": true,
+    "center": null,
+    "radius": null,
+    "start_angle": null,
+    "end_angle": null,
+    "paths": [],
+    "insert": null,
+    "text": null,
+    "height": null,
+    "rotation": null,
+    "measurement": null
+   },
+   "normalized": {
+    "kind": "polyline",
+    "points": [
+     [
+      0.5,
+      0.5
+     ],
+     [
+      39.5,
+      0.5
+     ],
+     [
+      39.5,
+      29.5
+     ],
+     [
+      0.5,
+      29.5
+     ]
+    ],
+    "closed": true,
+    "center": null,
+    "radius": null,
+    "start_angle": null,
+    "end_angle": null,
+    "paths": [],
+    "insert": null,
+    "text": null,
+    "height": null,
+    "rotation": null,
+    "measurement": null
+   },
+   "attributes": {
+    "has_arc_segments": false
+   }
+  },
+  {
+   "id": "E000003",
+   "handle": "8F",
+   "type": "LWPOLYLINE",
+   "layer": "A-AREA",
+   "space": "model",
+   "parent_id": null,
+   "block_path": [],
+   "visible": true,
+   "supported": true,
+   "source": {
+    "kind": "polyline",
+    "points": [
+     [
+      0.5,
+      0.5
+     ],
+     [
+      39.5,
+      0.5
+     ],
+     [
+      39.5,
+      29.5
+     ],
+     [
+      0.5,
+      29.5
+     ]
+    ],
+    "closed": true,
+    "center": null,
+    "radius": null,
+    "start_angle": null,
+    "end_angle": null,
+    "paths": [],
+    "insert": null,
+    "text": null,
+    "height": null,
+    "rotation": null,
+    "measurement": null
+   },
+   "normalized": {
+    "kind": "polyline",
+    "points": [
+     [
+      0.5,
+      0.5
+     ],
+     [
+      39.5,
+      0.5
+     ],
+     [
+      39.5,
+      29.5
+     ],
+     [
+      0.5,
+      29.5
+     ]
+    ],
+    "closed": true,
+    "center": null,
+    "radius": null,
+    "start_angle": null,
+    "end_angle": null,
+    "paths": [],
+    "insert": null,
+    "text": null,
+    "height": null,
+    "rotation": null,
+    "measurement": null
+   },
+   "attributes": {
+    "has_arc_segments": false
+   }
+  },
+  {
+   "id": "E000004",
+   "handle": "90",
+   "type": "TEXT",
+   "layer": "A-AREA-IDEN",
+   "space": "model",
+   "parent_id": null,
+   "block_path": [],
+   "visible": true,
+   "supported": true,
+   "source": {
+    "kind": "text",
+    "points": [],
+    "closed": false,
+    "center": null,
+    "radius": null,
+    "start_angle": null,
+    "end_angle": null,
+    "paths": [],
+    "insert": [
+     15.0,
+     15.0
+    ],
+    "text": "OPEN AREA 100",
+    "height": 1.0,
+    "rotation": 0.0,
+    "measurement": null
+   },
+   "normalized": {
+    "kind": "text",
+    "points": [],
+    "closed": false,
+    "center": null,
+    "radius": null,
+    "start_angle": null,
+    "end_angle": null,
+    "paths": [],
+    "insert": [
+     15.0,
+     15.0
+    ],
+    "text": "OPEN AREA 100",
+    "height": 1.0,
+    "rotation": 0.0,
+    "measurement": null
+   },
+   "attributes": {}
+  }
+ ],
+ "elements": [
+  {
+   "id": "W00001",
+   "category": "wall",
+   "subtype": "wall_linework",
+   "label": null,
+   "confidence": 0.9,
+   "evidence": [
+    "layer 'A-WALL' token 'WALL' matches rule L-WALL (walls)",
+    "LWPOLYLINE geometry on wall layer",
+    "single linework entity; wall thickness and wall pairing not determined in this milestone"
+   ],
+   "rules": [
+    "L-WALL"
+   ],
+   "source_entity_ids": [
+    "E000001"
+   ],
+   "requires_verification": false,
+   "geometry": {
+    "kind": "polyline",
+    "points": [
+     [
+      0.0,
+      0.0
+     ],
+     [
+      40.0,
+      0.0
+     ],
+     [
+      40.0,
+      30.0
+     ],
+     [
+      0.0,
+      30.0
+     ]
+    ],
+    "closed": true,
+    "center": null,
+    "radius": null,
+    "start_angle": null,
+    "end_angle": null,
+    "paths": [],
+    "insert": null,
+    "text": null,
+    "height": null,
+    "rotation": null,
+    "measurement": null
+   },
+   "properties": {
+    "length_ft": 140.0
+   }
+  },
+  {
+   "id": "W00002",
+   "category": "wall",
+   "subtype": "wall_linework",
+   "label": null,
+   "confidence": 0.9,
+   "evidence": [
+    "layer 'A-WALL' token 'WALL' matches rule L-WALL (walls)",
+    "LWPOLYLINE geometry on wall layer",
+    "single linework entity; wall thickness and wall pairing not determined in this milestone"
+   ],
+   "rules": [
+    "L-WALL"
+   ],
+   "source_entity_ids": [
+    "E000002"
+   ],
+   "requires_verification": false,
+   "geometry": {
+    "kind": "polyline",
+    "points": [
+     [
+      0.5,
+      0.5
+     ],
+     [
+      39.5,
+      0.5
+     ],
+     [
+      39.5,
+      29.5
+     ],
+     [
+      0.5,
+      29.5
+     ]
+    ],
+    "closed": true,
+    "center": null,
+    "radius": null,
+    "start_angle": null,
+    "end_angle": null,
+    "paths": [],
+    "insert": null,
+    "text": null,
+    "height": null,
+    "rotation": null,
+    "measurement": null
+   },
+   "properties": {
+    "length_ft": 136.0
+   }
+  },
+  {
+   "id": "R00003",
+   "category": "room",
+   "subtype": null,
+   "label": "OPEN AREA 100",
+   "confidence": 0.9,
+   "evidence": [
+    "layer 'A-AREA' token 'AREA' matches rule L-ROOM (room / area boundaries)",
+    "closed polyline on room/area layer",
+    "label text inside boundary: ['OPEN AREA 100']"
+   ],
+   "rules": [
+    "L-ROOM"
+   ],
+   "source_entity_ids": [
+    "E000003",
+    "E000004"
+   ],
+   "requires_verification": false,
+   "geometry": {
+    "kind": "polygon",
+    "points": [
+     [
+      0.5,
+      0.5
+     ],
+     [
+      39.5,
+      0.5
+     ],
+     [
+      39.5,
+      29.5
+     ],
+     [
+      0.5,
+      29.5
+     ]
+    ],
+    "closed": true,
+    "center": null,
+    "radius": null,
+    "start_angle": null,
+    "end_angle": null,
+    "paths": [],
+    "insert": null,
+    "text": null,
+    "height": null,
+    "rotation": null,
+    "measurement": null
+   },
+   "properties": {
+    "area_sf": 1131.0,
+    "perimeter_ft": 136.0,
+    "name": "OPEN AREA",
+    "number": "100",
+    "detection_method": "area_layer_polyline",
+    "label_entity_ids": [
+     "E000004"
+    ]
+   }
+  }
+ ],
+ "unclassified_entity_ids": [],
+ "title_block": null,
+ "diagnostics": {
+  "warnings": [],
+  "errors": [],
+  "review_triggers": []
+ },
+ "requires_human_review": false,
+ "geometry_is_synthetic": false,
+ "ready_for_design": false,
+ "engineering_review_status": "not_performed",
+ "assumptions": [
+  "Model-space geometry is drawn at full scale (1 drawing unit = 1 unit of the declared units); this is verified only where dimension text can be compared with measured geometry.",
+  "Only model space is interpreted as building geometry; paper space is inventoried for title-block text and viewport scales.",
+  "The drawing is treated as a single 2D plan level; Z coordinates are ignored and multiple levels in one model space are not separated.",
+  "Entities on off/frozen layers, or flagged invisible, are excluded from interpretation.",
+  "Block contents drawn on layer '0' take the layer of their INSERT (standard CAD convention).",
+  "Curves (arcs, bulges, splines, ellipses) are flattened with a chord tolerance of 0.2% of each entity's size.",
+  "Semantic roles come from layer/block naming conventions (NCS/AIA and common keywords); private layer standards are left unclassified."
+ ],
+ "ai_inference_used": false
+}

@@ -23,7 +23,9 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
+from matplotlib.collections import LineCollection  # noqa: E402
 from matplotlib.lines import Line2D  # noqa: E402
+from matplotlib.patches import Rectangle  # noqa: E402
 from matplotlib.patches import Patch, Polygon as MplPolygon  # noqa: E402
 from matplotlib.ticker import FixedLocator, FuncFormatter, MaxNLocator  # noqa: E402
 
@@ -173,6 +175,14 @@ def render_overlay(dxf_path: Path, model: BuildingModel, out_png: Path, out_svg:
     room_colors = plt.get_cmap("tab20")
     fs = 6.5
 
+    # Linework is batched per (colour, width, style) into LineCollections: one artist per
+    # style instead of one per entity (large drawings rendered 60x slower otherwise).
+    batches: dict[tuple, list] = {}
+
+    def _batch(pts, closed, color, lw, ls, z):
+        seg = list(pts) + ([pts[0]] if closed else [])
+        batches.setdefault((color, lw, ls, z), []).append(seg)
+
     for i, el in enumerate(sorted(model.elements, key=lambda e: e.category != "room")):
         color = STYLE[el.category][0]
         ls = "--" if el.requires_verification else "-"
@@ -194,10 +204,10 @@ def render_overlay(dxf_path: Path, model: BuildingModel, out_png: Path, out_svg:
                 ax.add_patch(MplPolygon(pts, closed=True, fill=False, edgecolor=color, linewidth=1.2,
                                         linestyle=":", zorder=4))
             else:
-                xs = [p[0] for p in pts] + ([pts[0][0]] if closed else [])
-                ys = [p[1] for p in pts] + ([pts[0][1]] if closed else [])
                 lw = {"wall": 2.0, "door": 1.6, "window": 1.6, "column": 1.8, "title_block": 0.8}.get(el.category, 1.0)
-                ax.plot(xs, ys, color=color, linewidth=lw, linestyle=ls, zorder=6, solid_capstyle="round")
+                _batch(pts, closed, color, lw, ls, 6)
+        for dc in el.properties.get("door_closures", []) if el.category == "room" else []:
+            _batch([inv(dc["from"]), inv(dc["to"])], False, "#d62728", 0.9, ":", 8)
         if label_counts[el.category] < MAX_LABELS_PER_CATEGORY and el.category not in ("wall", "text_annotation"):
             a = _anchor(el, inv)
             if a:
@@ -215,12 +225,24 @@ def render_overlay(dxf_path: Path, model: BuildingModel, out_png: Path, out_svg:
         for pts, closed in _source_paths(by_id[sid], model, by_parent):
             uncl_n += 1
             if len(pts) >= 2:
-                xs = [p[0] for p in pts] + ([pts[0][0]] if closed else [])
-                ys = [p[1] for p in pts] + ([pts[0][1]] if closed else [])
-                ax.plot(xs, ys, color=UNCLASSIFIED[0], linewidth=1.0, linestyle=":", zorder=5)
+                _batch(pts, closed, UNCLASSIFIED[0], 1.0, ":", 5)
         g = by_id[sid].source
         if g is not None and g.kind in ("text", "point") and g.insert:
             ax.plot([g.insert[0]], [g.insert[1]], marker="x", ms=4, color=UNCLASSIFIED[0], zorder=5)
+
+    for (color, lw, ls, z), segs in batches.items():
+        ax.add_collection(LineCollection(segs, colors=color, linewidths=lw, linestyles=ls, zorder=z,
+                                         capstyle="round"))
+
+    # Drawing regions (separate views in model space)
+    if len(model.view_regions) > 1:
+        for r in model.view_regions:
+            x0, y0 = inv((r["bbox_ft"][0], r["bbox_ft"][1]))
+            x1, y1 = inv((r["bbox_ft"][2], r["bbox_ft"][3]))
+            ax.add_patch(Rectangle((x0, y0), x1 - x0, y1 - y0, fill=False, lw=0.8, ls=(0, (6, 4)),
+                                   ec="#555555" if r["significant"] else "#bbbbbb", zorder=3))
+            ax.text(x0, y1, f" {r['id']}" + ("" if r["significant"] else " (minor)"), fontsize=7.5,
+                    color="#333333", va="bottom", zorder=9)
 
     ax.set_aspect("equal", adjustable="box"); ax.set_xlim(lim[0], lim[1]); ax.set_ylim(lim[2], lim[3])
     # Ticks at round values of normalized feet (not round source units).
@@ -243,6 +265,11 @@ def render_overlay(dxf_path: Path, model: BuildingModel, out_png: Path, out_svg:
                           label=f"{UNCLASSIFIED[3]} ({len(model.unclassified_entity_ids)} entities)"))
     handles.append(Line2D([0], [0], color="#c8c8c8", lw=2, label="Source drawing (all entities)"))
     handles.append(Line2D([0], [0], color="#555555", lw=1.5, ls="--", label=VERIFY_NOTE))
+    if any(el.properties.get("door_closures") for el in model.elements_of("room")):
+        handles.append(Line2D([0], [0], color="#d62728", lw=1, ls=":", label="Door-opening analysis line (not a wall)"))
+    if len(model.view_regions) > 1:
+        handles.append(Line2D([0], [0], color="#555555", lw=1, ls=(0, (6, 4)),
+                              label=f"Drawing regions V1..V{len(model.view_regions)}"))
     fig.legend(handles=handles, loc="upper left", bbox_to_anchor=(0.765, 0.90), fontsize=8, frameon=True,
                title="FireAI interpretation", title_fontsize=9)
 

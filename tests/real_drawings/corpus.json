@@ -1,0 +1,174 @@
+{
+  "note": "Index of the LOCAL-ONLY real drawing corpus. Drawing files live in tests/real_drawings_local/ (git-ignored) and must never be committed. Private sources are withheld.",
+  "libredwg_converter": {
+    "version": "0.14.8597",
+    "commit": "34f02f54b9aacb5708c1d3d2070efb3e4b2d8c43"
+  },
+  "files": [
+    {
+      "file": "REAL_001.dwg",
+      "id": "REAL_001",
+      "format": "dwg",
+      "dwg_version_magic": "AC1027",
+      "size_bytes": 5367429,
+      "sha256": "102d702b1f9878a3d3ee953134201100e1b03839fc910379eabb7abf2b451b18",
+      "description": "Fire sprinkler / fire alarm drawing set: suite key plan + piping/riser diagrams, 2 XREFs (private project file; owner-authorized for local validation only)",
+      "source": "private",
+      "license_note": "private source withheld; owner-authorized for local validation only"
+    },
+    {
+      "file": "REAL_002.dwg",
+      "id": "REAL_002",
+      "format": "dwg",
+      "dwg_version_magic": "AC1021",
+      "size_bytes": 227008,
+      "sha256": "3c95e8a82d5c8c251483fabc61efa8ca904f4e4bc8c2fce4786d74e812284d07",
+      "description": "Architectural floor plan with furniture blocks and tables (imperial)",
+      "source": "https://download.autodesk.com/us/samplefiles/acad/blocks_and_tables_-_imperial.dwg",
+      "license_note": "Autodesk AutoCAD sample file: publicly downloadable for learning/evaluation under Autodesk website terms; NOT open source; local validation only, never redistribute"
+    },
+    {
+      "file": "REAL_003.dwg",
+      "id": "REAL_003",
+      "format": "dwg",
+      "dwg_version_magic": "AC1021",
+      "size_bytes": 258848,
+      "sha256": "7d5507da05fb70ba55875d99e676524ca2caa0ed7a5582ad130c3c06e8d925f1",
+      "description": "Same plan as REAL_002, metric",
+      "source": "https://download.autodesk.com/us/samplefiles/acad/blocks_and_tables_-_metric.dwg",
+      "license_note": "Autodesk AutoCAD sample file: publicly downloadable for learning/evaluation under Autodesk website terms; NOT open source; local validation only, never redistribute"
+    },
+    {
+      "file": "REAL_004.dwg",
+      "id": "REAL_004",
+      "format": "dwg",
+      "dwg_version_magic": "AC1021",
+      "size_bytes": 188992,
+      "sha256": "0e74f0aa84b1323c922345f067739c42ee26213dea010b407b87a94212271654",
+      "description": "Architectural plan with annotative text and multileaders",
+      "source": "https://download.autodesk.com/us/samplefiles/acad/architectural_-_annotation_scaling_and_multileaders.dwg",
+      "license_note": "Autodesk AutoCAD sample file: publicly downloadable for learning/evaluation under Autodesk website terms; NOT open source; local validation only, never redistribute"
+    },
+    {
+      "file": "REAL_005.dwg",
+      "id": "REAL_005",
+      "format": "dwg",
+      "dwg_version_magic": "AC1024",
+      "size_bytes": 169592,
+      "sha256": "45b419d0c7382eb271079b80c3237a52183f4fa09e7b495c3d7a65c6baa927dc",
+      "description": "Civil/site drawing (non-building) - negative/stress case",
+      "source": "https://download.autodesk.com/us/samplefiles/acad/civil_example-imperial.dwg",
+      "license_note": "Autodesk AutoCAD sample file: publicly downloadable for learning/evaluation under Autodesk website terms; NOT open source; local validation only, never redistribute"
+    },
+    {
+      "file": "REAL_006.dwg",
+      "id": "REAL_006",
+      "format": "dwg",
+      "dwg_version_magic": "AC1024",
+      "size_bytes": 733036,
+      "sha256": "edf22e187337e37d2083b26d6d00ce30ed78d2fd31d6bf0e9869902325ad3ab1",
+      "description": "3D visualization model - stress case",
+      "source": "https://download.autodesk.com/us/samplefiles/acad/visualization_-_aerial.dwg",
+      "license_note": "Autodesk AutoCAD sample file: publicly downloadable for learning/evaluation under Autodesk website terms; NOT open source; local validation only, never redistribute"
+    },
+    {
+      "file": "REAL_007.dwg",
+      "id": "REAL_007",
+      "format": "dwg",
+      "dwg_version_magic": "AC1015",
+      "size_bytes": 582572,
+      "sha256": "34574244d7556d1ef7b437443d9b3d1ad8662e1c669c42d80cff6a8a19799be9",
+      "description": "LibreDWG 'example' drawing, AutoCAD 2000 format; DWG+DXF pair",
+      "source": "https://raw.githubusercontent.com/LibreDWG/libredwg/34f02f54b9aacb5708c1d3d2070efb3e4b2d8c43/test/test-data/example_2000.dwg",
+      "license_note": "LibreDWG test data (repository licensed GPL-3.0-or-later); local validation only"
+    },
+    {
+      "file": "REAL_007.dxf",
+      "id": "REAL_007",
+      "format": "dxf",
+      "dwg_version_magic": null,
+      "size_bytes": 1387952,
+      "sha256": "43284cbdddbeb8720a4895be73f493fc94e670909e76f5871fdcd87b25170597",
+      "description": "LibreDWG 'example' drawing, AutoCAD 2000 format; DWG+DXF pair",
+      "source": "https://raw.githubusercontent.com/LibreDWG/libredwg/34f02f54b9aacb5708c1d3d2070efb3e4b2d8c43/test/test-data/example_2000.dxf",
+      "license_note": "LibreDWG test data (repository licensed GPL-3.0-or-later); local validation only"
+    },
+    {
+      "file": "REAL_008.dwg",
+      "id": "REAL_008",
+      "format": "dwg",
+      "dwg_version_magic": "AC1014",
+      "size_bytes": 439875,
+      "sha256": "aec626c5680584c763418497495950089854ff9682af36076851fd793d9e2c0b",
+      "description": "Same 'example' drawing, R14 format; DWG+DXF pair (older CAD)",
+      "source": "https://raw.githubusercontent.com/LibreDWG/libredwg/34f02f54b9aacb5708c1d3d2070efb3e4b2d8c43/test/test-data/example_r14.dwg",
+      "license_note": "LibreDWG test data (repository licensed GPL-3.0-or-later); local validation only"
+    },
+    {
+      "file": "REAL_008.dxf",
+      "id": "REAL_008",
+      "format": "dxf",
+      "dwg_version_magic": null,
+      "size_bytes": 575437,
+      "sha256": "b5db43eb376b8e6a11fc1596945baf538b67448d87e73840f6347007ea0035ed",
+      "description": "Same 'example' drawing, R14 format; DWG+DXF pair (older CAD)",
+      "source": "https://raw.githubusercontent.com/LibreDWG/libredwg/34f02f54b9aacb5708c1d3d2070efb3e4b2d8c43/test/test-data/example_r14.dxf",
+      "license_note": "LibreDWG test data (repository licensed GPL-3.0-or-later); local validation only"
+    },
+    {
+      "file": "REAL_009.dwg",
+      "id": "REAL_009",
+      "format": "dwg",
+      "dwg_version_magic": "AC1032",
+      "size_bytes": 149218,
+      "sha256": "7bc7721224003062b237845842b7a976e46771c37eba6833b9ed3712e7a5a65a",
+      "description": "Same 'example' drawing, 2018 format; DWG+DXF pair",
+      "source": "https://raw.githubusercontent.com/LibreDWG/libredwg/34f02f54b9aacb5708c1d3d2070efb3e4b2d8c43/test/test-data/example_2018.dwg",
+      "license_note": "LibreDWG test data (repository licensed GPL-3.0-or-later); local validation only"
+    },
+    {
+      "file": "REAL_009.dxf",
+      "id": "REAL_009",
+      "format": "dxf",
+      "dwg_version_magic": null,
+      "size_bytes": 845818,
+      "sha256": "e64b0cfb6e1587f9d2bb4387d59064efa5bc667cda9ecbc00313459b304bb997",
+      "description": "Same 'example' drawing, 2018 format; DWG+DXF pair",
+      "source": "https://raw.githubusercontent.com/LibreDWG/libredwg/34f02f54b9aacb5708c1d3d2070efb3e4b2d8c43/test/test-data/example_2018.dxf",
+      "license_note": "LibreDWG test data (repository licensed GPL-3.0-or-later); local validation only"
+    },
+    {
+      "file": "REAL_010.dwg",
+      "id": "REAL_010",
+      "format": "dwg",
+      "dwg_version_magic": "AC1032",
+      "size_bytes": 2179277,
+      "sha256": "95cc558d02a2596d13ce2a8da30e22c734a5fba7e0ba990fcf203955674c7f88",
+      "description": "Dynamic blocks, 2018 format; DWG+DXF pair - stress case",
+      "source": "https://raw.githubusercontent.com/LibreDWG/libredwg/34f02f54b9aacb5708c1d3d2070efb3e4b2d8c43/test/test-data/2018/Dynblocks.dwg",
+      "license_note": "LibreDWG test data (repository licensed GPL-3.0-or-later); local validation only"
+    },
+    {
+      "file": "REAL_010.dxf",
+      "id": "REAL_010",
+      "format": "dxf",
+      "dwg_version_magic": null,
+      "size_bytes": 10308881,
+      "sha256": "3320aac4a5b8128d58f9a7a28d013c6d06b1f7785d00884a7c952b58afdb13cc",
+      "description": "Dynamic blocks, 2018 format; DWG+DXF pair - stress case",
+      "source": "https://raw.githubusercontent.com/LibreDWG/libredwg/34f02f54b9aacb5708c1d3d2070efb3e4b2d8c43/test/test-data/2018/Dynblocks.dxf",
+      "license_note": "LibreDWG test data (repository licensed GPL-3.0-or-later); local validation only"
+    },
+    {
+      "file": "REAL_011.dxf",
+      "id": "REAL_011",
+      "format": "dxf",
+      "dwg_version_magic": null,
+      "size_bytes": 91914,
+      "sha256": "c2597f95c007852db2ba82dedd9558f9318981115dda82fccfc0267ca60e5a56",
+      "description": "Nested block inserts written by BricsCAD",
+      "source": "https://raw.githubusercontent.com/mozman/ezdxf/master/examples_dxf/insert_bricscad_level_1.dxf",
+      "license_note": "ezdxf examples (MIT license); local validation only"
+    }
+  ]
+}

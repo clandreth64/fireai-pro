@@ -208,3 +208,10 @@ __marimo__/
 
 # FireAI 2.0 local job data
 .fireai_data/
+
+# ── Real-world drawing corpus: LOCAL ONLY, never commit ──────────────────────
+# Real/customer drawings, their FireAI outputs, and anything derived from them
+# that could identify a project stay on the developer machine.
+tests/real_drawings_local/
+tests/real_drawings_outputs_local/
+**/*_LOCAL_ONLY*

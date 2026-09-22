@@ -1,0 +1,20 @@
+{
+  "id": "REAL_008",
+  "review": {
+    "method": "AI-assisted visual review of source.png + DXF tables; independent of FireAI output",
+    "status": "PENDING_HUMAN_CONFIRMATION",
+    "date": "2026-09-22"
+  },
+  "drawing_type": {
+    "value": "same 'example' drawing, R14 format",
+    "assertion": "EXACT"
+  },
+  "units": {
+    "value": "NOT_DECLARED (R14 predates $INSUNITS)",
+    "assertion": "EXACT"
+  },
+  "dwg_dxf_equivalence": {
+    "value": "converter omits 2 WIPEOUT, 2 INSERT, 1 proxy entity",
+    "assertion": "EXACT"
+  }
+}
