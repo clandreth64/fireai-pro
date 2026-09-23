@@ -21,7 +21,7 @@ from pydantic import BaseModel, Field
 from fireai.model import BuildingModel
 from fireai.review.gate import ENGINEERING_VIEW_TYPES, ModelNotVerified, require_verified_model
 
-CONTRACT_VERSION = "engineering_input/1-draft"
+CONTRACT_VERSION = "engineering_input/2-draft"   # 2: semantic spaces (M1.8)
 
 # Facts engineering will need that drawing understanding does NOT establish. They must arrive as
 # explicit, separately recorded design inputs (see docs/MILESTONE_2_0_SPEC.md) — never inferred here.
@@ -58,6 +58,16 @@ class ContractSpace(BaseModel):
     derived_from: list[str] = Field(default_factory=list)       # uids (traceability, not CAD access)
 
 
+class ContractSemanticSpace(BaseModel):
+    """A named/use-defined space. Only spaces with a KNOWN boundary can pass the contract."""
+    uid: str
+    id: str
+    label: Optional[str] = None
+    boundary_state: Literal["known"]
+    region_uid: str                                             # the physical region (ContractSpace) it occupies
+    derived_from: list[str] = Field(default_factory=list)
+
+
 class ContractWall(BaseModel):
     uid: Optional[str] = None
     kind: str                                                   # straight | curved (derived analysis)
@@ -80,7 +90,7 @@ class ContractLinework(BaseModel):
 
 
 class EngineeringInput(BaseModel):
-    contract_version: Literal["engineering_input/1-draft"] = CONTRACT_VERSION
+    contract_version: Literal["engineering_input/2-draft"] = CONTRACT_VERSION
     model_id: str
     schema_version: str
     source_sha256: str
@@ -96,7 +106,8 @@ class EngineeringInput(BaseModel):
     source_to_local: list[list[float]]                          # 4x4, SRC (drawing units) -> LOCAL (ft)
     spatial_context: dict[str, Any]                             # building/level; "unassigned" when unknown
     regions: list[ContractRegion]
-    spaces: list[ContractSpace]
+    spaces: list[ContractSpace]                                 # PHYSICAL regions (enclosures)
+    semantic_spaces: list[ContractSemanticSpace] = Field(default_factory=list)
     walls_analysis: list[ContractWall]
     walls_linework: list[ContractLinework]
     columns: list[ContractLinework]
@@ -170,6 +181,13 @@ def engineering_input_blockers(model: BuildingModel, store) -> list[str]:
         if merged:
             blockers.append(f"selected region {r['id']}: merged-room boundaries {merged} unresolved "
                             "(reject or replace them with human room boundaries)")
+        live = {e.uid for e in in_r}
+        unresolved = [s.id for s in model.elements_of("space")
+                      if s.properties.get("boundary_state") != "known" and s.properties.get("region_uid") in live
+                      and s.provenance.review.status != "rejected"]
+        if unresolved:
+            blockers.append(f"selected region {r['id']}: semantic spaces {unresolved} have UNRESOLVED boundaries "
+                            "(draw or confirm their boundaries before engineering)")
     codes = {t.code for t in model.diagnostics.review_triggers}
     if "HUMAN_CORRECTIONS_NOT_APPLIED" in codes or "HUMAN_CORRECTIONS_FROM_OTHER_REVISION" in codes:
         blockers.append("stored human corrections were not applied to this model")
@@ -200,6 +218,11 @@ def build_engineering_input(model: BuildingModel, store) -> EngineeringInput:
                                     points_local_ft=[tuple(p) for p in e.geometry.points], closed=e.geometry.closed,
                                     region_uid=r["uid"], derived_from=list(e.provenance.derived_from))
             (walls_lw if e.category == "wall" else cols).append(item)
+    live_regions = {s.uid for s in spaces}
+    semantic = [ContractSemanticSpace(uid=s.uid, id=s.id, label=s.label, boundary_state="known",
+                                      region_uid=s.properties["region_uid"], derived_from=list(s.provenance.derived_from))
+                for s in model.elements_of("space")
+                if s.properties.get("boundary_state") == "known" and s.properties.get("region_uid") in live_regions]
     walls = []
     for w in (model.wall_model or {}).get("walls", []):
         if w.get("region") not in reg_uid:
@@ -219,7 +242,7 @@ def build_engineering_input(model: BuildingModel, store) -> EngineeringInput:
         regions=[ContractRegion(uid=r["uid"], id=r["id"], view_type=r["view_type"],
                                 view_type_source=r.get("view_type_source", "fireai"), bbox_local_ft=r["bbox_ft"])
                  for r in regions],
-        spaces=spaces, walls_analysis=walls, walls_linework=walls_lw, columns=cols,
+        spaces=spaces, semantic_spaces=semantic, walls_analysis=walls, walls_linework=walls_lw, columns=cols,
         xrefs=[{"name": x.name, "status": x.status, "sha256": x.sha256} for x in model.xrefs],
         conversion_significance=(model.source.conversion_audit or {}).get("significance"),
         human_corrections_applied=[a["correction_id"] for a in model.human_corrections_applied

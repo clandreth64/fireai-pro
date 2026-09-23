@@ -99,7 +99,7 @@ function poly(pts, attrs) {
 }
 for (const l of C.lines) poly(l, {fill: 'none', stroke: '#c8c8c8', 'stroke-width': sw});
 const COL = {room: '#2e8b57', wall: '#1f4e9c', door: '#d62728', window: '#00a0b0', stair: '#9467bd', column: '#2ca02c',
-             existing_fire_protection: '#ff7f0e', area: '#6a3d9a'};
+             existing_fire_protection: '#ff7f0e', area: '#6a3d9a', depiction: '#b8860b'};
 const byUid = {};
 for (const it of C.items) {
   const col = COL[it.category] || '#8c564b', room = it.category === 'room' || it.category === 'area';
@@ -109,6 +109,8 @@ for (const it of C.items) {
                        'stroke-dasharray': it.flagged_by_fireai ? (sw * 6) + ',' + (sw * 4) : ''});
   const t = document.createElementNS(NS, 'title');
   t.textContent = it.category + (it.label ? ' "' + it.label + '"' : '') + (it.subtype ? ' (' + it.subtype + ')' : '') +
+                  (it.contains && it.contains.length > 1 ? ' — contains named spaces: ' + it.contains.join(', ') +
+                   ' (their boundaries are unresolved)' : '') +
                   (it.flagged_by_fireai ? ' — FireAI flagged for review' : ' — FireAI presented as confident');
   e.appendChild(t); e.dataset.uid = it.uid; byUid[it.uid] = it;
 }
@@ -318,7 +320,8 @@ or click where something is missing. Skip anything you can't judge. Nothing need
 <h2 class='fireai'>Point at problems on the drawing</h2>
 <div class='fireai'><div class='tool'><button type='button' data-mode='item' class='on'>Flag a FireAI item</button>
 <button type='button' data-mode='missing'>Mark something missing</button> <button type='button' id='fit'>Fit</button>
-<small>Scroll to zoom, drag to pan. Grey = drawing; green = FireAI rooms; blue = walls; red = doors; teal = windows;
+<small>Scroll to zoom, drag to pan. Grey = drawing; green = FireAI rooms (physical regions); blue = walls; red = doors; teal = windows; gold = door/window content
+seen in a section/elevation/detail (not a plan door);
 dashed = FireAI already flagged it as uncertain. Hover an item to see what FireAI thinks it is.</small></div>
 <svg id='cv' xmlns='http://www.w3.org/2000/svg'></svg>
 <div id='pop' style='display:none' class='note'><b>What is wrong with <span id='popctx'></span>?</b>

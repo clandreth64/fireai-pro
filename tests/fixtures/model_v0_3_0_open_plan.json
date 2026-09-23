@@ -1,0 +1,2986 @@
+{
+ "schema_version": "0.3.0",
+ "model_id": "fixture-0-3-0",
+ "created_at": "2026-09-23T00:00:00+00:00",
+ "fireai_version": "0.1.0",
+ "source": {
+  "filename": "open_plan.dxf",
+  "format": "dxf",
+  "sha256": "959542f74cb1afb573982c9ddd77b8f44ac2c5551d176541b61b76dd72896a92",
+  "size_bytes": 56668,
+  "dxf_version": "AC1032",
+  "converted_from_dwg": false,
+  "converter": null,
+  "source_uid": "2d053582-c96b-568a-8534-54052e1c5960",
+  "document_guid": "{32CD00FF-1B92-4932-AE7D-A97D8FF7A5EE}",
+  "version_guid": "{447C0B66-64F8-4E57-BF0F-888405752D37}",
+  "converted_dxf_sha256": null,
+  "converter_log_tail": null,
+  "converter_warnings": [],
+  "conversion_audit": null
+ },
+ "units": {
+  "insunits_code": 2,
+  "detected_units": "ft",
+  "resolved_units": "ft",
+  "resolution_method": "drawing_header",
+  "normalized_units": "ft",
+  "scale_to_normalized": 1.0,
+  "measurement_system_hint": "metric",
+  "resolved": true,
+  "note": null,
+  "evidence": null
+ },
+ "transform": {
+  "origin": [
+   0.0,
+   0.0
+  ],
+  "scale": 1.0
+ },
+ "coordinate_frames": [
+  {
+   "id": "SRC",
+   "parent": null,
+   "units": "ft",
+   "status": "defined",
+   "matrix": [
+    [
+     1.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    [
+     0.0,
+     1.0,
+     0.0,
+     0.0
+    ],
+    [
+     0.0,
+     0.0,
+     1.0,
+     0.0
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "description": "Source drawing WCS in drawing units (as stored in the file)."
+  },
+  {
+   "id": "SRC_FT",
+   "parent": "SRC",
+   "units": "ft",
+   "status": "defined",
+   "matrix": [
+    [
+     1.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    [
+     0.0,
+     1.0,
+     0.0,
+     0.0
+    ],
+    [
+     0.0,
+     0.0,
+     1.0,
+     0.0
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "description": "Source WCS scaled to feet, no translation. Stable across drawing edits and shared between files that share CAD coordinates."
+  },
+  {
+   "id": "LOCAL",
+   "parent": "SRC_FT",
+   "units": "ft",
+   "status": "defined",
+   "matrix": [
+    [
+     1.0,
+     0.0,
+     0.0,
+     -0.0
+    ],
+    [
+     0.0,
+     1.0,
+     0.0,
+     -0.0
+    ],
+    [
+     0.0,
+     0.0,
+     1.0,
+     0.0
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "description": "SRC_FT shifted so the lower-left of visible model-space geometry is (0,0). Display/analysis convenience only; origin depends on drawing content."
+  },
+  {
+   "id": "PROJECT",
+   "parent": "SRC_FT",
+   "units": "ft",
+   "status": "unresolved",
+   "matrix": null,
+   "description": "Coordinated project frame. Unresolved until a person or adapter establishes the SRC_FT -> PROJECT transform (e.g. shared coordinates, survey point)."
+  }
+ ],
+ "spatial_structure": {
+  "project_id": null,
+  "buildings": [],
+  "levels": [],
+  "status": "unassigned",
+  "note": "Building/level assignment not established from this source."
+ },
+ "bounds_source": {
+  "min": [
+   0.0,
+   0.0
+  ],
+  "max": [
+   40.0,
+   20.0
+  ]
+ },
+ "bounds_normalized": {
+  "min": [
+   0.0,
+   0.0
+  ],
+  "max": [
+   40.0,
+   20.0
+  ]
+ },
+ "scale": {
+  "model_space_full_scale_assumed": true,
+  "dimension_checks": [],
+  "viewport_scales": [],
+  "title_block_scale_text": null
+ },
+ "layers": [
+  {
+   "name": "0",
+   "color": 7,
+   "is_off": false,
+   "is_frozen": false,
+   "entity_count": 0,
+   "entity_types": {},
+   "inferred_role": null,
+   "role_confidence": 0.0,
+   "role_rule": null
+  },
+  {
+   "name": "DOORS",
+   "color": 7,
+   "is_off": false,
+   "is_frozen": false,
+   "entity_count": 0,
+   "entity_types": {},
+   "inferred_role": "door",
+   "role_confidence": 0.75,
+   "role_rule": "L-DOOR"
+  },
+  {
+   "name": "Defpoints",
+   "color": 7,
+   "is_off": false,
+   "is_frozen": false,
+   "entity_count": 0,
+   "entity_types": {},
+   "inferred_role": "ignore",
+   "role_confidence": 0.75,
+   "role_rule": "L-IGNORE-DEFPOINTS"
+  },
+  {
+   "name": "RMNAME",
+   "color": 7,
+   "is_off": false,
+   "is_frozen": false,
+   "entity_count": 2,
+   "entity_types": {
+    "MTEXT": 1,
+    "TEXT": 1
+   },
+   "inferred_role": "room_label",
+   "role_confidence": 0.75,
+   "role_rule": "L-ROOM-LABEL"
+  },
+  {
+   "name": "WALLS",
+   "color": 7,
+   "is_off": false,
+   "is_frozen": false,
+   "entity_count": 14,
+   "entity_types": {
+    "LINE": 14
+   },
+   "inferred_role": "wall",
+   "role_confidence": 0.75,
+   "role_rule": "L-WALL"
+  }
+ ],
+ "blocks": [],
+ "elements": [
+  {
+   "id": "W00001",
+   "uid": "fdfe44e1-4246-56e4-a503-806b8f5c180e",
+   "category": "wall",
+   "subtype": "wall_linework",
+   "label": null,
+   "confidence": 0.75,
+   "evidence": [
+    "layer 'WALLS' token 'WALLS' matches rule L-WALL (walls)",
+    "LINE geometry on wall layer",
+    "single linework entity; wall thickness and wall pairing not determined in this milestone"
+   ],
+   "rules": [
+    "L-WALL"
+   ],
+   "source_entity_ids": [
+    "E000001"
+   ],
+   "requires_verification": true,
+   "geometry": {
+    "kind": "line",
+    "points": [
+     [
+      0.0,
+      0.0
+     ],
+     [
+      40.0,
+      0.0
+     ]
+    ],
+    "closed": false,
+    "center": null,
+    "radius": null,
+    "start_angle": null,
+    "end_angle": null,
+    "paths": [],
+    "insert": null,
+    "text": null,
+    "height": null,
+    "rotation": null,
+    "measurement": null,
+    "frame": "LOCAL"
+   },
+   "properties": {
+    "length_ft": 40.0,
+    "view_region": "V1",
+    "view_type": "UNKNOWN"
+   },
+   "placement": {
+    "building_id": null,
+    "level_id": null,
+    "assignment_status": "unassigned",
+    "elevation_ft": null,
+    "height_ft": null,
+    "thickness_ft": null,
+    "rotation_deg": null,
+    "z_status": "unknown"
+   },
+   "provenance": {
+    "origin": "deterministic_inference",
+    "engine": "fireai.interpret",
+    "engine_version": "0.1.0",
+    "rule_ids": [
+     "L-WALL"
+    ],
+    "derived_from": [
+     "61ece79e-02a9-537b-ba80-c5df437a956d"
+    ],
+    "review": {
+     "status": "unreviewed",
+     "by": null,
+     "at": null,
+     "note": null
+    }
+   }
+  },
+  {
+   "id": "W00002",
+   "uid": "34f902fc-d334-5d35-86aa-888dd8240d42",
+   "category": "wall",
+   "subtype": "wall_linework",
+   "label": null,
+   "confidence": 0.75,
+   "evidence": [
+    "layer 'WALLS' token 'WALLS' matches rule L-WALL (walls)",
+    "LINE geometry on wall layer",
+    "single linework entity; wall thickness and wall pairing not determined in this milestone"
+   ],
+   "rules": [
+    "L-WALL"
+   ],
+   "source_entity_ids": [
+    "E000002"
+   ],
+   "requires_verification": true,
+   "geometry": {
+    "kind": "line",
+    "points": [
+     [
+      40.0,
+      0.0
+     ],
+     [
+      40.0,
+      20.0
+     ]
+    ],
+    "closed": false,
+    "center": null,
+    "radius": null,
+    "start_angle": null,
+    "end_angle": null,
+    "paths": [],
+    "insert": null,
+    "text": null,
+    "height": null,
+    "rotation": null,
+    "measurement": null,
+    "frame": "LOCAL"
+   },
+   "properties": {
+    "length_ft": 20.0,
+    "view_region": "V1",
+    "view_type": "UNKNOWN"
+   },
+   "placement": {
+    "building_id": null,
+    "level_id": null,
+    "assignment_status": "unassigned",
+    "elevation_ft": null,
+    "height_ft": null,
+    "thickness_ft": null,
+    "rotation_deg": null,
+    "z_status": "unknown"
+   },
+   "provenance": {
+    "origin": "deterministic_inference",
+    "engine": "fireai.interpret",
+    "engine_version": "0.1.0",
+    "rule_ids": [
+     "L-WALL"
+    ],
+    "derived_from": [
+     "685ca2f0-9a41-5358-a4be-daf2f70de215"
+    ],
+    "review": {
+     "status": "unreviewed",
+     "by": null,
+     "at": null,
+     "note": null
+    }
+   }
+  },
+  {
+   "id": "W00003",
+   "uid": "47748ecc-11c5-58c5-8292-a8b26041b84d",
+   "category": "wall",
+   "subtype": "wall_linework",
+   "label": null,
+   "confidence": 0.75,
+   "evidence": [
+    "layer 'WALLS' token 'WALLS' matches rule L-WALL (walls)",
+    "LINE geometry on wall layer",
+    "single linework entity; wall thickness and wall pairing not determined in this milestone"
+   ],
+   "rules": [
+    "L-WALL"
+   ],
+   "source_entity_ids": [
+    "E000003"
+   ],
+   "requires_verification": true,
+   "geometry": {
+    "kind": "line",
+    "points": [
+     [
+      40.0,
+      20.0
+     ],
+     [
+      0.0,
+      20.0
+     ]
+    ],
+    "closed": false,
+    "center": null,
+    "radius": null,
+    "start_angle": null,
+    "end_angle": null,
+    "paths": [],
+    "insert": null,
+    "text": null,
+    "height": null,
+    "rotation": null,
+    "measurement": null,
+    "frame": "LOCAL"
+   },
+   "properties": {
+    "length_ft": 40.0,
+    "view_region": "V1",
+    "view_type": "UNKNOWN"
+   },
+   "placement": {
+    "building_id": null,
+    "level_id": null,
+    "assignment_status": "unassigned",
+    "elevation_ft": null,
+    "height_ft": null,
+    "thickness_ft": null,
+    "rotation_deg": null,
+    "z_status": "unknown"
+   },
+   "provenance": {
+    "origin": "deterministic_inference",
+    "engine": "fireai.interpret",
+    "engine_version": "0.1.0",
+    "rule_ids": [
+     "L-WALL"
+    ],
+    "derived_from": [
+     "0d4f82b2-2ff8-5dac-9847-ef9a618b41b2"
+    ],
+    "review": {
+     "status": "unreviewed",
+     "by": null,
+     "at": null,
+     "note": null
+    }
+   }
+  },
+  {
+   "id": "W00004",
+   "uid": "06acca80-5c8e-5f90-9ae7-be65079c0671",
+   "category": "wall",
+   "subtype": "wall_linework",
+   "label": null,
+   "confidence": 0.75,
+   "evidence": [
+    "layer 'WALLS' token 'WALLS' matches rule L-WALL (walls)",
+    "LINE geometry on wall layer",
+    "single linework entity; wall thickness and wall pairing not determined in this milestone"
+   ],
+   "rules": [
+    "L-WALL"
+   ],
+   "source_entity_ids": [
+    "E000004"
+   ],
+   "requires_verification": true,
+   "geometry": {
+    "kind": "line",
+    "points": [
+     [
+      0.0,
+      20.0
+     ],
+     [
+      0.0,
+      0.0
+     ]
+    ],
+    "closed": false,
+    "center": null,
+    "radius": null,
+    "start_angle": null,
+    "end_angle": null,
+    "paths": [],
+    "insert": null,
+    "text": null,
+    "height": null,
+    "rotation": null,
+    "measurement": null,
+    "frame": "LOCAL"
+   },
+   "properties": {
+    "length_ft": 20.0,
+    "view_region": "V1",
+    "view_type": "UNKNOWN"
+   },
+   "placement": {
+    "building_id": null,
+    "level_id": null,
+    "assignment_status": "unassigned",
+    "elevation_ft": null,
+    "height_ft": null,
+    "thickness_ft": null,
+    "rotation_deg": null,
+    "z_status": "unknown"
+   },
+   "provenance": {
+    "origin": "deterministic_inference",
+    "engine": "fireai.interpret",
+    "engine_version": "0.1.0",
+    "rule_ids": [
+     "L-WALL"
+    ],
+    "derived_from": [
+     "803cab70-7195-5d09-95f2-b68c925641d8"
+    ],
+    "review": {
+     "status": "unreviewed",
+     "by": null,
+     "at": null,
+     "note": null
+    }
+   }
+  },
+  {
+   "id": "W00005",
+   "uid": "54398829-d3e9-595f-8f3f-956ddbd244c0",
+   "category": "wall",
+   "subtype": "wall_linework",
+   "label": null,
+   "confidence": 0.75,
+   "evidence": [
+    "layer 'WALLS' token 'WALLS' matches rule L-WALL (walls)",
+    "LINE geometry on wall layer",
+    "single linework entity; wall thickness and wall pairing not determined in this milestone"
+   ],
+   "rules": [
+    "L-WALL"
+   ],
+   "source_entity_ids": [
+    "E000005"
+   ],
+   "requires_verification": true,
+   "geometry": {
+    "kind": "line",
+    "points": [
+     [
+      0.5,
+      0.5
+     ],
+     [
+      39.5,
+      0.5
+     ]
+    ],
+    "closed": false,
+    "center": null,
+    "radius": null,
+    "start_angle": null,
+    "end_angle": null,
+    "paths": [],
+    "insert": null,
+    "text": null,
+    "height": null,
+    "rotation": null,
+    "measurement": null,
+    "frame": "LOCAL"
+   },
+   "properties": {
+    "length_ft": 39.0,
+    "view_region": "V1",
+    "view_type": "UNKNOWN"
+   },
+   "placement": {
+    "building_id": null,
+    "level_id": null,
+    "assignment_status": "unassigned",
+    "elevation_ft": null,
+    "height_ft": null,
+    "thickness_ft": null,
+    "rotation_deg": null,
+    "z_status": "unknown"
+   },
+   "provenance": {
+    "origin": "deterministic_inference",
+    "engine": "fireai.interpret",
+    "engine_version": "0.1.0",
+    "rule_ids": [
+     "L-WALL"
+    ],
+    "derived_from": [
+     "c2002c77-9385-57e9-a826-28ca4bacb9af"
+    ],
+    "review": {
+     "status": "unreviewed",
+     "by": null,
+     "at": null,
+     "note": null
+    }
+   }
+  },
+  {
+   "id": "W00006",
+   "uid": "2bfc0fcc-ff4f-5e74-b4de-bf7ea1c4351a",
+   "category": "wall",
+   "subtype": "wall_linework",
+   "label": null,
+   "confidence": 0.75,
+   "evidence": [
+    "layer 'WALLS' token 'WALLS' matches rule L-WALL (walls)",
+    "LINE geometry on wall layer",
+    "single linework entity; wall thickness and wall pairing not determined in this milestone"
+   ],
+   "rules": [
+    "L-WALL"
+   ],
+   "source_entity_ids": [
+    "E000006"
+   ],
+   "requires_verification": true,
+   "geometry": {
+    "kind": "line",
+    "points": [
+     [
+      39.5,
+      0.5
+     ],
+     [
+      39.5,
+      19.5
+     ]
+    ],
+    "closed": false,
+    "center": null,
+    "radius": null,
+    "start_angle": null,
+    "end_angle": null,
+    "paths": [],
+    "insert": null,
+    "text": null,
+    "height": null,
+    "rotation": null,
+    "measurement": null,
+    "frame": "LOCAL"
+   },
+   "properties": {
+    "length_ft": 19.0,
+    "view_region": "V1",
+    "view_type": "UNKNOWN"
+   },
+   "placement": {
+    "building_id": null,
+    "level_id": null,
+    "assignment_status": "unassigned",
+    "elevation_ft": null,
+    "height_ft": null,
+    "thickness_ft": null,
+    "rotation_deg": null,
+    "z_status": "unknown"
+   },
+   "provenance": {
+    "origin": "deterministic_inference",
+    "engine": "fireai.interpret",
+    "engine_version": "0.1.0",
+    "rule_ids": [
+     "L-WALL"
+    ],
+    "derived_from": [
+     "423f4661-6206-5652-8792-c0db3ff3cfe8"
+    ],
+    "review": {
+     "status": "unreviewed",
+     "by": null,
+     "at": null,
+     "note": null
+    }
+   }
+  },
+  {
+   "id": "W00007",
+   "uid": "ca3d2b87-9fcf-59c1-9f18-30f18572d12a",
+   "category": "wall",
+   "subtype": "wall_linework",
+   "label": null,
+   "confidence": 0.75,
+   "evidence": [
+    "layer 'WALLS' token 'WALLS' matches rule L-WALL (walls)",
+    "LINE geometry on wall layer",
+    "single linework entity; wall thickness and wall pairing not determined in this milestone"
+   ],
+   "rules": [
+    "L-WALL"
+   ],
+   "source_entity_ids": [
+    "E000007"
+   ],
+   "requires_verification": true,
+   "geometry": {
+    "kind": "line",
+    "points": [
+     [
+      39.5,
+      19.5
+     ],
+     [
+      0.5,
+      19.5
+     ]
+    ],
+    "closed": false,
+    "center": null,
+    "radius": null,
+    "start_angle": null,
+    "end_angle": null,
+    "paths": [],
+    "insert": null,
+    "text": null,
+    "height": null,
+    "rotation": null,
+    "measurement": null,
+    "frame": "LOCAL"
+   },
+   "properties": {
+    "length_ft": 39.0,
+    "view_region": "V1",
+    "view_type": "UNKNOWN"
+   },
+   "placement": {
+    "building_id": null,
+    "level_id": null,
+    "assignment_status": "unassigned",
+    "elevation_ft": null,
+    "height_ft": null,
+    "thickness_ft": null,
+    "rotation_deg": null,
+    "z_status": "unknown"
+   },
+   "provenance": {
+    "origin": "deterministic_inference",
+    "engine": "fireai.interpret",
+    "engine_version": "0.1.0",
+    "rule_ids": [
+     "L-WALL"
+    ],
+    "derived_from": [
+     "5dfc0358-7e14-59b6-a65b-9501287dcda8"
+    ],
+    "review": {
+     "status": "unreviewed",
+     "by": null,
+     "at": null,
+     "note": null
+    }
+   }
+  },
+  {
+   "id": "W00008",
+   "uid": "93fd54dc-bcb9-5d92-94e3-b7ff3ea8526e",
+   "category": "wall",
+   "subtype": "wall_linework",
+   "label": null,
+   "confidence": 0.75,
+   "evidence": [
+    "layer 'WALLS' token 'WALLS' matches rule L-WALL (walls)",
+    "LINE geometry on wall layer",
+    "single linework entity; wall thickness and wall pairing not determined in this milestone"
+   ],
+   "rules": [
+    "L-WALL"
+   ],
+   "source_entity_ids": [
+    "E000008"
+   ],
+   "requires_verification": true,
+   "geometry": {
+    "kind": "line",
+    "points": [
+     [
+      0.5,
+      19.5
+     ],
+     [
+      0.5,
+      0.5
+     ]
+    ],
+    "closed": false,
+    "center": null,
+    "radius": null,
+    "start_angle": null,
+    "end_angle": null,
+    "paths": [],
+    "insert": null,
+    "text": null,
+    "height": null,
+    "rotation": null,
+    "measurement": null,
+    "frame": "LOCAL"
+   },
+   "properties": {
+    "length_ft": 19.0,
+    "view_region": "V1",
+    "view_type": "UNKNOWN"
+   },
+   "placement": {
+    "building_id": null,
+    "level_id": null,
+    "assignment_status": "unassigned",
+    "elevation_ft": null,
+    "height_ft": null,
+    "thickness_ft": null,
+    "rotation_deg": null,
+    "z_status": "unknown"
+   },
+   "provenance": {
+    "origin": "deterministic_inference",
+    "engine": "fireai.interpret",
+    "engine_version": "0.1.0",
+    "rule_ids": [
+     "L-WALL"
+    ],
+    "derived_from": [
+     "d51f213c-e21d-5e21-8a17-1f924a5d66f1"
+    ],
+    "review": {
+     "status": "unreviewed",
+     "by": null,
+     "at": null,
+     "note": null
+    }
+   }
+  },
+  {
+   "id": "W00009",
+   "uid": "e26cdb64-28a4-5c79-a630-a731d77f1fb1",
+   "category": "wall",
+   "subtype": "wall_linework",
+   "label": null,
+   "confidence": 0.75,
+   "evidence": [
+    "layer 'WALLS' token 'WALLS' matches rule L-WALL (walls)",
+    "LINE geometry on wall layer",
+    "single linework entity; wall thickness and wall pairing not determined in this milestone"
+   ],
+   "rules": [
+    "L-WALL"
+   ],
+   "source_entity_ids": [
+    "E000009"
+   ],
+   "requires_verification": true,
+   "geometry": {
+    "kind": "line",
+    "points": [
+     [
+      19.75,
+      0.5
+     ],
+     [
+      19.75,
+      8.0
+     ]
+    ],
+    "closed": false,
+    "center": null,
+    "radius": null,
+    "start_angle": null,
+    "end_angle": null,
+    "paths": [],
+    "insert": null,
+    "text": null,
+    "height": null,
+    "rotation": null,
+    "measurement": null,
+    "frame": "LOCAL"
+   },
+   "properties": {
+    "length_ft": 7.5,
+    "view_region": "V1",
+    "view_type": "UNKNOWN"
+   },
+   "placement": {
+    "building_id": null,
+    "level_id": null,
+    "assignment_status": "unassigned",
+    "elevation_ft": null,
+    "height_ft": null,
+    "thickness_ft": null,
+    "rotation_deg": null,
+    "z_status": "unknown"
+   },
+   "provenance": {
+    "origin": "deterministic_inference",
+    "engine": "fireai.interpret",
+    "engine_version": "0.1.0",
+    "rule_ids": [
+     "L-WALL"
+    ],
+    "derived_from": [
+     "204323e9-2c9c-549a-9ac2-4ccfea6b991d"
+    ],
+    "review": {
+     "status": "unreviewed",
+     "by": null,
+     "at": null,
+     "note": null
+    }
+   }
+  },
+  {
+   "id": "W00010",
+   "uid": "31a50428-5146-5923-b35e-24dba73279bd",
+   "category": "wall",
+   "subtype": "wall_linework",
+   "label": null,
+   "confidence": 0.75,
+   "evidence": [
+    "layer 'WALLS' token 'WALLS' matches rule L-WALL (walls)",
+    "LINE geometry on wall layer",
+    "single linework entity; wall thickness and wall pairing not determined in this milestone"
+   ],
+   "rules": [
+    "L-WALL"
+   ],
+   "source_entity_ids": [
+    "E000010"
+   ],
+   "requires_verification": true,
+   "geometry": {
+    "kind": "line",
+    "points": [
+     [
+      20.25,
+      0.5
+     ],
+     [
+      20.25,
+      8.0
+     ]
+    ],
+    "closed": false,
+    "center": null,
+    "radius": null,
+    "start_angle": null,
+    "end_angle": null,
+    "paths": [],
+    "insert": null,
+    "text": null,
+    "height": null,
+    "rotation": null,
+    "measurement": null,
+    "frame": "LOCAL"
+   },
+   "properties": {
+    "length_ft": 7.5,
+    "view_region": "V1",
+    "view_type": "UNKNOWN"
+   },
+   "placement": {
+    "building_id": null,
+    "level_id": null,
+    "assignment_status": "unassigned",
+    "elevation_ft": null,
+    "height_ft": null,
+    "thickness_ft": null,
+    "rotation_deg": null,
+    "z_status": "unknown"
+   },
+   "provenance": {
+    "origin": "deterministic_inference",
+    "engine": "fireai.interpret",
+    "engine_version": "0.1.0",
+    "rule_ids": [
+     "L-WALL"
+    ],
+    "derived_from": [
+     "04a8b309-e9eb-5c0f-97e6-f4e7022f7174"
+    ],
+    "review": {
+     "status": "unreviewed",
+     "by": null,
+     "at": null,
+     "note": null
+    }
+   }
+  },
+  {
+   "id": "W00011",
+   "uid": "e7215841-64fa-5475-8f08-5ac9aa2012f6",
+   "category": "wall",
+   "subtype": "wall_linework",
+   "label": null,
+   "confidence": 0.75,
+   "evidence": [
+    "layer 'WALLS' token 'WALLS' matches rule L-WALL (walls)",
+    "LINE geometry on wall layer",
+    "single linework entity; wall thickness and wall pairing not determined in this milestone"
+   ],
+   "rules": [
+    "L-WALL"
+   ],
+   "source_entity_ids": [
+    "E000011"
+   ],
+   "requires_verification": true,
+   "geometry": {
+    "kind": "line",
+    "points": [
+     [
+      19.75,
+      8.0
+     ],
+     [
+      20.25,
+      8.0
+     ]
+    ],
+    "closed": false,
+    "center": null,
+    "radius": null,
+    "start_angle": null,
+    "end_angle": null,
+    "paths": [],
+    "insert": null,
+    "text": null,
+    "height": null,
+    "rotation": null,
+    "measurement": null,
+    "frame": "LOCAL"
+   },
+   "properties": {
+    "length_ft": 0.5,
+    "view_region": "V1",
+    "view_type": "UNKNOWN"
+   },
+   "placement": {
+    "building_id": null,
+    "level_id": null,
+    "assignment_status": "unassigned",
+    "elevation_ft": null,
+    "height_ft": null,
+    "thickness_ft": null,
+    "rotation_deg": null,
+    "z_status": "unknown"
+   },
+   "provenance": {
+    "origin": "deterministic_inference",
+    "engine": "fireai.interpret",
+    "engine_version": "0.1.0",
+    "rule_ids": [
+     "L-WALL"
+    ],
+    "derived_from": [
+     "b6ad6b1a-40c6-50f3-ae3d-9d54d3ecdf07"
+    ],
+    "review": {
+     "status": "unreviewed",
+     "by": null,
+     "at": null,
+     "note": null
+    }
+   }
+  },
+  {
+   "id": "W00012",
+   "uid": "2570a6b8-6e0f-529d-aa52-b1757d9b9c2c",
+   "category": "wall",
+   "subtype": "wall_linework",
+   "label": null,
+   "confidence": 0.75,
+   "evidence": [
+    "layer 'WALLS' token 'WALLS' matches rule L-WALL (walls)",
+    "LINE geometry on wall layer",
+    "single linework entity; wall thickness and wall pairing not determined in this milestone"
+   ],
+   "rules": [
+    "L-WALL"
+   ],
+   "source_entity_ids": [
+    "E000012"
+   ],
+   "requires_verification": true,
+   "geometry": {
+    "kind": "line",
+    "points": [
+     [
+      19.75,
+      11.0
+     ],
+     [
+      19.75,
+      19.5
+     ]
+    ],
+    "closed": false,
+    "center": null,
+    "radius": null,
+    "start_angle": null,
+    "end_angle": null,
+    "paths": [],
+    "insert": null,
+    "text": null,
+    "height": null,
+    "rotation": null,
+    "measurement": null,
+    "frame": "LOCAL"
+   },
+   "properties": {
+    "length_ft": 8.5,
+    "view_region": "V1",
+    "view_type": "UNKNOWN"
+   },
+   "placement": {
+    "building_id": null,
+    "level_id": null,
+    "assignment_status": "unassigned",
+    "elevation_ft": null,
+    "height_ft": null,
+    "thickness_ft": null,
+    "rotation_deg": null,
+    "z_status": "unknown"
+   },
+   "provenance": {
+    "origin": "deterministic_inference",
+    "engine": "fireai.interpret",
+    "engine_version": "0.1.0",
+    "rule_ids": [
+     "L-WALL"
+    ],
+    "derived_from": [
+     "2a0a5936-b2cb-534e-a1a7-523e631955ac"
+    ],
+    "review": {
+     "status": "unreviewed",
+     "by": null,
+     "at": null,
+     "note": null
+    }
+   }
+  },
+  {
+   "id": "W00013",
+   "uid": "a8eef42a-b23b-5653-a799-fe18c10eeb88",
+   "category": "wall",
+   "subtype": "wall_linework",
+   "label": null,
+   "confidence": 0.75,
+   "evidence": [
+    "layer 'WALLS' token 'WALLS' matches rule L-WALL (walls)",
+    "LINE geometry on wall layer",
+    "single linework entity; wall thickness and wall pairing not determined in this milestone"
+   ],
+   "rules": [
+    "L-WALL"
+   ],
+   "source_entity_ids": [
+    "E000013"
+   ],
+   "requires_verification": true,
+   "geometry": {
+    "kind": "line",
+    "points": [
+     [
+      20.25,
+      11.0
+     ],
+     [
+      20.25,
+      19.5
+     ]
+    ],
+    "closed": false,
+    "center": null,
+    "radius": null,
+    "start_angle": null,
+    "end_angle": null,
+    "paths": [],
+    "insert": null,
+    "text": null,
+    "height": null,
+    "rotation": null,
+    "measurement": null,
+    "frame": "LOCAL"
+   },
+   "properties": {
+    "length_ft": 8.5,
+    "view_region": "V1",
+    "view_type": "UNKNOWN"
+   },
+   "placement": {
+    "building_id": null,
+    "level_id": null,
+    "assignment_status": "unassigned",
+    "elevation_ft": null,
+    "height_ft": null,
+    "thickness_ft": null,
+    "rotation_deg": null,
+    "z_status": "unknown"
+   },
+   "provenance": {
+    "origin": "deterministic_inference",
+    "engine": "fireai.interpret",
+    "engine_version": "0.1.0",
+    "rule_ids": [
+     "L-WALL"
+    ],
+    "derived_from": [
+     "ef779e2e-87ec-553d-986f-53655911381a"
+    ],
+    "review": {
+     "status": "unreviewed",
+     "by": null,
+     "at": null,
+     "note": null
+    }
+   }
+  },
+  {
+   "id": "W00014",
+   "uid": "8797796f-f01e-5720-a436-703b6f1c3488",
+   "category": "wall",
+   "subtype": "wall_linework",
+   "label": null,
+   "confidence": 0.75,
+   "evidence": [
+    "layer 'WALLS' token 'WALLS' matches rule L-WALL (walls)",
+    "LINE geometry on wall layer",
+    "single linework entity; wall thickness and wall pairing not determined in this milestone"
+   ],
+   "rules": [
+    "L-WALL"
+   ],
+   "source_entity_ids": [
+    "E000014"
+   ],
+   "requires_verification": true,
+   "geometry": {
+    "kind": "line",
+    "points": [
+     [
+      19.75,
+      11.0
+     ],
+     [
+      20.25,
+      11.0
+     ]
+    ],
+    "closed": false,
+    "center": null,
+    "radius": null,
+    "start_angle": null,
+    "end_angle": null,
+    "paths": [],
+    "insert": null,
+    "text": null,
+    "height": null,
+    "rotation": null,
+    "measurement": null,
+    "frame": "LOCAL"
+   },
+   "properties": {
+    "length_ft": 0.5,
+    "view_region": "V1",
+    "view_type": "UNKNOWN"
+   },
+   "placement": {
+    "building_id": null,
+    "level_id": null,
+    "assignment_status": "unassigned",
+    "elevation_ft": null,
+    "height_ft": null,
+    "thickness_ft": null,
+    "rotation_deg": null,
+    "z_status": "unknown"
+   },
+   "provenance": {
+    "origin": "deterministic_inference",
+    "engine": "fireai.interpret",
+    "engine_version": "0.1.0",
+    "rule_ids": [
+     "L-WALL"
+    ],
+    "derived_from": [
+     "f5b87040-2969-5aca-8a48-8a044520e903"
+    ],
+    "review": {
+     "status": "unreviewed",
+     "by": null,
+     "at": null,
+     "note": null
+    }
+   }
+  },
+  {
+   "id": "R00015",
+   "uid": "8ae55bc9-40e7-5249-a061-93c942af996d",
+   "category": "room",
+   "subtype": "suspected_merged_region",
+   "label": null,
+   "confidence": 0.3,
+   "evidence": [
+    "region enclosed by wall linework (polygonize)",
+    "no room/area-layer boundary exists in this drawing",
+    "label text inside boundary: ['OFFICE\\nHRWD FLOOR', 'SALES FLOOR']",
+    "finish/annotation notes not used as names: ['HRWD FLOOR']",
+    "2 distinct room names / 0 numbers inside ONE boundary - the boundary probably spans several rooms (e.g. through openings); no name assigned"
+   ],
+   "rules": [
+    "G-POLYGONIZE-WALLS",
+    "T-FINISH-NOTE"
+   ],
+   "source_entity_ids": [
+    "E000005",
+    "E000006",
+    "E000007",
+    "E000008",
+    "E000009",
+    "E000010",
+    "E000011",
+    "E000012",
+    "E000013",
+    "E000014",
+    "E000015",
+    "E000016"
+   ],
+   "requires_verification": true,
+   "geometry": {
+    "kind": "polygon",
+    "points": [
+     [
+      19.75,
+      0.5
+     ],
+     [
+      0.5,
+      0.5
+     ],
+     [
+      0.5,
+      19.5
+     ],
+     [
+      19.75,
+      19.5
+     ],
+     [
+      19.75,
+      11.0
+     ],
+     [
+      20.25,
+      11.0
+     ],
+     [
+      20.25,
+      19.5
+     ],
+     [
+      39.5,
+      19.5
+     ],
+     [
+      39.5,
+      0.5
+     ],
+     [
+      20.25,
+      0.5
+     ],
+     [
+      20.25,
+      8.0
+     ],
+     [
+      19.75,
+      8.0
+     ]
+    ],
+    "closed": true,
+    "center": null,
+    "radius": null,
+    "start_angle": null,
+    "end_angle": null,
+    "paths": [],
+    "insert": null,
+    "text": null,
+    "height": null,
+    "rotation": null,
+    "measurement": null,
+    "frame": "LOCAL"
+   },
+   "properties": {
+    "area_sf": 733.0,
+    "perimeter_ft": 148.0,
+    "name": null,
+    "number": null,
+    "detection_method": "polygonized_wall_linework",
+    "label_entity_ids": [
+     "E000015",
+     "E000016"
+    ],
+    "finish_notes": [
+     "HRWD FLOOR"
+    ],
+    "name_candidates": [
+     "OFFICE",
+     "SALES FLOOR"
+    ],
+    "number_candidates": [],
+    "view_region": "V1",
+    "view_type": "UNKNOWN",
+    "shape_hints": {
+     "vertex_count": 12,
+     "mrr_short_ft": 19.0,
+     "mrr_long_ft": 39.0,
+     "rectangularity": 0.9892,
+     "shape": "rectangular",
+     "rules": [
+      "R-SHAPE"
+     ]
+    },
+    "openings": [
+     {
+      "opening_id": "WO00001",
+      "kind": "doorless",
+      "width_ft": 3.0,
+      "connects_to": null,
+      "within_this_boundary": true
+     }
+    ],
+    "split_candidates": {
+     "status": "suggested_not_applied",
+     "rules": [
+      "R-SPLIT-CANDIDATE"
+     ],
+     "closed_openings": [
+      "WO00001"
+     ],
+     "faces": [
+      {
+       "polygon": [
+        [
+         19.75,
+         0.5
+        ],
+        [
+         0.5,
+         0.5
+        ],
+        [
+         0.5,
+         19.5
+        ],
+        [
+         19.75,
+         19.5
+        ],
+        [
+         19.75,
+         11.0
+        ],
+        [
+         19.75,
+         8.0
+        ]
+       ],
+       "area_sf": 365.75,
+       "labels": [
+        "OFFICE\nHRWD FLOOR"
+       ]
+      },
+      {
+       "polygon": [
+        [
+         20.25,
+         11.0
+        ],
+        [
+         20.25,
+         19.5
+        ],
+        [
+         39.5,
+         19.5
+        ],
+        [
+         39.5,
+         0.5
+        ],
+        [
+         20.25,
+         0.5
+        ],
+        [
+         20.25,
+         8.0
+        ]
+       ],
+       "area_sf": 365.75,
+       "labels": [
+        "SALES FLOOR"
+       ]
+      }
+     ],
+     "frame": "LOCAL",
+     "note": "Analysis only: closing the doorless opening(s) would separate the labels. A person must decide whether these are separate rooms or one open space."
+    }
+   },
+   "placement": {
+    "building_id": null,
+    "level_id": null,
+    "assignment_status": "unassigned",
+    "elevation_ft": null,
+    "height_ft": null,
+    "thickness_ft": null,
+    "rotation_deg": null,
+    "z_status": "unknown"
+   },
+   "provenance": {
+    "origin": "deterministic_inference",
+    "engine": "fireai.interpret",
+    "engine_version": "0.1.0",
+    "rule_ids": [
+     "G-POLYGONIZE-WALLS",
+     "T-FINISH-NOTE"
+    ],
+    "derived_from": [
+     "c2002c77-9385-57e9-a826-28ca4bacb9af",
+     "423f4661-6206-5652-8792-c0db3ff3cfe8",
+     "5dfc0358-7e14-59b6-a65b-9501287dcda8",
+     "d51f213c-e21d-5e21-8a17-1f924a5d66f1",
+     "204323e9-2c9c-549a-9ac2-4ccfea6b991d",
+     "04a8b309-e9eb-5c0f-97e6-f4e7022f7174",
+     "b6ad6b1a-40c6-50f3-ae3d-9d54d3ecdf07",
+     "2a0a5936-b2cb-534e-a1a7-523e631955ac",
+     "ef779e2e-87ec-553d-986f-53655911381a",
+     "f5b87040-2969-5aca-8a48-8a044520e903",
+     "32f3774e-7af9-567d-a35e-c941b9cc2dcc",
+     "36fa4372-1260-58bd-967a-d72e2e876436"
+    ],
+    "review": {
+     "status": "unreviewed",
+     "by": null,
+     "at": null,
+     "note": null
+    }
+   }
+  }
+ ],
+ "unclassified_entity_ids": [],
+ "view_regions": [
+  {
+   "id": "V1",
+   "uid": "9cbc2edf-e925-5418-b3bc-66aeae8e2bca",
+   "bbox_ft": [
+    0.0,
+    0.0,
+    40.0,
+    20.0
+   ],
+   "entity_count": 16,
+   "top_level_entity_ids": [
+    "E000001",
+    "E000002",
+    "E000003",
+    "E000004",
+    "E000005",
+    "E000006",
+    "E000007",
+    "E000008",
+    "E000009",
+    "E000010",
+    "E000011",
+    "E000012",
+    "E000013",
+    "E000014",
+    "E000015",
+    "E000016"
+   ],
+   "attached_title_entity_ids": [
+    "E000015",
+    "E000016"
+   ],
+   "viewport_links": [],
+   "view_type": "UNKNOWN",
+   "view_type_confidence": 0.0,
+   "view_type_candidates": {
+    "FLOOR_PLAN": 0.3
+   },
+   "view_type_evidence": [
+    "walls with room labels/boundaries present (weak plan evidence; sections also show walls and doors)",
+    "insufficient evidence for a view type: FLOOR_PLAN 0.30"
+   ],
+   "view_type_rules": [
+    "V-GEOM-PLAN"
+   ],
+   "view_type_source": "fireai",
+   "review_state": "unreviewed",
+   "room_logic": "applied",
+   "element_counts": {
+    "wall": 14,
+    "room": 1
+   },
+   "title_block_only": false,
+   "significant": true
+  }
+ ],
+ "xrefs": [],
+ "wall_model": {
+  "schema": "wall_analysis/1",
+  "derived": true,
+  "frame": "LOCAL",
+  "units": "ft",
+  "note": "DERIVED ANALYSIS GEOMETRY from wall linework. Centerlines, thicknesses, junctions and openings are not source geometry and are not walls in their own right; each cites the linework it came from.",
+  "parameters": {
+   "min_thickness_ft": 0.25,
+   "max_thickness_ft": 2.0,
+   "parallel_tol_deg": 1.0,
+   "min_overlap_ft": 0.5,
+   "opening_range_ft": [
+    1.5,
+    12.0
+   ]
+  },
+  "walls": [
+   {
+    "id": "WA00001",
+    "uid": "caa8d3dd-3c0f-55b5-a132-cd33955f2ef8",
+    "kind": "straight",
+    "thickness_ft": 0.5,
+    "length_ft": 39.0,
+    "centerline": [
+     [
+      0.5,
+      0.25
+     ],
+     [
+      39.5,
+      0.25
+     ]
+    ],
+    "faces": [
+     {
+      "element_id": "W00001",
+      "entity_ids": [
+       "E000001"
+      ],
+      "segment": [
+       [
+        0.5,
+        0.0
+       ],
+       [
+        39.5,
+        0.0
+       ]
+      ]
+     },
+     {
+      "element_id": "W00005",
+      "entity_ids": [
+       "E000005"
+      ],
+      "segment": [
+       [
+        0.5,
+        0.5
+       ],
+       [
+        39.5,
+        0.5
+       ]
+      ]
+     }
+    ],
+    "exterior": "exterior_evidence",
+    "confidence": 0.7,
+    "rules": [
+     "W-PAIR",
+     "W-EXTERIOR"
+    ],
+    "evidence": [
+     "two parallel wall-layer lines 0.500 ft (6.0 in) apart over 39.00 ft",
+     "one face lies on the outline of all wall linework"
+    ],
+    "requires_verification": false,
+    "region": "V1"
+   },
+   {
+    "id": "WA00002",
+    "uid": "66900c6f-1c21-5a66-8c8d-3544fa64ac1f",
+    "kind": "straight",
+    "thickness_ft": 0.5,
+    "length_ft": 19.0,
+    "centerline": [
+     [
+      39.75,
+      0.5
+     ],
+     [
+      39.75,
+      19.5
+     ]
+    ],
+    "faces": [
+     {
+      "element_id": "W00002",
+      "entity_ids": [
+       "E000002"
+      ],
+      "segment": [
+       [
+        40.0,
+        0.5
+       ],
+       [
+        40.0,
+        19.5
+       ]
+      ]
+     },
+     {
+      "element_id": "W00006",
+      "entity_ids": [
+       "E000006"
+      ],
+      "segment": [
+       [
+        39.5,
+        0.5
+       ],
+       [
+        39.5,
+        19.5
+       ]
+      ]
+     }
+    ],
+    "exterior": "exterior_evidence",
+    "confidence": 0.7,
+    "rules": [
+     "W-PAIR",
+     "W-EXTERIOR"
+    ],
+    "evidence": [
+     "two parallel wall-layer lines 0.500 ft (6.0 in) apart over 19.00 ft",
+     "one face lies on the outline of all wall linework"
+    ],
+    "requires_verification": false,
+    "region": "V1"
+   },
+   {
+    "id": "WA00003",
+    "uid": "55ef9b10-87cd-5051-936d-13b7a0faa10c",
+    "kind": "straight",
+    "thickness_ft": 0.5,
+    "length_ft": 39.0,
+    "centerline": [
+     [
+      39.5,
+      19.75
+     ],
+     [
+      0.5,
+      19.75
+     ]
+    ],
+    "faces": [
+     {
+      "element_id": "W00003",
+      "entity_ids": [
+       "E000003"
+      ],
+      "segment": [
+       [
+        39.5,
+        20.0
+       ],
+       [
+        0.5,
+        20.0
+       ]
+      ]
+     },
+     {
+      "element_id": "W00007",
+      "entity_ids": [
+       "E000007"
+      ],
+      "segment": [
+       [
+        39.5,
+        19.5
+       ],
+       [
+        0.5,
+        19.5
+       ]
+      ]
+     }
+    ],
+    "exterior": "exterior_evidence",
+    "confidence": 0.7,
+    "rules": [
+     "W-PAIR",
+     "W-EXTERIOR"
+    ],
+    "evidence": [
+     "two parallel wall-layer lines 0.500 ft (6.0 in) apart over 39.00 ft",
+     "one face lies on the outline of all wall linework"
+    ],
+    "requires_verification": false,
+    "region": "V1"
+   },
+   {
+    "id": "WA00004",
+    "uid": "727d3839-bff8-5b18-82d0-4199016012d6",
+    "kind": "straight",
+    "thickness_ft": 0.5,
+    "length_ft": 19.0,
+    "centerline": [
+     [
+      0.25,
+      19.5
+     ],
+     [
+      0.25,
+      0.5
+     ]
+    ],
+    "faces": [
+     {
+      "element_id": "W00004",
+      "entity_ids": [
+       "E000004"
+      ],
+      "segment": [
+       [
+        0.0,
+        19.5
+       ],
+       [
+        0.0,
+        0.5
+       ]
+      ]
+     },
+     {
+      "element_id": "W00008",
+      "entity_ids": [
+       "E000008"
+      ],
+      "segment": [
+       [
+        0.5,
+        19.5
+       ],
+       [
+        0.5,
+        0.5
+       ]
+      ]
+     }
+    ],
+    "exterior": "exterior_evidence",
+    "confidence": 0.7,
+    "rules": [
+     "W-PAIR",
+     "W-EXTERIOR"
+    ],
+    "evidence": [
+     "two parallel wall-layer lines 0.500 ft (6.0 in) apart over 19.00 ft",
+     "one face lies on the outline of all wall linework"
+    ],
+    "requires_verification": false,
+    "region": "V1"
+   },
+   {
+    "id": "WA00005",
+    "uid": "09cfdab1-ee24-56a6-b8c1-458c6f34ab19",
+    "kind": "straight",
+    "thickness_ft": 0.5,
+    "length_ft": 7.5,
+    "centerline": [
+     [
+      20.0,
+      0.5
+     ],
+     [
+      20.0,
+      8.0
+     ]
+    ],
+    "faces": [
+     {
+      "element_id": "W00009",
+      "entity_ids": [
+       "E000009"
+      ],
+      "segment": [
+       [
+        19.75,
+        0.5
+       ],
+       [
+        19.75,
+        8.0
+       ]
+      ]
+     },
+     {
+      "element_id": "W00010",
+      "entity_ids": [
+       "E000010"
+      ],
+      "segment": [
+       [
+        20.25,
+        0.5
+       ],
+       [
+        20.25,
+        8.0
+       ]
+      ]
+     }
+    ],
+    "exterior": "interior_evidence",
+    "confidence": 0.7,
+    "rules": [
+     "W-PAIR",
+     "W-EXTERIOR"
+    ],
+    "evidence": [
+     "two parallel wall-layer lines 0.500 ft (6.0 in) apart over 7.50 ft",
+     "neither face lies on the outline of all wall linework"
+    ],
+    "requires_verification": false,
+    "region": "V1"
+   },
+   {
+    "id": "WA00006",
+    "uid": "b6a88147-289e-5256-8108-bd8dfd491c95",
+    "kind": "straight",
+    "thickness_ft": 0.5,
+    "length_ft": 8.5,
+    "centerline": [
+     [
+      20.0,
+      11.0
+     ],
+     [
+      20.0,
+      19.5
+     ]
+    ],
+    "faces": [
+     {
+      "element_id": "W00012",
+      "entity_ids": [
+       "E000012"
+      ],
+      "segment": [
+       [
+        19.75,
+        11.0
+       ],
+       [
+        19.75,
+        19.5
+       ]
+      ]
+     },
+     {
+      "element_id": "W00013",
+      "entity_ids": [
+       "E000013"
+      ],
+      "segment": [
+       [
+        20.25,
+        11.0
+       ],
+       [
+        20.25,
+        19.5
+       ]
+      ]
+     }
+    ],
+    "exterior": "interior_evidence",
+    "confidence": 0.7,
+    "rules": [
+     "W-PAIR",
+     "W-EXTERIOR"
+    ],
+    "evidence": [
+     "two parallel wall-layer lines 0.500 ft (6.0 in) apart over 8.50 ft",
+     "neither face lies on the outline of all wall linework"
+    ],
+    "requires_verification": false,
+    "region": "V1"
+   }
+  ],
+  "junctions": [
+   {
+    "type": "L",
+    "point": [
+     0.5,
+     0.25
+    ],
+    "wall_ids": [
+     "WA00001",
+     "WA00004"
+    ],
+    "id": "WJ00001",
+    "rules": [
+     "W-JUNCTION"
+    ]
+   },
+   {
+    "type": "L",
+    "point": [
+     39.5,
+     0.25
+    ],
+    "wall_ids": [
+     "WA00001",
+     "WA00002"
+    ],
+    "id": "WJ00002",
+    "rules": [
+     "W-JUNCTION"
+    ]
+   },
+   {
+    "type": "L",
+    "point": [
+     39.75,
+     19.5
+    ],
+    "wall_ids": [
+     "WA00002",
+     "WA00003"
+    ],
+    "id": "WJ00003",
+    "rules": [
+     "W-JUNCTION"
+    ]
+   },
+   {
+    "type": "L",
+    "point": [
+     0.5,
+     19.75
+    ],
+    "wall_ids": [
+     "WA00003",
+     "WA00004"
+    ],
+    "id": "WJ00004",
+    "rules": [
+     "W-JUNCTION"
+    ]
+   },
+   {
+    "type": "T",
+    "point": [
+     20.0,
+     0.5
+    ],
+    "wall_ids": [
+     "WA00001",
+     "WA00005"
+    ],
+    "id": "WJ00005",
+    "rules": [
+     "W-JUNCTION"
+    ]
+   },
+   {
+    "type": "free_end",
+    "point": [
+     20.0,
+     8.0
+    ],
+    "wall_ids": [
+     "WA00005"
+    ],
+    "id": "WJ00006",
+    "rules": [
+     "W-JUNCTION"
+    ]
+   },
+   {
+    "type": "free_end",
+    "point": [
+     20.0,
+     11.0
+    ],
+    "wall_ids": [
+     "WA00006"
+    ],
+    "id": "WJ00007",
+    "rules": [
+     "W-JUNCTION"
+    ]
+   },
+   {
+    "type": "T",
+    "point": [
+     20.0,
+     19.5
+    ],
+    "wall_ids": [
+     "WA00003",
+     "WA00006"
+    ],
+    "id": "WJ00008",
+    "rules": [
+     "W-JUNCTION"
+    ]
+   }
+  ],
+  "openings": [
+   {
+    "kind": "doorless",
+    "wall_ids": [
+     "WA00005",
+     "WA00006"
+    ],
+    "width_ft": 3.0,
+    "thickness_ft": 0.5,
+    "center": [
+     20.0,
+     9.5
+    ],
+    "span": [
+     [
+      20.0,
+      8.0
+     ],
+     [
+      20.0,
+      11.0
+     ]
+    ],
+    "door_element_ids": [],
+    "window_element_ids": [],
+    "jambs": 2,
+    "confidence": 0.5,
+    "rules": [
+     "W-OPENING"
+    ],
+    "evidence": [
+     "gap of 3.00 ft between collinear wall pieces WA00005 and WA00006 (thickness 0.500 ft)",
+     "jamb lines found at 2 of 2 ends",
+     "no door or window element in the gap: doorless opening (cased opening / pass-through) or two walls that do not meet"
+    ],
+    "requires_verification": true,
+    "region": "V1",
+    "id": "WO00001"
+   }
+  ],
+  "unpaired_linework": {
+   "segment_count": 2,
+   "element_ids": [
+    "W00011",
+    "W00014"
+   ],
+   "element_count": 2,
+   "note": "wall-layer segments with no parallel partner; no thickness assumed"
+  },
+  "stats": {
+   "wall_segments": 14,
+   "paired_segments": 12,
+   "wall_pieces": 6,
+   "curved_pieces": 0,
+   "junctions": 8,
+   "door_openings": 0,
+   "doorless_openings": 1,
+   "window_openings": 0,
+   "wall_elements_in_non_plan_views_skipped": 0,
+   "exterior_outline_by_region": {
+    "V1": "ok"
+   }
+  },
+  "room_connections": [
+   {
+    "opening_id": "WO00001",
+    "kind": "doorless",
+    "rooms": [
+     "R00015",
+     "R00015"
+    ],
+    "opening_inside_one_room": true,
+    "rules": [
+     "R-CONNECTIVITY"
+    ]
+   }
+  ]
+ },
+ "human_corrections_applied": [],
+ "verification": {
+  "fingerprint": "71c42b63e8bc4cadc9bc3fdf550dd5c0689a4f3dc209e3d1043af7741dec6ae8",
+  "source_sha256": "959542f74cb1afb573982c9ddd77b8f44ac2c5551d176541b61b76dd72896a92",
+  "xref_sha256": [],
+  "resolved_units": "ft",
+  "engine_version": "0.1.0+interp.m17.1",
+  "corrections_digest": null,
+  "status": "REVIEW_REQUIRED",
+  "status_reasons": [],
+  "note": "Status is computed from the human-review store at processing time; the pipeline never writes a verification. Re-check with the review API before relying on it."
+ },
+ "title_block": null,
+ "diagnostics": {
+  "warnings": [],
+  "errors": [],
+  "review_triggers": [
+   {
+    "code": "ROOM_BOUNDARY_SPANS_MULTIPLE_LABELS",
+    "message": "Region R00015 (733 sf) contains 2 different room names (OFFICE, SALES FLOOR); it is probably several rooms merged through openings.",
+    "severity": "warning",
+    "entity_ids": [],
+    "element_ids": [
+     "R00015"
+    ]
+   },
+   {
+    "code": "ELEMENTS_REQUIRE_VERIFICATION",
+    "message": "15 interpreted element(s) require human verification: wall x14, room x1",
+    "severity": "warning",
+    "entity_ids": [],
+    "element_ids": [
+     "W00001",
+     "W00002",
+     "W00003",
+     "W00004",
+     "W00005",
+     "W00006",
+     "W00007",
+     "W00008",
+     "W00009",
+     "W00010",
+     "W00011",
+     "W00012",
+     "W00013",
+     "W00014",
+     "R00015"
+    ]
+   },
+   {
+    "code": "ROOM_SPLIT_CANDIDATE",
+    "message": "R00015: closing 1 doorless opening(s) would separate its 2 labelled parts; review whether they are separate rooms.",
+    "severity": "warning",
+    "entity_ids": [],
+    "element_ids": [
+     "R00015"
+    ]
+   }
+  ]
+ },
+ "requires_human_review": true,
+ "geometry_is_synthetic": false,
+ "ready_for_design": false,
+ "engineering_review_status": "not_performed",
+ "assumptions": [
+  "Model-space geometry is drawn at full scale (1 drawing unit = 1 unit of the declared units); this is verified only where dimension text can be compared with measured geometry.",
+  "Only model space is interpreted as building geometry; paper space is inventoried for title-block text and viewport scales.",
+  "The drawing is treated as a single 2D plan level; Z coordinates are ignored and multiple levels in one model space are not separated.",
+  "Entities on off/frozen layers, or flagged invisible, are excluded from interpretation.",
+  "Block contents drawn on layer '0' take the layer of their INSERT (standard CAD convention).",
+  "Curves (arcs, bulges, splines, ellipses) are flattened with a chord tolerance of 0.2% of each entity's size.",
+  "Semantic roles come from layer/block naming conventions (NCS/AIA and common keywords); private layer standards are left unclassified."
+ ],
+ "ai_inference_used": false,
+ "entities": [
+  {
+   "id": "E000001",
+   "uid": "61ece79e-02a9-537b-ba80-c5df437a956d",
+   "handle_path": [
+    "8D"
+   ],
+   "source_object_key": "{32CD00FF-1B92-4932-AE7D-A97D8FF7A5EE}:8D",
+   "z_range": [
+    0.0,
+    0.0
+   ],
+   "handle": "8D",
+   "type": "LINE",
+   "layer": "WALLS",
+   "source": {
+    "kind": "line",
+    "points": [
+     [
+      0.0,
+      0.0
+     ],
+     [
+      40.0,
+      0.0
+     ]
+    ],
+    "frame": "SRC"
+   },
+   "normalized": {
+    "kind": "line",
+    "points": [
+     [
+      0.0,
+      0.0
+     ],
+     [
+      40.0,
+      0.0
+     ]
+    ],
+    "frame": "LOCAL"
+   }
+  },
+  {
+   "id": "E000002",
+   "uid": "685ca2f0-9a41-5358-a4be-daf2f70de215",
+   "handle_path": [
+    "8E"
+   ],
+   "source_object_key": "{32CD00FF-1B92-4932-AE7D-A97D8FF7A5EE}:8E",
+   "z_range": [
+    0.0,
+    0.0
+   ],
+   "handle": "8E",
+   "type": "LINE",
+   "layer": "WALLS",
+   "source": {
+    "kind": "line",
+    "points": [
+     [
+      40.0,
+      0.0
+     ],
+     [
+      40.0,
+      20.0
+     ]
+    ],
+    "frame": "SRC"
+   },
+   "normalized": {
+    "kind": "line",
+    "points": [
+     [
+      40.0,
+      0.0
+     ],
+     [
+      40.0,
+      20.0
+     ]
+    ],
+    "frame": "LOCAL"
+   }
+  },
+  {
+   "id": "E000003",
+   "uid": "0d4f82b2-2ff8-5dac-9847-ef9a618b41b2",
+   "handle_path": [
+    "8F"
+   ],
+   "source_object_key": "{32CD00FF-1B92-4932-AE7D-A97D8FF7A5EE}:8F",
+   "z_range": [
+    0.0,
+    0.0
+   ],
+   "handle": "8F",
+   "type": "LINE",
+   "layer": "WALLS",
+   "source": {
+    "kind": "line",
+    "points": [
+     [
+      40.0,
+      20.0
+     ],
+     [
+      0.0,
+      20.0
+     ]
+    ],
+    "frame": "SRC"
+   },
+   "normalized": {
+    "kind": "line",
+    "points": [
+     [
+      40.0,
+      20.0
+     ],
+     [
+      0.0,
+      20.0
+     ]
+    ],
+    "frame": "LOCAL"
+   }
+  },
+  {
+   "id": "E000004",
+   "uid": "803cab70-7195-5d09-95f2-b68c925641d8",
+   "handle_path": [
+    "90"
+   ],
+   "source_object_key": "{32CD00FF-1B92-4932-AE7D-A97D8FF7A5EE}:90",
+   "z_range": [
+    0.0,
+    0.0
+   ],
+   "handle": "90",
+   "type": "LINE",
+   "layer": "WALLS",
+   "source": {
+    "kind": "line",
+    "points": [
+     [
+      0.0,
+      20.0
+     ],
+     [
+      0.0,
+      0.0
+     ]
+    ],
+    "frame": "SRC"
+   },
+   "normalized": {
+    "kind": "line",
+    "points": [
+     [
+      0.0,
+      20.0
+     ],
+     [
+      0.0,
+      0.0
+     ]
+    ],
+    "frame": "LOCAL"
+   }
+  },
+  {
+   "id": "E000005",
+   "uid": "c2002c77-9385-57e9-a826-28ca4bacb9af",
+   "handle_path": [
+    "91"
+   ],
+   "source_object_key": "{32CD00FF-1B92-4932-AE7D-A97D8FF7A5EE}:91",
+   "z_range": [
+    0.0,
+    0.0
+   ],
+   "handle": "91",
+   "type": "LINE",
+   "layer": "WALLS",
+   "source": {
+    "kind": "line",
+    "points": [
+     [
+      0.5,
+      0.5
+     ],
+     [
+      39.5,
+      0.5
+     ]
+    ],
+    "frame": "SRC"
+   },
+   "normalized": {
+    "kind": "line",
+    "points": [
+     [
+      0.5,
+      0.5
+     ],
+     [
+      39.5,
+      0.5
+     ]
+    ],
+    "frame": "LOCAL"
+   }
+  },
+  {
+   "id": "E000006",
+   "uid": "423f4661-6206-5652-8792-c0db3ff3cfe8",
+   "handle_path": [
+    "92"
+   ],
+   "source_object_key": "{32CD00FF-1B92-4932-AE7D-A97D8FF7A5EE}:92",
+   "z_range": [
+    0.0,
+    0.0
+   ],
+   "handle": "92",
+   "type": "LINE",
+   "layer": "WALLS",
+   "source": {
+    "kind": "line",
+    "points": [
+     [
+      39.5,
+      0.5
+     ],
+     [
+      39.5,
+      19.5
+     ]
+    ],
+    "frame": "SRC"
+   },
+   "normalized": {
+    "kind": "line",
+    "points": [
+     [
+      39.5,
+      0.5
+     ],
+     [
+      39.5,
+      19.5
+     ]
+    ],
+    "frame": "LOCAL"
+   }
+  },
+  {
+   "id": "E000007",
+   "uid": "5dfc0358-7e14-59b6-a65b-9501287dcda8",
+   "handle_path": [
+    "93"
+   ],
+   "source_object_key": "{32CD00FF-1B92-4932-AE7D-A97D8FF7A5EE}:93",
+   "z_range": [
+    0.0,
+    0.0
+   ],
+   "handle": "93",
+   "type": "LINE",
+   "layer": "WALLS",
+   "source": {
+    "kind": "line",
+    "points": [
+     [
+      39.5,
+      19.5
+     ],
+     [
+      0.5,
+      19.5
+     ]
+    ],
+    "frame": "SRC"
+   },
+   "normalized": {
+    "kind": "line",
+    "points": [
+     [
+      39.5,
+      19.5
+     ],
+     [
+      0.5,
+      19.5
+     ]
+    ],
+    "frame": "LOCAL"
+   }
+  },
+  {
+   "id": "E000008",
+   "uid": "d51f213c-e21d-5e21-8a17-1f924a5d66f1",
+   "handle_path": [
+    "94"
+   ],
+   "source_object_key": "{32CD00FF-1B92-4932-AE7D-A97D8FF7A5EE}:94",
+   "z_range": [
+    0.0,
+    0.0
+   ],
+   "handle": "94",
+   "type": "LINE",
+   "layer": "WALLS",
+   "source": {
+    "kind": "line",
+    "points": [
+     [
+      0.5,
+      19.5
+     ],
+     [
+      0.5,
+      0.5
+     ]
+    ],
+    "frame": "SRC"
+   },
+   "normalized": {
+    "kind": "line",
+    "points": [
+     [
+      0.5,
+      19.5
+     ],
+     [
+      0.5,
+      0.5
+     ]
+    ],
+    "frame": "LOCAL"
+   }
+  },
+  {
+   "id": "E000009",
+   "uid": "204323e9-2c9c-549a-9ac2-4ccfea6b991d",
+   "handle_path": [
+    "95"
+   ],
+   "source_object_key": "{32CD00FF-1B92-4932-AE7D-A97D8FF7A5EE}:95",
+   "z_range": [
+    0.0,
+    0.0
+   ],
+   "handle": "95",
+   "type": "LINE",
+   "layer": "WALLS",
+   "source": {
+    "kind": "line",
+    "points": [
+     [
+      19.75,
+      0.5
+     ],
+     [
+      19.75,
+      8.0
+     ]
+    ],
+    "frame": "SRC"
+   },
+   "normalized": {
+    "kind": "line",
+    "points": [
+     [
+      19.75,
+      0.5
+     ],
+     [
+      19.75,
+      8.0
+     ]
+    ],
+    "frame": "LOCAL"
+   }
+  },
+  {
+   "id": "E000010",
+   "uid": "04a8b309-e9eb-5c0f-97e6-f4e7022f7174",
+   "handle_path": [
+    "96"
+   ],
+   "source_object_key": "{32CD00FF-1B92-4932-AE7D-A97D8FF7A5EE}:96",
+   "z_range": [
+    0.0,
+    0.0
+   ],
+   "handle": "96",
+   "type": "LINE",
+   "layer": "WALLS",
+   "source": {
+    "kind": "line",
+    "points": [
+     [
+      20.25,
+      0.5
+     ],
+     [
+      20.25,
+      8.0
+     ]
+    ],
+    "frame": "SRC"
+   },
+   "normalized": {
+    "kind": "line",
+    "points": [
+     [
+      20.25,
+      0.5
+     ],
+     [
+      20.25,
+      8.0
+     ]
+    ],
+    "frame": "LOCAL"
+   }
+  },
+  {
+   "id": "E000011",
+   "uid": "b6ad6b1a-40c6-50f3-ae3d-9d54d3ecdf07",
+   "handle_path": [
+    "97"
+   ],
+   "source_object_key": "{32CD00FF-1B92-4932-AE7D-A97D8FF7A5EE}:97",
+   "z_range": [
+    0.0,
+    0.0
+   ],
+   "handle": "97",
+   "type": "LINE",
+   "layer": "WALLS",
+   "source": {
+    "kind": "line",
+    "points": [
+     [
+      19.75,
+      8.0
+     ],
+     [
+      20.25,
+      8.0
+     ]
+    ],
+    "frame": "SRC"
+   },
+   "normalized": {
+    "kind": "line",
+    "points": [
+     [
+      19.75,
+      8.0
+     ],
+     [
+      20.25,
+      8.0
+     ]
+    ],
+    "frame": "LOCAL"
+   }
+  },
+  {
+   "id": "E000012",
+   "uid": "2a0a5936-b2cb-534e-a1a7-523e631955ac",
+   "handle_path": [
+    "98"
+   ],
+   "source_object_key": "{32CD00FF-1B92-4932-AE7D-A97D8FF7A5EE}:98",
+   "z_range": [
+    0.0,
+    0.0
+   ],
+   "handle": "98",
+   "type": "LINE",
+   "layer": "WALLS",
+   "source": {
+    "kind": "line",
+    "points": [
+     [
+      19.75,
+      11.0
+     ],
+     [
+      19.75,
+      19.5
+     ]
+    ],
+    "frame": "SRC"
+   },
+   "normalized": {
+    "kind": "line",
+    "points": [
+     [
+      19.75,
+      11.0
+     ],
+     [
+      19.75,
+      19.5
+     ]
+    ],
+    "frame": "LOCAL"
+   }
+  },
+  {
+   "id": "E000013",
+   "uid": "ef779e2e-87ec-553d-986f-53655911381a",
+   "handle_path": [
+    "99"
+   ],
+   "source_object_key": "{32CD00FF-1B92-4932-AE7D-A97D8FF7A5EE}:99",
+   "z_range": [
+    0.0,
+    0.0
+   ],
+   "handle": "99",
+   "type": "LINE",
+   "layer": "WALLS",
+   "source": {
+    "kind": "line",
+    "points": [
+     [
+      20.25,
+      11.0
+     ],
+     [
+      20.25,
+      19.5
+     ]
+    ],
+    "frame": "SRC"
+   },
+   "normalized": {
+    "kind": "line",
+    "points": [
+     [
+      20.25,
+      11.0
+     ],
+     [
+      20.25,
+      19.5
+     ]
+    ],
+    "frame": "LOCAL"
+   }
+  },
+  {
+   "id": "E000014",
+   "uid": "f5b87040-2969-5aca-8a48-8a044520e903",
+   "handle_path": [
+    "9A"
+   ],
+   "source_object_key": "{32CD00FF-1B92-4932-AE7D-A97D8FF7A5EE}:9A",
+   "z_range": [
+    0.0,
+    0.0
+   ],
+   "handle": "9A",
+   "type": "LINE",
+   "layer": "WALLS",
+   "source": {
+    "kind": "line",
+    "points": [
+     [
+      19.75,
+      11.0
+     ],
+     [
+      20.25,
+      11.0
+     ]
+    ],
+    "frame": "SRC"
+   },
+   "normalized": {
+    "kind": "line",
+    "points": [
+     [
+      19.75,
+      11.0
+     ],
+     [
+      20.25,
+      11.0
+     ]
+    ],
+    "frame": "LOCAL"
+   }
+  },
+  {
+   "id": "E000015",
+   "uid": "32f3774e-7af9-567d-a35e-c941b9cc2dcc",
+   "handle_path": [
+    "9B"
+   ],
+   "source_object_key": "{32CD00FF-1B92-4932-AE7D-A97D8FF7A5EE}:9B",
+   "z_range": [
+    0.0,
+    0.0
+   ],
+   "handle": "9B",
+   "type": "MTEXT",
+   "layer": "RMNAME",
+   "source": {
+    "kind": "text",
+    "insert": [
+     8.0,
+     12.0
+    ],
+    "text": "OFFICE\nHRWD FLOOR",
+    "height": 1.0,
+    "rotation": 0.0,
+    "frame": "SRC"
+   },
+   "normalized": {
+    "kind": "text",
+    "insert": [
+     8.0,
+     12.0
+    ],
+    "text": "OFFICE\nHRWD FLOOR",
+    "height": 1.0,
+    "rotation": 0.0,
+    "frame": "LOCAL"
+   }
+  },
+  {
+   "id": "E000016",
+   "uid": "36fa4372-1260-58bd-967a-d72e2e876436",
+   "handle_path": [
+    "9C"
+   ],
+   "source_object_key": "{32CD00FF-1B92-4932-AE7D-A97D8FF7A5EE}:9C",
+   "z_range": [
+    0.0,
+    0.0
+   ],
+   "handle": "9C",
+   "type": "TEXT",
+   "layer": "RMNAME",
+   "source": {
+    "kind": "text",
+    "insert": [
+     27.0,
+     12.0
+    ],
+    "text": "SALES FLOOR",
+    "height": 1.0,
+    "rotation": 0.0,
+    "frame": "SRC"
+   },
+   "normalized": {
+    "kind": "text",
+    "insert": [
+     27.0,
+     12.0
+    ],
+    "text": "SALES FLOOR",
+    "height": 1.0,
+    "rotation": 0.0,
+    "frame": "LOCAL"
+   }
+  }
+ ]
+}

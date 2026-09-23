@@ -525,6 +525,10 @@ def summarize_regions(model: BuildingModel, regions: list[dict]) -> list[Issue]:
             for el in elem_by_entity.get(eid, []):
                 el.properties.setdefault("view_region", r["id"])
                 el.properties.setdefault("view_type", r.get("view_type", "UNKNOWN"))
+                # M1.8: explicit view context for downstream consumers (plan | non_plan | unconfirmed)
+                vt = r.get("view_type", "UNKNOWN")
+                el.properties.setdefault("view_context", "plan" if vt in ("FLOOR_PLAN", "REFLECTED_CEILING_PLAN")
+                                         else "unconfirmed" if vt == "UNKNOWN" else "non_plan")
     sig = [r for r in regions if r["significant"]]
     issues = []
     if len(sig) >= 2:

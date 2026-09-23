@@ -24,7 +24,7 @@ constraints, with every placed sprinkler explainable.
 
 ## 3. Inputs (all explicit, all recorded)
 
-1. `EngineeringInput` from `build_engineering_input` (contract `engineering_input/1-draft`) with
+1. `EngineeringInput` from `build_engineering_input` (contract `engineering_input/2-draft`) with
    exactly one selected region and one selected space (the space uid is chosen by a person).
 2. A **DesignCriteria** record, entered and attributed by a person:
    * `ceiling_height` and ceiling type = flat (Z source: human input);

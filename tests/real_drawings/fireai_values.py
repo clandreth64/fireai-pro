@@ -108,6 +108,7 @@ def canvas(m: dict) -> dict:
             continue
         items.append({"uid": el.get("uid"), "id": el["id"], "category": el["category"], "subtype": el.get("subtype"),
                       "label": el.get("label"), "points": p, "closed": el["geometry"].get("closed", False),
+                      "contains": el["properties"].get("semantic_space_names") if el["category"] == "room" else None,
                       "confident": not el["requires_verification"],
                       "flagged_by_fireai": el["requires_verification"] or el["id"] in flagged,
                       "region": el["properties"].get("view_region")})

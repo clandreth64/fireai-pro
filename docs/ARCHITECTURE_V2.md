@@ -108,7 +108,8 @@ A completed model that still needs a person carries `requires_human_review = tru
 | `ELEMENTS_REQUIRE_VERIFICATION` | any element with confidence < 0.80, ambiguous/missing room label, polygonized rooms, title-block fields, conflicting block/layer evidence |
 | `HIGH_UNCLASSIFIED_FRACTION` | > 30% of top-level entities unclassified |
 | `MULTIPLE_DRAWING_REGIONS` | ≥ 2 significant separate regions in model space (several plans, sections, details) — added 1.5 |
-| `ROOM_BOUNDARY_SPANS_MULTIPLE_LABELS` | one derived boundary contains several different room names (merged through openings) — added 1.5 |
+| `ROOM_BOUNDARY_SPANS_MULTIPLE_LABELS` | one physical region contains several named spaces — an open area shared by several spaces, or rooms not separated; since 1.8 the spaces are recorded with UNRESOLVED boundaries and listed in the trigger — added 1.5 |
+| `NON_PLAN_OPENING_DEPICTIONS` | door/window content found in a SECTION / ELEVATION / DETAIL / … view, kept as a `depiction` (not a plan door/window) — added 1.8 |
 | `DWG_CONVERSION_LOST_ENTITIES` | independent DWG entity census shows types missing from the converted DXF — added 1.5 |
 | `DWG_CONVERSION_AUDIT_UNAVAILABLE` | a DWG was converted but its entity census could not be verified — added 1.5 |
 
@@ -120,7 +121,7 @@ Even with no triggers the model is **not** ready for design: a person must still
 |---|---|
 | `G-VIEW-REGIONS` | Clusters visible model-space geometry by gap (max(5 ft, 3% of extent)); regions reported, elements tagged `view_region`; never decides which region is the building |
 | `G-DOOR-OPENING-CLOSURE` | When rooms are derived from wall linework, wall vertices within a detected door's footprint are bridged (1.5–8 ft, shortest first, never crossing walls) with *analysis lines* stored on the room (`door_closures`) — never walls. Rooms using them are verification-required (confidence 0.55) |
-| label handling | Each text entity is parsed separately; different names inside one boundary are never concatenated — the region becomes `suspected_merged_region`, unnamed, confidence ≤ 0.3 |
+| label handling | Each text entity is parsed separately; different names inside one boundary are never concatenated — the region becomes `suspected_merged_region`, unnamed, confidence ≤ 0.3. Since 1.8 each distinct name also becomes a `space` element (see §5c) |
 | `T-FINISH-NOTE` | Label lines made only of finish/annotation vocabulary (HRWD FLOOR, TILE, 9'-0" CLG, GFI…) are notes, not names |
 | dynamic blocks | Anonymous `*U/*B` copies are classified by their effective name (AcDbBlockRepBTag) |
 | `L-WALL-QUALIFIER` | Wall layers qualified ABOVE/BELOW/OVHD/DEMO/EXIST/FUTURE… become `qualified_*` walls, confidence ≤ 0.5, verification required |
@@ -200,3 +201,35 @@ The Dockerfile lives in `docker/` so it does not change how Railway builds the s
 
 Long-term architecture: `docs/AGENTIC_LEARNING_ARCHITECTURE.md`. Next milestone (not started):
 `docs/MILESTONE_2_0_SPEC.md`.
+
+## 5c. Milestone 1.8: physical regions vs semantic spaces, view-aware interpretation
+
+Driven by owner reviews (REAL_002: an open first floor with four named spaces in one continuous
+region; REAL_004: door content in a section promoted to plan doors).
+
+| Concept | Element | Derived from | Boundary |
+|---|---|---|---|
+| **Physical region** (enclosure) | `room` | walls, openings, closures, area polylines (deterministic geometry) | its polygon |
+| **Semantic space** (named / use-defined) | `space`, subtype `semantic_space` | a label (text) inside a physical region | `properties.boundary_state`: `known` (the only name in its region → the region's boundary) or `unresolved` (several names share one region → **no boundary**, geometry is the label anchor point) |
+| **Depiction** | `depiction`, subtype `<role>_in_<view>` | door/window content recognised by plan heuristics inside a non-plan view | the source linework extent; `plan_semantic: false` |
+
+Rules:
+
+* `S-SEMANTIC-SPACE` — a region may hold zero, one or several semantic spaces; each space links to
+  its region (`region_uid`) and its label texts (`source_entity_ids`). No wall, boundary or area is
+  ever invented for an unresolved space; the region stays unnamed and flagged; the
+  `ROOM_BOUNDARY_SPANS_MULTIPLE_LABELS` trigger lists the spaces.
+* `V-VIEW-AWARE-INTERPRETATION` — plan-network openings (`door`, `window`) are created only in
+  FLOOR_PLAN / REFLECTED_CEILING_PLAN regions. In SECTION / ELEVATION / DETAIL / SITE_PLAN /
+  RISER_DIAGRAM / LEGEND / SCHEDULE / TITLE_BLOCK regions the same evidence yields a `depiction`
+  (confidence ≤ 0.5, verification required, trigger `NON_PLAN_OPENING_DEPICTIONS`); it never feeds
+  wall analysis, room topology or the engineering contract. Walls, stairs and columns in sections
+  are kept as before (owner confirmed their positions) and carry `view_context: non_plan`.
+* UNKNOWN views keep plan interpretation (untitled plans are common) but every element carries
+  `view_context: unconfirmed`, and the engineering contract refuses an UNKNOWN region until a
+  person sets its view type.
+* `G-NESTED-PARTS` — a linework group drawn entirely inside another group of the same role (a
+  door's glass lite or handle inside its leaf) is part of that object, in any view.
+* Schema **0.4.0** adds the `space` and `depiction` categories; the 0.3.0→0.4.0 migration derives
+  nothing (reprocessing does). Engine `interp.m18.1`: verifications made on earlier engines are
+  INVALIDATED; FireAI-output-specific human evaluations become stale automatically.

@@ -300,3 +300,51 @@ boundaries. REAL_002's earlier human evaluations now show as **stale** (FireAI's
 facts remain.
 
 `ENGINE_VERSION` → `interp.m17.1`, so verifications made against the M1.6 interpretation are INVALIDATED.
+
+## §M1.8 — Physical regions vs semantic spaces; view-aware interpretation
+
+### Human evidence (authoritative for this iteration; records unchanged)
+
+| Record | Reviewer / evaluated output | Findings used | Class |
+|---|---|---|---|
+| REAL_002 | owner, evaluated `m17` (human_review/3, HUMAN_VERIFIED at the time) | Facts confirmed: two floor plans. CORRECTED: named first-floor spaces (Kitchen / Living Room / Forum / Hall) are not individually represented; "no invented walls" | B (the model had one concept, `room`, for both enclosure and named space) |
+| REAL_004 | owner, evaluated `m17` (HUMAN_VERIFIED at the time) | Facts confirmed: 4 SECTION views. Walls, structure and excluded content CONFIRMED. CORRECTED: "doors" in the central section are not plan doors; section construction/material semantics missing | A (plan interpretation applied in a section) + B (nested parts of one door split into several objects); materials: C (unsupported) |
+| REAL_003 | **no human review exists** | machine comparison only (metric twin of REAL_002) | — |
+
+CAD check of the REAL_004 claim: the flagged content is door **elevations** (leaf outlines, a glass lite and
+a handle on a door-detail layer) in a SECTION view. The doors are real, so "there are no doors" would be an
+E-class claim. The defect is that elevation content was **promoted to plan doors**, split into 4 objects,
+and flagged only generically.
+
+### Hypotheses
+
+* **A: physical region ≠ semantic space.** Supported by REAL_002 and REAL_003. Implemented generally
+  (`space` elements, `boundary_state` known/unresolved; see `ARCHITECTURE_V2.md` §5c).
+* **B: view type constrains interpretation.** Supported by REAL_004 and the CAD evidence. Implemented
+  generally (`depiction` elements in non-plan views, `view_context` on every element, G-NESTED-PARTS).
+  Doors are not banned from sections: they are kept as what the view depicts. UNKNOWN views are
+  marked `unconfirmed` and refused by the engineering contract.
+
+Tests: `tests/test_m18_spaces_and_views.py` (15 tests; 12 fail on the M1.7 code).
+
+### Results (runs `m17` → `m18`, same harness settings)
+
+| File | Before | After |
+|---|---|---|
+| REAL_002 (in) | 14 rooms; one flagged 830 sf region holding 4 names | the same 14 physical regions (areas identical); 15 semantic spaces: 11 **known** (each the only name in its region), 4 **unresolved** (LIVING ROOM, FORUM, KITCHEN, HALL: point at the label, no boundary, no area); 2 unlabelled closets have no space; the trigger lists the 4 space ids |
+| REAL_003 (m) | 12 rooms; the same flagged region | the same 12 physical regions; the same 15 names and the same states (11 known, 4 unresolved) as REAL_002. Imperial and metric are equivalent; known areas differ by ≤ 5 % as in M1.7 (different wall drawing) |
+| REAL_004 (4 × SECTION) | 4 plan `door` elements (D00100–D00103), all in one section | 0 plan doors or windows; 2 `depiction` elements (`door_in_section`, confidence 0.5, verification required, `plan_semantic: false`), one per drawn door. The lite and handle are merged into their leaf (G-NESTED-PARTS). Source union identical: 56 → 56 entities. New trigger `NON_PLAN_OPENING_DEPICTIONS`. Walls, stairs and ceilings unchanged and marked `view_context: non_plan` |
+| REAL_001 (units = in, read-only) | 1019 FP, 11 title_block, 1090 text, 4 UNKNOWN views | identical counts; elements now carry `view_context: unconfirmed` |
+| REAL_005–011 | — | identical categories, regions and triggers; REAL_006 still fails and REAL_008 still needs units (pre-existing) |
+
+**Human reviews after reprocessing:** REAL_002 and REAL_004 keep their facts (the sources are unchanged).
+All 12 evaluations of each are **stale** (their evaluated model differs), so the effective status is
+`PARTIALLY_HUMAN_REVIEWED`. The records were not edited; invalidation happened on its own.
+
+**Performance:** the interpret stage changed by ≤ 0.3 s per file; model JSON grew by ≤ 34 kB (REAL_003).
+Wall-clock differences in this run (REAL_010: 90 s → 124 s) came from stages M1.8 does not touch
+(LibreDWG conversion, DXF load, overlay DXF write) while other containers were loading the host.
+
+**Limitations:** semantic space boundaries inside an open region stay unresolved until a person draws
+them; section/elevation materials and construction semantics are not modelled; UNKNOWN views keep plan
+interpretation (marked unconfirmed); REAL_003 has no human review.

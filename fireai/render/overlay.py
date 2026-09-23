@@ -53,6 +53,8 @@ STYLE = {
     "dimension":                ("#b8860b", "FAI-DIM", 42, "Dimension"),
     "text_annotation":          ("#444444", "FAI-TEXT", 250, "Text"),
     "title_block":              ("#000000", "FAI-TITLE", 7, "Title block"),
+    "space":                    ("#006400", "FAI-SPACE", 94, "Named space (marker; boundary = room or unresolved)"),
+    "depiction":                ("#8b4513", "FAI-DEPICTION", 32, "Door/window seen in a non-plan view (not a plan door)"),
 }
 UNCLASSIFIED = ("#ff7f00", "FAI-UNCLASSIFIED", 30, "UNCLASSIFIED geometry")
 VERIFY_NOTE = "Dashed outline = requires human verification"
@@ -192,6 +194,14 @@ def render_overlay(src, model: BuildingModel, out_png: Path, out_svg: Path) -> N
     for i, el in enumerate(sorted(model.elements, key=lambda e: e.category != "room")):
         color = STYLE[el.category][0]
         ls = "--" if el.requires_verification else "-"
+        if el.category == "space":
+            # a named space never gets a drawn boundary of its own: a KNOWN one coincides with its
+            # room's outline, an UNRESOLVED one has no boundary — mark its label position only
+            a = _anchor(el, inv)
+            if a:
+                ax.plot([a[0]], [a[1]], marker="D", ms=4, color=color, zorder=8,
+                        fillstyle="none" if el.properties.get("boundary_state") != "known" else "full")
+            continue
         paths = _element_paths(el, model, inv, by_parent, by_id)
         if el.category == "text_annotation":
             a = _anchor(el, inv)
@@ -322,6 +332,13 @@ def write_overlay_dxf(src, model: BuildingModel, out_path: Path) -> None:
         if el.category == "text_annotation":
             continue
         layer = STYLE[el.category][1]
+        if el.category == "space":      # label only (see render_overlay)
+            a = _anchor(el, inv)
+            if a:
+                state = el.properties.get("boundary_state")
+                msp.add_text(f"{el.id} {el.label or ''} [space, boundary {state}]", height=text_h,
+                             dxfattribs={"layer": layer, "insert": a})
+            continue
         attribs = {"layer": layer, "lineweight": 50 if el.category in ("wall", "room") else 35}
         if el.requires_verification:
             attribs["linetype"] = "DASHED" if "DASHED" in doc.linetypes else "CONTINUOUS"

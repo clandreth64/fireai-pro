@@ -1,4 +1,4 @@
-# Engineering Input Contract (draft 1 — `engineering_input/1-draft`)
+# Engineering Input Contract (draft 2 — `engineering_input/2-draft`)
 
 **Purpose:** define exactly what Drawing Understanding must deliver before any engineering engine may
 run, and freeze the boundary:
@@ -6,7 +6,7 @@ run, and freeze the boundary:
 ```
 Drawing Understanding  (adapters: DWG, DXF, future IFC / Revit / manual input)
         ▼
-Verified Normalized Model  (BuildingModel, schema 0.3.0, HUMAN_VERIFIED)
+Verified Normalized Model  (BuildingModel, schema 0.4.0, HUMAN_VERIFIED)
         ▼  build_engineering_input()  — the only door
 EngineeringInput  (this contract)
         ▼
@@ -25,14 +25,15 @@ Implemented as executable code: `fireai/contract/engineering_input.py`
 
 | Concept | Field(s) | Notes |
 |---|---|---|
-| Contract version | `contract_version` | `engineering_input/1-draft`; will be versioned like the schema |
+| Contract version | `contract_version` | `engineering_input/2-draft` (draft 2 added `semantic_spaces`, M1.8); versioned like the schema |
 | Model identity | `model_id`, `schema_version`, `source_sha256`, `document_guid`, `xref_sha256`, `engine_version` | identifies exactly which inputs and which interpretation |
 | Verification | `verification_fingerprint`, `verified_by`, `verified_at` | `verified_by` is an **unauthenticated name** today |
 | Selected plan/view | `regions[]` (uid, view_type, view_type_source, bbox) | only regions a person selected at verification; view type FLOOR_PLAN or REFLECTED_CEILING_PLAN |
 | Coordinate frame | `frame = "LOCAL"`, `units = "ft"`, `source_to_local` (4×4) | all geometry is LOCAL feet; the SRC transform allows exact traceback |
 | Units | `source_units` | resolved and verified; never assumed |
 | Building / level context | `spatial_context` | `status: "unassigned"` when unknown — engineering must treat it as unknown |
-| Room / space boundaries | `spaces[]` (uid, label, polygon, area, origin human/machine, review status, `derived_from` uids) | rejected machine rooms are excluded; human boundaries are marked `origin: human` |
+| Physical regions (room enclosures) | `spaces[]` (uid, label, polygon, area, origin human/machine, review status, `derived_from` uids) | rejected machine rooms are excluded; human boundaries are marked `origin: human` |
+| Semantic (named) spaces | `semantic_spaces[]` (uid, label, `boundary_state: known`, `region_uid`) | draft 2 (M1.8): only spaces with a KNOWN boundary pass; an unresolved one is a blocker |
 | Wall / obstruction geometry | `walls_analysis[]` (derived pieces: thickness, centerline/arc; `derived: true`), `walls_linework[]`, `columns[]` | derived geometry is labelled as derived |
 | Source provenance | uids in `derived_from` / `face_element_uids` | resolvable in the model; no handles, layers or CAD entities |
 | XREF state | `xrefs[]` (name, status, sha256) | only reachable when every XREF is resolved (blocker below) |
@@ -61,8 +62,9 @@ Then the contract adds:
 6. invalid or missing SRC → LOCAL coordinate transform;
 7. no selected plan region;
 8. a selected region with **no** room/space boundary (required room boundary unresolved);
-9. a selected region containing an unresolved **merged-room** boundary. A person must reject it or
-   replace it with human room boundaries;
+9. a selected region containing an unresolved **merged-room** boundary, or a semantic space whose
+   boundary is **unresolved** (several named spaces in one open region). A person must reject the
+   region or replace it with human room boundaries;
 10. stored human corrections that were not applied to this model (or exist only for another revision).
 
 Any blocker raises `ContractViolation` with every reason listed. There is no override flag.

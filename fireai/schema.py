@@ -14,6 +14,8 @@ Version line (see docs/SPATIAL_BIM_ARCHITECTURE.md §12 for the long-term plan):
     0.2.0  identity, frames, placement (unknown), provenance (Milestone 1.5)
     0.3.0  XREF records, view classification, wall analysis layer, human
            corrections + verification binding (Milestone 1.6)
+    0.4.0  semantic spaces (category "space") and non-plan depictions (category
+           "depiction") (Milestone 1.8)
 """
 
 from __future__ import annotations
@@ -97,9 +99,19 @@ def _migrate_0_2_0_to_0_3_0(d: dict[str, Any]) -> dict[str, Any]:
     return d
 
 
+def _migrate_0_3_0_to_0_4_0(d: dict[str, Any]) -> dict[str, Any]:
+    """0.3.0 had no semantic spaces or depictions. Nothing is derived: rooms stay as they
+    were (a 0.3.0 room was region+name in one), and doors/windows in non-plan views are
+    NOT reclassified retroactively — reprocessing with the current engine does that."""
+    d = copy.deepcopy(d)
+    d["schema_version"] = "0.4.0"
+    return d
+
+
 MIGRATIONS: dict[str, tuple[str, Callable[[dict], dict]]] = {
     "0.1.0": ("0.2.0", _migrate_0_1_0_to_0_2_0),
     "0.2.0": ("0.3.0", _migrate_0_2_0_to_0_3_0),
+    "0.3.0": ("0.4.0", _migrate_0_3_0_to_0_4_0),
 }
 
 

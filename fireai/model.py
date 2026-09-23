@@ -1,4 +1,4 @@
-"""Canonical normalized building model (schema 0.3.0).
+"""Canonical normalized building model (schema 0.4.0).
 
 Schema history (see fireai/schema.py for migrations):
 * 0.1.0 — Milestone 1: 2D drawing understanding.
@@ -8,6 +8,9 @@ Schema history (see fireai/schema.py for migrations):
 * 0.3.0 — Milestone 1.6: XREF records (and XREF geometry with per-entity
   source-file identity), classified view regions, a derived wall ANALYSIS
   layer, applied human corrections, and a verification binding.
+* 0.4.0 — Milestone 1.8: `room` elements are PHYSICAL regions; named spaces are separate
+  `space` elements (boundary_state known | unresolved) linked to their region; door/window
+  content found in non-plan views is a `depiction`, never a plan-network opening.
 
 Two layers are kept strictly separate:
 
@@ -38,7 +41,7 @@ from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field
 
-SCHEMA_VERSION = "0.3.0"
+SCHEMA_VERSION = "0.4.0"
 
 Point = tuple[float, float]
 FrameId = Literal["SRC", "SRC_FT", "LOCAL", "PROJECT"]
@@ -247,6 +250,8 @@ class BuildingElement(BaseModel):
         "wall", "door", "window", "room", "area", "column", "stair", "shaft",
         "structural", "grid_line", "text_annotation", "dimension", "title_block",
         "ceiling", "existing_fire_protection", "existing_mep",
+        "space",       # 0.4.0: named/use-defined semantic space inside a physical region (room)
+        "depiction",   # 0.4.0: plan-type content drawn in a non-plan view (e.g. a door seen in section)
     ]
     subtype: Optional[str] = None
     label: Optional[str] = None

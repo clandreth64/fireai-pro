@@ -35,6 +35,10 @@ DOOR_CLOSURE_MIN_FT = 1.5      # shorter pairs are wall thickness, not an openin
 DOOR_CLOSURE_MAX_FT = 8.0      # widest opening bridged (pair of doors)
 DOOR_CLOSURE_MARGIN_FT = 0.75  # search margin around a door's footprint
 LABEL_NEAR_FT = 1.0            # R-LABEL-NEAR: max distance of an outside label from a boundary
+# View-aware interpretation (M1.8): plan-network openings may only be created in plan views.
+PLAN_VIEW_TYPES = {"FLOOR_PLAN", "REFLECTED_CEILING_PLAN"}
+UNCONFIRMED_VIEW_TYPES = {"UNKNOWN"}
+PLAN_NETWORK_OPENINGS = {"door", "window"}
 ROOM_TAG_TOKENS = {"ROOM", "RM", "RMTAG", "ROOMTAG", "RMNAME", "ROOMNAME", "SPACE", "IDEN", "RMNO"}
 SNAP_TOL_FT = 1e-4             # analysis closure endpoints are snapped onto wall linework within this
 WALL_QUALIFIER_TOKENS = {"ABOVE", "BELOW", "OVHD", "OVERHEAD", "HIDDEN", "DEMO", "DEMOLITION", "DEMOLISH",
@@ -134,8 +138,33 @@ class Interpreter:
                 self.claimed.add(d.id)
         return ids
 
+    def view_type_of(self, ents) -> str | None:
+        """View type of the region the entities belong to (None when outside every region)."""
+        for e in ents:
+            r = self.region_of.get(e.id)
+            if r is not None:
+                return r.get("view_type", "UNKNOWN")
+        return None
+
     def add(self, category, confidence, evidence, rules, source_ents, geometry=None, label=None,
             subtype=None, properties=None, force_verify=False, placement: Placement | None = None) -> BuildingElement:
+        # V-VIEW-AWARE-INTERPRETATION: a door/window recognised by plan heuristics (layer/block
+        # names, linework groups) inside a SECTION / ELEVATION / DETAIL / ... view is what that
+        # view DEPICTS, not a plan-network opening. It is kept, traceable and flagged, as a
+        # `depiction`; it never becomes a door/window used for room topology or engineering.
+        view = self.view_type_of(source_ents)
+        if (category in PLAN_NETWORK_OPENINGS and view is not None and view not in PLAN_VIEW_TYPES
+                and view not in UNCONFIRMED_VIEW_TYPES):
+            properties = {**(properties or {}), "depicted_role": category, "view_type": view,
+                          "plan_semantic": False, "recognized_as": subtype}
+            evidence = list(evidence) + [
+                f"inside a {view} view: kept as {view.lower()} content (a depicted {category}), NOT a plan "
+                f"{category}/opening; not used for room topology or engineering"]
+            rules = list(rules) + ["V-VIEW-AWARE-INTERPRETATION"]
+            subtype = f"{category}_in_{view.lower()}"
+            category = "depiction"
+            confidence = min(confidence, 0.5)
+            force_verify = True
         if geometry is not None and geometry.frame is None:
             geometry = geometry.model_copy(update={"frame": "LOCAL"})
         src_uids = [e.uid for e in source_ents if e.uid]
@@ -150,7 +179,8 @@ class Interpreter:
             id=self._id({"wall": "W", "door": "D", "window": "WN", "room": "R", "area": "A", "column": "C",
                          "stair": "ST", "shaft": "SH", "structural": "S", "grid_line": "G",
                          "text_annotation": "T", "dimension": "DM", "title_block": "TB", "ceiling": "CL",
-                         "existing_fire_protection": "FP", "existing_mep": "MEP"}[category]),
+                         "existing_fire_protection": "FP", "existing_mep": "MEP", "space": "SP",
+                         "depiction": "DP"}[category]),
             category=category, subtype=subtype, label=label, confidence=round(confidence, 3),
             evidence=evidence, rules=sorted(set(rules)), source_entity_ids=self.claim(source_ents),
             requires_verification=force_verify or _conf_flag(confidence),
@@ -171,7 +201,24 @@ class Interpreter:
         self._rooms()
         self._text()
         self._unclassified()
+        self._depiction_issue()
         return self.out
+
+    def _depiction_issue(self):
+        """A SPECIFIC review trigger for door/window content found in non-plan views (the
+        generic "elements require verification" count is not enough to notice it)."""
+        deps = [e for e in self.out.elements if e.category == "depiction"]
+        if not deps:
+            return
+        by_view = defaultdict(list)
+        for e in deps:
+            by_view[(e.properties.get("view_type"), e.properties.get("depicted_role"))].append(e.id)
+        parts = "; ".join(f"{len(ids)} {role}(s) in {view} view(s)" for (view, role), ids in sorted(by_view.items()))
+        self.out.issues.append(Issue(
+            code="NON_PLAN_OPENING_DEPICTIONS", element_ids=[e.id for e in deps],
+            message=f"Door/window-like content was found in non-plan views ({parts}). It is kept as what that view "
+                    "depicts, NOT as plan doors/windows: it does not affect rooms, walls or engineering. Verify what it "
+                    "shows."))
 
     # Block references (doors, windows, columns, title blocks, FP symbols ...)
     def _inserts(self):
@@ -304,12 +351,14 @@ class Interpreter:
             if r and r.role in CLUSTER_ROLES:
                 by_role[r.role].append(e)
         for role, ents in by_role.items():
-            for cluster in _cluster(ents, self.pts, CLUSTER_TOL_FT):
+            for cluster, nested in _merge_nested(_cluster(ents, self.pts, CLUSTER_TOL_FT), self.pts, CLUSTER_TOL_FT):
                 pts = [p for e in cluster for p in self.pts(e)]
                 bb = _bbox(pts)
                 r = self.role(cluster[0])
                 conf = r.confidence
                 ev = [r.evidence, f"{len(cluster)} linework entit{'y' if len(cluster) == 1 else 'ies'} grouped by proximity"]
+                if nested:
+                    ev.append(f"includes {nested} nested part group(s) drawn inside it (G-NESTED-PARTS)")
                 subtype = "linework_group"
                 size = max(bb[2] - bb[0], bb[3] - bb[1])
                 props = {"footprint_ft": (round(bb[2] - bb[0], 3), round(bb[3] - bb[1], 3))}
@@ -464,11 +513,13 @@ class Interpreter:
                 conf = min(conf, 0.5)
             # Parse each text entity separately; never concatenate different entities into one name.
             names, numbers, stated_areas, notes = [], [], [], []
+            per_label: list[tuple[SourceEntity, str | None, str | None]] = []
             for t in chosen:
                 lines = split_lines(t.normalized.text)
                 keep = [ln for ln in lines if not is_finish_note(ln)]
                 notes += [ln for ln in lines if is_finish_note(ln)]
                 pt = parse_room_label(keep)
+                per_label.append((t, " ".join(pt["name_parts"]) or None, pt["number"]))
                 if pt["name_parts"]:
                     names.append(" ".join(pt["name_parts"]))
                 if pt["number"]:
@@ -506,8 +557,9 @@ class Interpreter:
             if ambiguous:
                 props["name_candidates"] = names_u
                 props["number_candidates"] = numbers_u
-                ev.append(f"{len(names_u)} distinct room names / {len(numbers_u)} numbers inside ONE boundary - "
-                          "the boundary probably spans several rooms (e.g. through openings); no name assigned")
+                ev.append(f"{len(names_u)} distinct names / {len(numbers_u)} numbers inside ONE physical region: either "
+                          "several named spaces share one open region, or rooms were not separated; the region itself "
+                          "gets no name and the named spaces are recorded separately with UNRESOLVED boundaries")
                 subtype = "suspected_merged_region"
                 conf = min(conf, 0.3)
                 verify = True
@@ -524,11 +576,19 @@ class Interpreter:
             label = None if ambiguous else (" ".join(x for x in (name, number) if x) or None)
             el = self.add("room", conf, ev, rule_ids, list(src) + chosen, geometry=_poly_geom(poly),
                           label=label, properties=props, force_verify=verify, subtype=subtype)
+            spaces = self._semantic_spaces(el, poly, per_label, ambiguous, conf, near)
+            el.properties["semantic_space_ids"] = [s.id for s in spaces]
+            el.properties["semantic_space_names"] = [s.label for s in spaces]
+            el.properties["semantic_space_boundaries"] = ("none" if not spaces else
+                                                          "unresolved" if ambiguous else "known")
             if ambiguous:
                 shown = ", ".join(names_u[:6]) + ("..." if len(names_u) > 6 else "")
-                self.out.issues.append(Issue(code="ROOM_BOUNDARY_SPANS_MULTIPLE_LABELS", element_ids=[el.id],
-                                             message=f"Region {el.id} ({poly.area:,.0f} sf) contains {len(names_u)} different "
-                                                     f"room names ({shown}); it is probably several rooms merged through openings."))
+                self.out.issues.append(Issue(
+                    code="ROOM_BOUNDARY_SPANS_MULTIPLE_LABELS", element_ids=[el.id] + [s.id for s in spaces],
+                    message=f"Physical region {el.id} ({poly.area:,.0f} sf) contains {len(names_u)} named spaces ({shown}). "
+                            "FireAI cannot tell whether this is one open area shared by several named spaces or rooms "
+                            "it failed to separate; the spaces are recorded with UNRESOLVED boundaries (no walls or "
+                            "boundaries are invented). Confirm, or draw the space boundaries."))
             if "stated_area_sf" in props and props["stated_vs_computed_error"] > AREA_LABEL_TOLERANCE:
                 self.out.issues.append(Issue(code="ROOM_AREA_LABEL_MISMATCH", element_ids=[el.id],
                                              message=f"Room {label or el.id}: stated area {props['stated_area_sf']:,.0f} sf vs "
@@ -564,6 +624,46 @@ class Interpreter:
                 return False
             p = self.by_id.get(p.parent_id) if p.parent_id else None
         return True
+
+    def _semantic_spaces(self, region: BuildingElement, poly, per_label, ambiguous: bool, region_conf: float,
+                         near: bool) -> list[BuildingElement]:
+        """S-SEMANTIC-SPACE: the named/use-defined spaces inside a physical region.
+
+        One label name -> the space coincides with the region (boundary KNOWN = the region's
+        boundary). Several names -> one space per distinct name, located only by its label
+        anchor(s); boundary UNRESOLVED (the drawing gives no internal boundary, so none is
+        invented). Unlabelled regions have no semantic space."""
+        by_name: dict[str, list[tuple[SourceEntity, str | None]]] = defaultdict(list)
+        for t, name, number in per_label:
+            key = name or (f"#{number}" if number else None)
+            if key:
+                by_name[key].append((t, number))
+        out = []
+        for key, items in by_name.items():
+            texts = [t for t, _n in items]
+            nums = list(dict.fromkeys(n for _t, n in items if n))
+            name = None if key.startswith("#") else key
+            label = " ".join(x for x in (name, nums[0] if len(nums) == 1 else None) if x) or key
+            anchors = [list(t.normalized.insert) for t in texts if t.normalized and t.normalized.insert]
+            props = {"region_uid": region.uid, "region_id": region.id, "name": name,
+                     "number": nums[0] if len(nums) == 1 else None, "label_entity_ids": [t.id for t in texts],
+                     "label_anchors_local": anchors,
+                     "boundary_state": "unresolved" if ambiguous else "known"}
+            if ambiguous:
+                geom = Geometry(kind="point", points=[tuple(anchors[0])] if anchors else [], frame="LOCAL")
+                ev = [f"label {key!r} inside physical region {region.id}, which holds several named spaces",
+                      "space boundary UNRESOLVED: the drawing shows no boundary between these named spaces; only the "
+                      "label position is known"]
+                conf, verify = min(region_conf, 0.5), True
+            else:
+                geom = _poly_geom(poly)
+                props["area_sf"] = round(poly.area, 2)
+                ev = [f"label {key!r} is the only name inside physical region {region.id}; the space boundary is the "
+                      "region boundary"]
+                conf, verify = region_conf, region.requires_verification or near
+            out.append(self.add("space", conf, ev, ["S-SEMANTIC-SPACE"], texts, geometry=geom, label=label,
+                                subtype="semantic_space", properties=props, force_verify=verify))
+        return out
 
     def _door_closures(self, walls, wall_lines) -> list[dict]:
         """Analysis-only segments bridging wall openings at detected doors (rule
@@ -663,6 +763,32 @@ def _polygon(points) -> tuple[Polygon | None, bool]:
 def _poly_geom(poly: Polygon) -> Geometry:
     return Geometry(kind="polygon", points=[(float(x), float(y)) for x, y in list(poly.exterior.coords)[:-1]],
                     closed=True)
+
+
+def _merge_nested(clusters, pts_fn, tol):
+    """G-NESTED-PARTS: a group drawn entirely INSIDE another group's extent on the same layer
+    role (a door's glass lite or handle inside the door leaf) is part of that object, not a
+    separate one. Returns [(entities, number_of_nested_groups_merged)]."""
+    boxes = [_bbox([p for e in c for p in pts_fn(e)]) for c in clusters]
+    order = sorted(range(len(clusters)), key=lambda i: -((boxes[i][2] - boxes[i][0]) * (boxes[i][3] - boxes[i][1])))
+    owner = {}
+    for i in order:
+        for j in order:
+            if j == i or (boxes[j][2] - boxes[j][0]) * (boxes[j][3] - boxes[j][1]) <= \
+                    (boxes[i][2] - boxes[i][0]) * (boxes[i][3] - boxes[i][1]):
+                continue
+            bj, bi = boxes[j], boxes[i]
+            if bj[0] - tol <= bi[0] and bj[1] - tol <= bi[1] and bi[2] <= bj[2] + tol and bi[3] <= bj[3] + tol:
+                owner[i] = j
+                break
+    def root(i):
+        while i in owner:
+            i = owner[i]
+        return i
+    groups: dict[int, list[int]] = defaultdict(list)
+    for i in range(len(clusters)):
+        groups[root(i)].append(i)
+    return [([e for k in sorted(ks) for e in clusters[k]], len(ks) - 1) for _r, ks in sorted(groups.items())]
 
 
 def _cluster(ents, pts_fn, tol):

@@ -22,8 +22,8 @@ FIXTURES = Path(__file__).parent / "fixtures"
 
 def test_schema_version_is_current(results):
     # M1.6 bumped the schema (XREF records, view types, wall analysis, verification binding).
-    assert SCHEMA_VERSION == "0.3.0"
-    assert results["office_in"].model.schema_version == "0.3.0"
+    assert SCHEMA_VERSION == "0.4.0"                    # M1.8: semantic spaces + depictions
+    assert results["office_in"].model.schema_version == "0.4.0"
 
 
 def test_every_object_has_a_unique_persistent_uid(results):
@@ -151,8 +151,8 @@ def test_migrate_real_0_1_0_model():
     data = json.loads((FIXTURES / "model_v0_1_0_simple_rect.json").read_text())
     assert data["schema_version"] == "0.1.0"
     model, applied = load_model(data)
-    assert applied == ["0.1.0->0.2.0", "0.2.0->0.3.0"]
-    assert model.schema_version == "0.3.0"
+    assert applied == ["0.1.0->0.2.0", "0.2.0->0.3.0", "0.3.0->0.4.0"]
+    assert model.schema_version == "0.4.0"
     assert all(e.uid for e in model.entities) and all(e.uid for e in model.elements)
     assert all(el.placement.elevation_ft is None for el in model.elements)       # unknown, not invented
     assert {f.id for f in model.coordinate_frames} == {"SRC", "SRC_FT", "LOCAL", "PROJECT"}
@@ -223,7 +223,7 @@ def test_migrate_real_0_2_0_model_with_xref():
     data = json.loads((FIXTURES / "model_v0_2_0_xref_host.json").read_text())
     assert data["schema_version"] == "0.2.0"
     model, applied = load_model(data)
-    assert applied == ["0.2.0->0.3.0"]
+    assert applied == ["0.2.0->0.3.0", "0.3.0->0.4.0"]
     (x,) = model.xrefs
     assert x.name == "ARCH-BASE" and x.status == "not_attempted"     # 0.2.0 never loaded XREFs
     assert all(r["view_type"] == "UNKNOWN" and r["review_state"] == "unreviewed" for r in model.view_regions)

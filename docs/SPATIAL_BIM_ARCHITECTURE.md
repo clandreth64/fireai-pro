@@ -293,6 +293,16 @@ meaning of existing fields. No event-sourcing system is built now.
 Unchanged: uids of existing (non-XREF) entities and elements, frames, placement (all unknown), Z
 handling, provenance semantics. Still no IFC/Revit, 3D solids, clash detection or sprinkler network.
 
+## 13c. Changes made in Milestone 1.8 (schema 0.4.0)
+
+`room` elements now mean PHYSICAL regions; named spaces are separate `space` elements with an
+explicit `boundary_state` (`known` | `unresolved`) and a link to their region; door/window content
+in non-plan views is a `depiction` (`plan_semantic: false`). Details: `ARCHITECTURE_V2.md` §5c.
+Downstream consumers (the engineering contract today; Design / Rules / Routing / Hydraulics /
+Coordination / BIM / Fabrication later) read these from the ONE authoritative model and never
+re-interpret CAD: a physical region supplies geometry, a semantic space supplies use/name, and an
+unresolved space boundary is a blocker wherever a boundary is required.
+
 ## 14. Changes that explicitly WAIT
 
 ProjectModel/Building/Level objects · 3D geometry representations and solids · relationship graph ·
