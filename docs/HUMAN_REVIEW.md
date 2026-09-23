@@ -15,30 +15,29 @@ FireAI output is never ground truth, and the pipeline never writes to the review
 * The 11 records in `tests/real_drawings/ground_truth/` are **Claude-generated drafts**
   (`schema: ground_truth/2`, `review_status: PENDING_HUMAN_VERIFICATION`, content under `claude_draft`).
   They are NOT ground truth.
-* A person reviews each drawing with the local tool:
-
-  ```
-  docker run --rm -p 127.0.0.1:8765:8765 -v "<repo>:/app" -w /app fireai:dev python scripts/gt_review_server.py --host 0.0.0.0
-  ```
-  then open <http://127.0.0.1:8765>. Categories: units, drawing type, view count, extents, room
-  count / names / areas, walls, doors, windows, columns, stairs, grids, sprinkler components, title
-  block, other. Each is **CONFIRMED** (the draft is right), **CORRECTED** (enter the value) or
-  **NOT_EVALUATED**, with the basis (visual review of the source rendering, CAD file inspection,
-  project documents, site knowledge, other). A basis of "FireAI output" is rejected. FireAI's overlay
-  is hidden behind a toggle labelled as machine output.
-* Reviews are saved to a separate file: public drawings → `tests/real_drawings/human_reviews/`
-  (committable), private drawings → `tests/real_drawings_local/human_reviews/` (git-ignored).
-* A review is bound to the drawing file hash(es) and to the exact draft it reviewed; if either
-  changes, it is **INVALIDATED**. Status per drawing: `PENDING_HUMAN_VERIFICATION` →
-  `PARTIALLY_HUMAN_REVIEWED` → `HUMAN_VERIFIED` (every category reviewed).
-* `tests/real_drawings/gt.py` computes the effective truth: a draft value becomes truth **only**
-  when a person CONFIRMED it.
+* A person reviews each drawing with the local tool — **step-by-step instructions, one-command
+  launch and category list: `docs/HUMAN_VALIDATION_GUIDE.md`**. Decisions per category are
+  CONFIRMED / CORRECTED (typed, structured value) / NOT_EVALUATED, with a basis, optional reason and
+  optional open question; a basis of "FireAI output" is rejected.
+* Reviews (`schema: human_review/2`) are separate files (public → `tests/real_drawings/human_reviews/`,
+  private → `tests/real_drawings_local/human_reviews/`). Per category they keep `claude_draft`
+  (snapshot), `human_decision`, `human_corrected_value`, `basis`, `reason`, `open_question`,
+  `decided_at`; per review `reviewer` (**unauthenticated name**), `review_timestamp`. A review is bound
+  to the drawing hashes and the exact draft; if either changes it is INVALIDATED.
+* `tests/real_drawings/gt.py` computes effective truth (a draft value becomes truth only when a
+  person CONFIRMED it); `scripts/gt_review_summary.py` reports review progress and FireAI-vs-human
+  agreement **per category** (no overall score), using human truth only.
 
 New drawings from the owner: `python scripts/intake_drawing.py <file> --source private
 --description "<generic description>" [--xrefs <dir>]` (checks the destination is git-ignored,
 records metadata only, refuses identifying descriptions, creates an empty pending record).
 
 ## 2. Corrections to a processed drawing (persist across reprocessing)
+
+Each stored correction also keeps a `machine_snapshot` of FireAI's interpretation at correction time
+(value, confidence, evidence, rules, engine version) so it can later be expressed as a structured
+`LearningEvent` (`fireai/review/learning.py`, derived read-only; no training — see
+`docs/AGENTIC_LEARNING_ARCHITECTURE.md`).
 
 `POST /api/v2/drawings/{job}/corrections` with `{kind, data, reviewer, note}`:
 
@@ -73,7 +72,7 @@ CORRECTED (a CORRECTED item needs a value or note); **every** current review-tri
 acknowledged; the drawing region(s) in scope selected (FireAI never selects the plan); and no stored
 correction missing from the model (reprocess first).
 
-Future engineering stages must call `fireai.review.gate.require_verified_model(model, store)`, which
+Future engineering must enter through `fireai.contract.build_engineering_input` (docs/ENGINEERING_INPUT_CONTRACT.md), which first calls `fireai.review.gate.require_verified_model(model, store)`, which
 additionally blocks on: unresolved units, XREFs not loaded, material DWG conversion loss, and a
 selected region that is not a plan view. No engineering exists in this milestone.
 

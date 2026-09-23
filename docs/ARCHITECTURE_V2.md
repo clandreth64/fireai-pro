@@ -189,3 +189,14 @@ The Dockerfile lives in `docker/` so it does not change how Railway builds the s
 * Grid bubbles are left unclassified (drawn orange).
 * Jobs run in-process (FastAPI BackgroundTasks); a restart loses running jobs (they stay `running`).
 * SQLite + local disk: not horizontally scalable; no object storage yet.
+
+## Milestone 1.6 checkpoint additions
+
+| Module | Role |
+|---|---|
+| `fireai/review/` | human corrections, verification gate (`require_verified_model`), learning-event derivation |
+| `fireai/contract/` | Drawing Understanding → Engineering boundary (`build_engineering_input`); see `docs/ENGINEERING_INPUT_CONTRACT.md` |
+| `scripts/review.ps1`, `scripts/review.sh`, `scripts/gt_review_server.py`, `scripts/gt_review_summary.py` | owner ground-truth review (`docs/HUMAN_VALIDATION_GUIDE.md`) |
+
+Long-term architecture: `docs/AGENTIC_LEARNING_ARCHITECTURE.md`. Next milestone (not started):
+`docs/MILESTONE_2_0_SPEC.md`.

@@ -40,6 +40,28 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def machine_snapshot(model, kind: str, data: dict) -> dict | None:
+    """What FireAI had concluded about the corrected object (value, confidence, evidence, rules)."""
+    if kind == "view_type":
+        r = next((r for r in model.view_regions if r.get("uid") == data.get("region_uid")), None)
+        if r is None:
+            return None
+        return {"object": "view_region", "uid": r.get("uid"), "id": r.get("id"),
+                "value": r.get("view_type"), "confidence": r.get("view_type_confidence"),
+                "candidates": r.get("view_type_candidates"), "evidence": r.get("view_type_evidence"),
+                "rules": r.get("view_type_rules"), "source": r.get("view_type_source")}
+    uid = data.get("element_uid") or data.get("replaces_element_uid")
+    el = next((e for e in model.elements if uid and e.uid == uid), None)
+    if el is None:
+        return None if kind != "room_boundary" else {"object": "room", "value": None,
+                                                    "note": "new boundary; no machine room replaced"}
+    return {"object": el.category, "uid": el.uid, "id": el.id, "subtype": el.subtype, "value": el.label,
+            "confidence": el.confidence, "evidence": list(el.evidence), "rules": list(el.rules),
+            "requires_verification": el.requires_verification,
+            "geometry_local": el.geometry.model_dump(mode="json") if el.geometry else None,
+            "derived_from": list(el.provenance.derived_from), "engine_version": el.provenance.engine_version}
+
+
 class ReviewStore:
     def __init__(self, root: Path):
         self.root = Path(root)
@@ -115,11 +137,15 @@ class ReviewStore:
                 raise ReviewError("element_uid not found in this model")
         v = model.verification
         rec = {"id": "C" + uuid.uuid4().hex[:12], "kind": kind, "data": data, "reviewer": reviewer.strip(),
+               "reviewer_identity": "unauthenticated_name",
                "note": note, "created_at": _now(),
                "context": {"source_sha256": model.source.sha256,
                            "xref_sha256": v.xref_sha256 if v else [],
                            "engine_version": v.engine_version if v else None,
-                           "created_on_model": model.model_id}}
+                           "schema_version": model.schema_version,
+                           "created_on_model": model.model_id},
+               # FireAI's interpretation as the person saw it: the "before" of a future learning event
+               "machine_snapshot": machine_snapshot(model, kind, data)}
         with _lock:
             items = self.corrections(model.source.sha256)
             items.append(rec)

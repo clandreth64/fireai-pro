@@ -1,0 +1,122 @@
+# Milestone 2.0 — Deterministic Single-Space Sprinkler Placement (SPECIFICATION ONLY)
+
+**Status: not approved, not started.** Nothing in this document is implemented. It contains **no
+NFPA requirements**: every numeric engineering value is a placeholder until the ruleset decision in
+§6 is made. No value here may be copied into code as a requirement.
+
+## 1. Purpose
+
+Prove that FireAI can make its **first independently verifiable fire-protection engineering
+decision**: valid sprinkler placement in **one** defined space, under **explicitly selected** design
+constraints, with every placed sprinkler explainable.
+
+## 2. Design envelope (intentionally tiny)
+
+| In scope | Out of scope |
+|---|---|
+| one HUMAN_VERIFIED floor-plan region (via the engineering input contract) | piping, hydraulics |
+| one HUMAN_VERIFIED room/space, simple geometry | BIM coordination, clash detection |
+| flat ceiling, **explicit** ceiling height | fabrication |
+| **explicit** hazard/design classification | automatic hazard classification |
+| **explicit** sprinkler type (and its listing data, entered explicitly) | automatic code-edition selection |
+| **explicit** applicable ruleset and version | obstructions (the space must have none unresolved) |
+| | multiple spaces, sloped or obstructed ceilings, soffits, beams |
+
+## 3. Inputs (all explicit, all recorded)
+
+1. `EngineeringInput` from `build_engineering_input` (contract `engineering_input/1-draft`) with
+   exactly one selected region and one selected space (the space uid is chosen by a person).
+2. A **DesignCriteria** record, entered and attributed by a person:
+   * `ceiling_height` and ceiling type = flat (Z source: human input);
+   * `hazard_classification` (human decision, with reason);
+   * `sprinkler_type` and the listed parameters needed by the ruleset (human input, with source);
+   * `ruleset_id` + `ruleset_version` (see §6);
+   * `obstructions`: an explicit statement "none" for the space (otherwise out of scope → refuse).
+3. Anything missing → refuse with the list of missing inputs. No defaults.
+
+## 4. The only engineering task
+
+Determine sprinkler positions within the space such that every constraint in the selected ruleset
+version passes. If that is impossible, report **why** (which constraint, where). Never return a
+"best effort" layout that fails a constraint.
+
+The algorithm must be deterministic (same inputs + versions → same layout), and every constraint
+check is performed by deterministic geometry code (distances, spacing, coverage area computed from
+the polygon). An AI component may **propose** candidate layouts, but only the deterministic checker
+decides validity.
+
+## 5. Output (per placed sprinkler, and overall)
+
+| Field | Meaning |
+|---|---|
+| `sprinkler_id` / uid | stable id, provenance → space uid, criteria record, ruleset version |
+| `location` | XY in LOCAL ft; Z = the explicit ceiling-height input, with its source recorded |
+| `spacing_to_adjacent` | distance to each neighbour and the governing constraint id |
+| `distance_to_walls` | per boundary segment, with constraint id |
+| `coverage_area` | the area assigned to the sprinkler and how it was computed |
+| `constraints[]` | rule id, ruleset version, required vs actual, pass/fail |
+| `evidence` | which inputs and geometry produced each value |
+| `engine_version`, `ruleset_version`, `contract_version`, `verification_fingerprint` | reproducibility |
+| overall status | VALID / IMPOSSIBLE (with reasons) / REFUSED (missing inputs, blockers) |
+
+Human approval is required before a result is used for anything else. The result is not a design
+deliverable.
+
+## 6. Decisions required BEFORE implementation (owner / engineering authority)
+
+1. **NFPA 13 edition** to encode first (and whether others are needed).
+2. **Legal access** to the standard text for encoding rules (licence terms for commercial software;
+   who transcribes; how the source is cited per rule).
+3. **Rule provenance format:** for every rule — source document, edition, section reference, adopted
+   text or paraphrase policy, author, reviewer, date.
+4. **Jurisdiction:** base edition only, or local amendments (and how amendments are versioned).
+5. **Which sprinkler types** are in the first envelope, and where their listed parameters come
+   from (manufacturer data sheets as explicit inputs?).
+6. **Which hazard classifications** are in the first envelope.
+7. **Ceiling definition:** which ceiling heights and types are "simple/flat" for M2.0.
+8. **Wall reference geometry:** which face defines the space boundary for distance-to-wall (human
+   room boundary, wall inner face, or wall analysis centreline minus thickness). This must match the
+   ruleset's definition.
+9. **Placement objective** among valid layouts (fewest sprinklers? regular grid? symmetric?) and
+   the tie-break rule that keeps it deterministic.
+10. **Tolerances:** geometric tolerance for pass/fail at boundaries and rounding rules.
+11. **Who may approve** results, and how approval identity is authenticated.
+12. **Known-answer authority:** who produces and signs off the expected results in §7.
+
+## 7. Known-answer test cases (to be authored with expected results by a qualified person)
+
+Expected values will come from the selected ruleset **after** §6 is decided. None are written here.
+
+| Case | Purpose |
+|---|---|
+| Simple rectangle | baseline grid placement |
+| Dimension just **below** a spacing threshold | boundary behaviour (fewer sprinklers) |
+| Dimension just **above** a spacing threshold | boundary behaviour (one more row/column) |
+| Narrow room | single-line layouts, wall-distance governing |
+| L-shaped room | non-convex coverage |
+| Irregular (non-rectilinear) room | polygon coverage, angled walls |
+| Boundary conditions (exact threshold values) | tolerance handling |
+| Intentionally impossible geometry (e.g. a space too small/large for the selected constraints) | must return IMPOSSIBLE with the reason, never a layout |
+| Missing input (each criterion) | must return REFUSED listing the missing input |
+| Unverified / blocked model | must be refused by the contract |
+
+## 8. Architecture requirements
+
+* Code lives in `fireai/engineering/`. It consumes **only** `fireai.contract.EngineeringInput`
+  (import boundary enforced by tests).
+* The ruleset is **data**: versioned, with per-rule provenance; engine code does not hard-code
+  requirements.
+* Results are persisted with all versions and are reproducible.
+* Every rule evaluation records a classification: deterministic rule / interpretation / project
+  assumption / human decision.
+
+## 9. Limitations carried forward from M1.x (visible, not fixed by M2.0)
+
+* Paper-space risers and legends are not classified.
+* UNKNOWN regions need human view-type decisions.
+* Merged rooms need human boundaries.
+* Wrong-but-declared units may go undetected.
+* Fire alarm and fire protection content is not separated.
+* Reviewer identity is not authenticated.
+* LibreDWG cannot decode some objects and uses pathological resources on some files.
+* 2D plans carry no Z (ceiling height must be entered explicitly).
