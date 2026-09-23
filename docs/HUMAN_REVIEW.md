@@ -1,4 +1,4 @@
-# Human review, corrections and the verification gate (Milestone 1.6)
+# Human review, corrections and the verification gate (Milestones 1.6–1.7)
 
 FireAI keeps three things strictly apart:
 
@@ -15,18 +15,21 @@ FireAI output is never ground truth, and the pipeline never writes to the review
 * The 11 records in `tests/real_drawings/ground_truth/` are **Claude-generated drafts**
   (`schema: ground_truth/2`, `review_status: PENDING_HUMAN_VERIFICATION`, content under `claude_draft`).
   They are NOT ground truth.
-* A person reviews each drawing with the local tool — **step-by-step instructions, one-command
-  launch and category list: `docs/HUMAN_VALIDATION_GUIDE.md`**. Decisions per category are
-  CONFIRMED / CORRECTED (typed, structured value) / NOT_EVALUATED, with a basis, optional reason and
-  optional open question; a basis of "FireAI output" is rejected.
-* Reviews (`schema: human_review/2`) are separate files (public → `tests/real_drawings/human_reviews/`,
-  private → `tests/real_drawings_local/human_reviews/`). Per category they keep `claude_draft`
-  (snapshot), `human_decision`, `human_corrected_value`, `basis`, `reason`, `open_question`,
-  `decided_at`; per review `reviewer` (**unauthenticated name**), `review_timestamp`. A review is bound
-  to the drawing hashes and the exact draft; if either changes it is INVALIDATED.
-* `tests/real_drawings/gt.py` computes effective truth (a draft value becomes truth only when a
-  person CONFIRMED it); `scripts/gt_review_summary.py` reports review progress and FireAI-vs-human
-  agreement **per category** (no overall score), using human truth only.
+* A person reviews each drawing with the local tool (`docs/HUMAN_VALIDATION_GUIDE.md`, one-command
+  launch). Milestone 1.7 (`human_review/3`) asks only professional questions: FACTS about the
+  drawing (units, drawing type, number and type of views — human ground truth) and STATEMENTS about
+  FireAI's interpretation (rooms recognized, labels, boundaries, walls, openings, windows,
+  structure, fire protection, excluded content, missing content, confident errors, review flags),
+  each CONFIRMED / CORRECTED / NOT_EVALUATED, plus optional VISUAL FLAGS clicked on the drawing.
+* Facts persist until the drawing or draft changes. Statements and flags are bound to the FireAI
+  output they judged (`evaluated_model`: output path, model sha256, engine version) and become
+  STALE when FireAI's output changes. Per answer: `question`, `claude_draft` (reference),
+  `human_decision`, `confirmed_value` + `confirmed_value_source` or `human_corrected_value`,
+  `basis`, `reason`, `open_question`, `decided_at`; per review `reviewer` (**unauthenticated
+  name**), `review_timestamp`, optional `recorded_by` (e.g. a transcription of the owner's words).
+* `tests/real_drawings/gt.py` computes truth and evaluations; `scripts/gt_review_summary.py`
+  reports progress and engineering-meaning metrics per drawing (no overall score), using human
+  answers only.
 
 New drawings from the owner: `python scripts/intake_drawing.py <file> --source private
 --description "<generic description>" [--xrefs <dir>]` (checks the destination is git-ignored,

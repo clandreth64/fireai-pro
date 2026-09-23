@@ -1,4 +1,4 @@
-"""Human ground-truth workflow (Milestones 1.6 / 1.6 checkpoint)."""
+"""Human review workflow (human_review/3): professional questions, visual flags, human-only truth."""
 
 from __future__ import annotations
 
@@ -17,29 +17,38 @@ import gt as G  # noqa: E402
 from gt_review_server import create_review_app  # noqa: E402
 from gt_review_summary import build_summary, to_markdown  # noqa: E402
 
+from conftest import run_pipeline  # noqa: E402
+from fixtures import builders as B  # noqa: E402
+
+CAD_WORDS = ("polygon", "coordinate", "entity", "entities", "handle", "layer", "count of walls", "wall count")
+
 
 def test_all_committed_records_are_pending_claude_drafts():
     ids = G.list_ids()
     assert len(ids) == 11
     for gid in ids:
         rec = G.load_record(gid)
-        assert rec["schema"] == "ground_truth/2"
-        assert rec["review_status"] == G.PENDING
+        assert rec["schema"] == "ground_truth/2" and rec["review_status"] == G.PENDING
         assert rec["claude_draft"]["author"].startswith("Claude")
-        assert "independent of FireAI output" in rec["claude_draft"]["method"]
-        assert "human_review" not in rec          # human truth is never stored in the draft record
+        assert "human_review" not in rec
         assert rec["source_sha256s"] == G.corpus_entry(gid)["sha256"]
-        mapped = {f for fs in rec["claude_draft"]["by_category"].values() for f in fs}
-        assert mapped == set(rec["claude_draft"]["fields"])
-        assert set(rec["claude_draft"]["by_category"]) <= set(G.CATEGORIES)
 
 
-def test_committed_human_reviews_if_any_are_valid():
+def test_committed_human_reviews_are_valid():
     d = G.PUBLIC_REVIEWS
     for p in (d.glob("*.json") if d.is_dir() else []):
         rv = json.loads(p.read_text())
         rec = G.load_record(rv["id"])
-        assert G.validate_review(rv, rec, rec["source_sha256s"]) == []
+        assert G.validate_review(rv, rec, rec["source_sha256s"]) == [], p.name
+
+
+def test_questions_need_no_cad_expertise():
+    texts = [s["question"] for s in G.FACTS.values()] + list(G.EVALUATIONS.values())
+    for t in texts:
+        assert not any(w in t.lower() for w in CAD_WORDS), t
+    assert set(G.EVALUATIONS) >= {"rooms_recognized", "room_labels", "room_boundaries", "walls", "doors_openings",
+                                  "windows", "structure", "fire_protection", "excluded_content", "missing_content",
+                                  "confident_errors"}
 
 
 @pytest.fixture()
@@ -49,97 +58,116 @@ def env(tmp_path):
     for gid in ("REAL_001", "REAL_004"):
         (gt_dir / f"{gid}.json").write_text((G.GT_DIR / f"{gid}.json").read_text())
     pub, priv, outputs = tmp_path / "pub", tmp_path / "priv", tmp_path / "outputs"
+    # a FireAI output for REAL_004 (synthetic building: 3 rooms, units in)
+    r = run_pipeline(B.make_office(tmp_path / "o.dxf", "in"), tmp_path)
+    d = outputs / "run_x" / "REAL_004_dwg"
+    d.mkdir(parents=True)
+    (d / "building_model.json").write_text(r.path("model_json").read_text())
     app = create_review_app(gt_dir, pub, priv, outputs)
-    return TestClient(app), gt_dir, pub, priv, outputs
+    return TestClient(app), gt_dir, pub, priv, outputs, d
 
 
-def _form(items, reviewer="Owner Reviewer"):
-    f = {"reviewer": reviewer}
-    for cat, spec in items.items():
-        st, basis = spec[0], spec[1]
-        f[f"{cat}__decision"] = st
-        if basis:
-            f[f"{cat}__basis"] = basis
-        for k, v in (spec[2] if len(spec) > 2 else {}).items():
-            f[f"{cat}__{k}"] = v
+def _form(answers, flags=None, reviewer="Owner", em=None):
+    f = {"reviewer": reviewer, "visual_flags": json.dumps(flags or [])}
+    if em:
+        f["evaluated_model"] = json.dumps(em)
+    for q, spec in answers.items():
+        f[f"{q}__decision"] = spec[0]
+        for k, v in (spec[1] if len(spec) > 1 else {}).items():
+            f[f"{q}__{k}"] = v
     return f
 
 
-def test_review_page_shows_three_sources_and_never_prefills(env):
+def _canvas(c, gid="REAL_004"):
+    return c.get(f"/canvas/{gid}.json").json()
+
+
+def test_page_is_professional_and_never_prefilled(env):
     c = env[0]
     page = c.get("/review/REAL_004").text
-    for s in ("SOURCE DRAWING", "FIREAI INTERPRETATION", "CLAUDE DRAFT (not truth)", "YOUR DECISION"):
+    for s in ("SOURCE DRAWING", "FIREAI INTERPRETATION", "Flag a FireAI item", "Mark something missing",
+              "The major rooms/spaces are recognized.", "Nothing needs CAD knowledge"):
         assert s in page
-    assert "checked" not in page.split("<form")[1].split("overall_note")[0].replace("unchecked", "")
+    form = page.split("<form")[1].split("</form>")[0]
+    assert " checked" not in form.replace("type='checkbox'", "")
 
 
-def test_structured_corrections_roundtrip(env):
-    c, gt_dir, pub, priv, _o = env
+def test_facts_and_evaluations_roundtrip_with_visual_flags(env):
+    c, gt_dir, pub, priv, outputs, d = env
+    cv = _canvas(c)
+    room = next(i for i in cv["items"] if i["category"] == "room")
+    flags = [{"flag": "merged_spaces", "target_uid": room["uid"], "note": "two rooms"},
+             {"flag": "missing_room", "point_local": [5.0, 5.0]}]
     r = c.post("/review/REAL_004", data=_form({
-        "units": ("CONFIRMED", "cad_file_inspection"),
-        "room_count": ("CONFIRMED", "visual_review_of_source_rendering"),
-        "view_count": ("CORRECTED", "visual_review_of_source_rendering", {"value": "6"}),
-        "view_types": ("CORRECTED", "visual_review_of_source_rendering",
-                       {"value__SECTION": "4", "value__DETAIL": "2"}),
-        "extents": ("CORRECTED", "cad_file_inspection", {"value__width_ft": "112.5", "value__height_ft": "48"}),
-        "doors": ("CORRECTED", "visual_review_of_source_rendering", {"value__count": "0",
-                                                                     "value__description": "door elevations only"}),
-        "title_block": ("CORRECTED", "visual_review_of_source_rendering", {"value": "sheet: A-301\nscale: varies"}),
-        "grids": ("NOT_EVALUATED", None, {"question": "are the dashed lines grids?"}),
-    }), follow_redirects=False)
+        "units": ("CONFIRMED", {"basis": "cad_file_inspection"}),
+        "view_count": ("CORRECTED", {"value": "4", "basis": "visual_review_of_source_rendering"}),
+        "view_types": ("CORRECTED", {"value__SECTION": "2", "value__DETAIL": "2", "basis": "visual_review_of_source_rendering"}),
+        "rooms_recognized": ("CORRECTED", {"severity": "critical", "description": "it is a section, no rooms"}),
+        "review_flags": ("CONFIRMED", {}),
+        "windows": ("NOT_EVALUATED", {"question": "are those glazing?"}),
+    }, flags), follow_redirects=False)
     assert r.status_code == 303, r.text
     rv = json.loads((pub / "REAL_004.json").read_text())
-    assert not (priv / "REAL_004.json").exists()
-    assert rv["schema"] == "human_review/2" and rv["reviewer_identity"] == "unauthenticated_name"
-    it = rv["items"]["view_types"]
-    assert it["human_decision"] == "CORRECTED" and it["human_corrected_value"] == {"SECTION": 4, "DETAIL": 2}
-    assert it["claude_draft"] is None and it["decided_at"]
-    assert rv["items"]["units"]["claude_draft"]["units"]["value"] == "in"      # draft snapshot preserved
-    assert rv["items"]["title_block"]["human_corrected_value"] == {"sheet": "A-301", "scale": "varies"}
+    assert rv["schema"] == "human_review/3" and rv["reviewer_identity"] == "unauthenticated_name"
+    assert rv["evaluated_model"]["model_sha256"] == FV.model_sha(d / "building_model.json")
+    assert rv["items"]["units"]["confirmed_value"] == "in" and rv["items"]["units"]["confirmed_value_source"] == "fireai"
+    assert rv["items"]["view_types"]["human_corrected_value"] == {"SECTION": 2, "DETAIL": 2}
+    assert rv["items"]["rooms_recognized"]["human_corrected_value"]["severity"] == "critical"
+    f0 = rv["visual_flags"][0]
+    assert f0["target_category"] == "room" and "target_confident" in f0 and "target_flagged_by_fireai" in f0
+    assert rv["visual_flags"][1]["point_src"]
     rec = G.load_record("REAL_004", gt_dir)
-    eff = G.effective(rec, rv, rec["source_sha256s"])
-    assert eff["status"] == "PARTIALLY_HUMAN_REVIEWED"
-    assert eff["truth"]["view_count"]["value"] == 6 and eff["truth"]["units"]["comparable"] == "in"
-    assert eff["truth"]["room_count"]["comparable"] == 0
-    assert eff["open_questions"] == {"grids": "are the dashed lines grids?"}
-    assert json.loads((gt_dir / "REAL_004.json").read_text()) == rec             # draft untouched
+    eff = G.effective(rec, rv, rec["source_sha256s"], FV.model_sha(d / "building_model.json"))
+    assert eff["truth"]["units"]["value"] == "in" and eff["truth"]["view_count"]["value"] == 4
+    assert eff["evaluations"]["rooms_recognized"]["decision"] == "CORRECTED"
+    assert eff["open_questions"] == {"windows": "are those glazing?"}
+    assert json.loads((gt_dir / "REAL_004.json").read_text()) == rec                   # draft untouched
 
 
-def test_unchanged_decisions_keep_their_timestamp(env):
-    c, _g, pub, *_ = env
-    c.post("/review/REAL_004", data=_form({"units": ("CONFIRMED", "cad_file_inspection")}))
-    t1 = json.loads((pub / "REAL_004.json").read_text())["items"]["units"]["decided_at"]
-    c.post("/review/REAL_004", data=_form({"units": ("CONFIRMED", "cad_file_inspection"),
-                                           "room_count": ("CONFIRMED", "cad_file_inspection")}))
+def test_evaluations_go_stale_when_fireai_output_changes_but_facts_persist(env):
+    c, gt_dir, pub, _priv, _o, d = env
+    c.post("/review/REAL_004", data=_form({"units": ("CONFIRMED", {"basis": "cad_file_inspection"}),
+                                           "walls": ("CONFIRMED", {})}))
     rv = json.loads((pub / "REAL_004.json").read_text())
-    assert rv["items"]["units"]["decided_at"] == t1 and "room_count" in rv["items"]
+    (d / "building_model.json").write_text((d / "building_model.json").read_text().replace('"model_id":', '"model_id" :', 1))
+    rec = G.load_record("REAL_004", gt_dir)
+    eff = G.effective(rec, rv, rec["source_sha256s"], FV.model_sha(d / "building_model.json"))
+    assert "units" in eff["truth"] and eff["evaluations"] == {} and "walls" in eff["stale_evaluations"]
+    assert "re-check" in c.get("/").text
 
 
 def test_private_drawing_review_stays_local(env):
-    c, _g, pub, priv, _o = env
-    r = c.post("/review/REAL_001", data=_form({"units": ("CONFIRMED", "project_documents")}), follow_redirects=False)
+    c, _g, pub, priv, *_ = env
+    r = c.post("/review/REAL_001", data=_form({"units": ("CORRECTED", {"value": "in", "basis": "project_documents"})}),
+               follow_redirects=False)
     assert r.status_code == 303 and (priv / "REAL_001.json").exists() and not (pub / "REAL_001.json").exists()
 
 
-@pytest.mark.parametrize("items,msg", [
-    ({"units": ("CONFIRMED", "fireai_output")}, "FireAI output cannot be the basis"),
-    ({"grids": ("CONFIRMED", "cad_file_inspection")}, "nothing in the draft to confirm"),
-    ({"units": ("CORRECTED", "cad_file_inspection", {"value": ""})}, "choose one of"),
-    ({"view_count": ("CORRECTED", "cad_file_inspection", {"value": "-2"})}, "must be 0 or more"),
-    ({"room_boundaries": ("CORRECTED", "cad_file_inspection", {"value": '[{"name": "A", "polygon_src": [[0, 0]]}]'})},
-     "at least 3 points"),
-    ({"room_areas": ("CORRECTED", "cad_file_inspection", {"value": "OFFICE 200"})}, "NAME = number"),
-    ({"units": ("CONFIRMED", None)}, "basis must be one of"),
+@pytest.mark.parametrize("answers,flags,msg", [
+    ({"units": ("CONFIRMED", {"basis": "fireai_output"})}, None, "FireAI output cannot be the basis"),
+    ({"units": ("CONFIRMED", {})}, None, "basis must be one of"),
+    ({"view_count": ("CORRECTED", {"value": "-2", "basis": "other"})}, None, "must be 0 or more"),
+    ({"walls": ("CORRECTED", {"severity": "fatal", "description": "x"})}, None, "severity must be one of"),
+    ({"walls": ("CORRECTED", {"severity": "major", "description": ""})}, None, "describe what is wrong"),
+    ({}, [{"flag": "wrong_label"}], "select the FireAI item"),
+    ({}, [{"flag": "missing_room"}], "needs the clicked location"),
+    ({}, [{"flag": "wrong_label", "target_uid": "not-in-this-output"}], "not in this FireAI output"),
 ])
-def test_invalid_reviews_are_not_saved(env, items, msg):
+def test_invalid_reviews_are_not_saved(env, answers, flags, msg):
     c, _g, pub, *_ = env
-    r = c.post("/review/REAL_004", data=_form(items))
+    r = c.post("/review/REAL_004", data=_form(answers, flags))
     assert r.status_code == 422 and msg in r.text and not (pub / "REAL_004.json").exists()
 
 
-def test_review_invalidated_when_drawing_or_draft_changes(env):
+def test_fireai_output_changed_during_review_is_rejected(env):
+    c, _g, pub, *_ = env
+    r = c.post("/review/REAL_004", data=_form({"walls": ("CONFIRMED", {})}, em={"model_sha256": "0" * 64}))
+    assert r.status_code == 422 and "changed while you were reviewing" in r.text
+
+
+def test_invalidated_when_drawing_or_draft_changes(env):
     c, gt_dir, pub, *_ = env
-    c.post("/review/REAL_004", data=_form({"units": ("CONFIRMED", "cad_file_inspection")}))
+    c.post("/review/REAL_004", data=_form({"units": ("CONFIRMED", {"basis": "cad_file_inspection"})}))
     rv = json.loads((pub / "REAL_004.json").read_text())
     rec = G.load_record("REAL_004", gt_dir)
     assert G.effective(rec, rv, ["0" * 64])["status"] == "INVALIDATED"
@@ -147,47 +175,40 @@ def test_review_invalidated_when_drawing_or_draft_changes(env):
     assert G.effective(rec, rv, rec["source_sha256s"])["reason"] == "draft changed since review"
 
 
-def test_pending_without_review_and_path_safety(env):
+def test_path_safety(env):
     c = env[0]
-    assert "PENDING_HUMAN_VERIFICATION" in c.get("/").text
     assert c.get("/review/REAL_999").status_code == 404
     assert c.get("/img/../etc/source").status_code == 404
+    assert c.get("/canvas/REAL_999.json").status_code == 404
 
 
-# ── evaluation uses HUMAN truth only ─────────────────────────────────────────
+def test_metrics_are_engineering_meaning_and_not_one_score(env):
+    c, gt_dir, pub, priv, outputs, d = env
+    cv = _canvas(c)
+    rooms = [i for i in cv["items"] if i["category"] == "room"]
+    flags = [{"flag": "not_a_room", "target_uid": rooms[0]["uid"]},
+             {"flag": "wrong_label", "target_uid": rooms[1]["uid"]},
+             {"flag": "missing_room", "point_local": [1.0, 1.0]}]
+    c.post("/review/REAL_004", data=_form({
+        "view_types": ("CORRECTED", {"value__FLOOR_PLAN": "1", "basis": "visual_review_of_source_rendering"}),
+        "doors_openings": ("CONFIRMED", {}), "walls": ("CORRECTED", {"severity": "minor", "description": "one wall"})},
+        flags))
+    s = build_summary(gt_dir, pub, priv, outputs)
+    m = next(x for x in s["drawings"] if x["id"] == "REAL_004")["metrics"]
+    n_rooms = len(rooms)
+    assert m["false_room_rate"] == {"n": 1, "d": n_rooms, "text": f"1/{n_rooms}"}
+    assert m["missed_room_rate"]["n"] == 1 and m["missed_room_rate"]["d"] == n_rooms - 1 + 1
+    assert m["room_label_association"]["n"] == 1
+    assert m["opening_recognition"]["evaluation"] == "CONFIRMED" and m["major_wall_geometry"]["evaluation"] == "CORRECTED"
+    assert m["false_confident_interpretation_rate"]["d"] == 2 and m["critical_unflagged_error_rate"]["d"] == 2
+    assert m["view_classification"] in ("agree", "disagree")
+    md = to_markdown(s)
+    assert "no overall accuracy score" in md and "false rooms" in md
+    assert "%" not in md.split("## Engineering-meaning metrics")[1]
+
 
 def test_comparison_uses_only_human_truth():
-    machine = {"units": "in", "room_count": 0, "doors": {"count": 4}}
-    assert FV.compare("units", machine["units"], None) == "no_human_truth"          # draft alone is not truth
-    assert FV.compare("units", "in", {"comparable": "in"}) == "agree"
-    assert FV.compare("units", "ft", {"comparable": "in"}) == "disagree"
-    assert FV.compare("doors", {"count": 4}, {"comparable": {"count": 0, "description": "x"}}) == "disagree"
-    assert FV.compare("drawing_type", None, {"comparable": "sections"}) == "not_comparable"
-    assert FV.compare("room_areas", [{"name": "Office", "value": 201.0}],
-                      {"comparable": [{"name": "OFFICE", "value": 200.0}]}) == "agree"
-    assert FV.compare("extents", {"width_ft": 100, "height_ft": 50},
-                      {"comparable": {"width_ft": 103, "height_ft": 50}}) == "disagree"
-
-
-def test_summary_reports_by_category_without_overall_score(env, tmp_path):
-    c, gt_dir, pub, priv, outputs = env
-    c.post("/review/REAL_004", data=_form({"units": ("CONFIRMED", "cad_file_inspection"),
-                                           "room_count": ("CORRECTED", "cad_file_inspection", {"value": "5"}),
-                                           "grids": ("NOT_EVALUATED", None, {"question": "grid?"})}))
-    # a fake FireAI model output for REAL_004 (units in, 0 rooms)
-    from conftest import run_pipeline
-    from fixtures import builders as B
-    r = run_pipeline(B.make_office(tmp_path / "o.dxf", "in"), tmp_path)
-    d = outputs / "run_x" / "REAL_004_dwg"
-    d.mkdir(parents=True)
-    (d / "building_model.json").write_text(r.path("model_json").read_text())
-    s = build_summary(gt_dir, pub, priv, outputs)
-    by = {x["id"]: x for x in s["drawings"]}
-    assert by["REAL_004"]["status"] == "PARTIALLY_HUMAN_REVIEWED" and by["REAL_001"]["status"] == G.PENDING
-    assert s["decisions"]["units"]["CONFIRMED"] == 1 and s["decisions"]["room_count"]["CORRECTED"] == 1
-    assert s["agreement"]["units"]["agree"] == 1
-    assert s["agreement"]["room_count"]["disagree"] == 1           # fixture has 3 rooms; human says 5
-    assert [d["category"] for d in s["disagreements"]] == ["room_count"]
-    md = to_markdown(s)
-    assert "no overall accuracy score" in md and "grid?" in md
-    assert "%" not in md.split("## FireAI vs human")[1].split("## Disagreements")[0]
+    assert FV.compare_fact("units", "in", None) == "no_human_truth"
+    assert FV.compare_fact("units", "in", {"comparable": "in"}) == "agree"
+    assert FV.compare_fact("view_types", {"FLOOR_PLAN": 2}, {"comparable": {"FLOOR_PLAN": 1}}) == "disagree"
+    assert FV.compare_fact("drawing_type", None, {"comparable": "plans"}) == "not_comparable"

@@ -239,3 +239,64 @@ conversion dropped 14.4 → 4.3 s with a local work dir.
 * Model JSON ≤ 50 MB for 80 k entities (met: 42.8 MB).
 * Overlay ≤ 60 s (met across the corpus).
 Next step: store the source-entity layer separately from the semantic model, with no provenance dropped.
+
+---
+
+## §M1.7 — Human-discovered room-topology failure (REAL_002) and general fixes
+
+**Human observation (owner, 2026-09-22):** REAL_002 contains two floor plans (FireAI: correct). Each
+has many rooms, but FireAI showed the second floor as one large merged, unlabelled region. FireAI's
+`ROOM_BOUNDARY_SPANS_MULTIPLE_LABELS` trigger correctly kept that result from being trusted. The
+observation is recorded in `tests/real_drawings/human_reviews/REAL_002.json`, marked as transcribed
+by Claude. No counts, boundaries or other facts were added.
+
+### Root cause (measured, not guessed)
+
+* Each floor's interior wall faces are drawn as **one closed polyline** (91 vertices on floor 2), with
+  partitions as peninsulas. The enclosed space is therefore a single polygon, and rooms can only be
+  separated by the door-closure analysis lines (rule G-DOOR-OPENING-CLOSURE).
+* The door closures were built from wall vertices **rounded to 6 decimals**. Coordinates in inches
+  scaled to feet have long decimals, so every closure endpoint missed the true vertex by about
+  3–5×10⁻⁷ ft. Shapely does not node a line that misses by that much. All 50 closures became
+  polygonize "cut edges" and separated nothing.
+* Snapping the same closures onto the true vertices splits floor 2 into its rooms. The synthetic
+  fixtures use round coordinates (19.75 …), which is why this was never caught.
+* Two secondary problems:
+  * Text embedded in symbol blocks (a 3-way switch's "3", a receptacle's "GFI") was accepted as
+    room-label text, producing "HALL 3".
+  * Wall gaps at offset (bay) windows were reported as doorless openings.
+
+### General fixes (no file-, name- or coordinate-specific logic)
+
+1. Door-closure lines use the **exact** wall vertices, and closure lines are **snapped** onto the
+   wall linework before polygonizing. The split-candidate closing lines get the same treatment.
+2. **R-SYMBOL-TEXT:** text inside a symbol block is never a room label, unless its layer or its
+   block's name says it is a room tag.
+3. **W-OPENING windows:** a wall gap is classified as a window when a window element spans it. It is
+   also classified as a window, at confidence 0.5 and flagged for review, when the gap has no jambs
+   and a window lies within 1.5 ft (offset/bay windows). Windows are never treated as passages
+   between spaces.
+4. Unchanged principle: doorless openings are **not** closed automatically. Spaces joined through
+   them stay one region, are flagged, and only get *suggested* split candidates.
+
+Regression tests: `tests/test_room_topology_m17.py`. They use generated drawings with non-round
+inch coordinates, a single-ring wall outline, symbol text and a bay window. **Four of them fail on
+the M1.6 code** and pass now; four more guard behaviour that must not change.
+
+### Results (runs `m16_final` → `m17`, same harness settings)
+
+| File | Rooms before → after | Doorless openings before → after | Other changes |
+|---|---|---|---|
+| REAL_002 | 1 merged → 14 (11 labelled; 2 small unlabelled closets; 1 flagged open-plan region on floor 1: LIVING / FORUM / KITCHEN / HALL) | 8 → 1 (7 are windows) | floor 2: MASTER BEDROOM, WALK-IN CLOSET, HALL, 2 × BEDROOM, 2 × B/R separated; floor 1: DINING ROOM, LAUNDRY, STUDY, B/R now found (none before) |
+| REAL_003 (metric twin) | 2 → 12 (11 labelled; same flagged open-plan region) | 6 → 1 (5 windows) | same rooms as REAL_002; areas within a few % (different wall thicknesses) |
+| REAL_004 (sections) | 0 → 0 | 0 → 0 | unchanged; room logic still skipped |
+| REAL_001 (units = in, read-only from its current location) | 0 → 0 | — | identical element counts and triggers |
+| REAL_005–011 | unchanged | unchanged | no triggers added or removed |
+
+**Regressions:** none found in the corpus or the test suite. The floor-1 open-plan region remains
+merged and flagged (`ROOM_BOUNDARY_SPANS_MULTIPLE_LABELS`). This is intended: FireAI cannot tell
+whether LIVING / FORUM / KITCHEN / HALL are separate rooms or one open space, and it does not invent
+boundaries. REAL_002's earlier human evaluations now show as **stale** (FireAI's output changed); the
+facts remain.
+
+`ENGINE_VERSION` → `interp.m17.1`, so verifications made against the M1.6 interpretation are INVALIDATED.

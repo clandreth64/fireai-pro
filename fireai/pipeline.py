@@ -49,7 +49,7 @@ _USE_CONFIGURED = object()
 
 # Bump whenever interpretation output can change for the same input: a human
 # verification recorded under another engine version is invalidated.
-ENGINE_VERSION = f"{__version__}+interp.m16.1"
+ENGINE_VERSION = f"{__version__}+interp.m17.1"
 
 ASSUMPTIONS = [
     "Model-space geometry is drawn at full scale (1 drawing unit = 1 unit of the declared units); "

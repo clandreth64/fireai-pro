@@ -20,7 +20,7 @@ from __future__ import annotations
 import math
 
 from shapely.geometry import LineString, Point, Polygon
-from shapely.ops import polygonize, unary_union
+from shapely.ops import polygonize, snap, unary_union
 
 CORRIDOR_MIN_ELONGATION = 4.0
 CORRIDOR_MAX_WIDTH_FT = 10.0
@@ -63,7 +63,7 @@ def annotate_rooms(model) -> list:
 
     # connectivity through openings
     connections = []
-    for op in wm.get("openings", []):
+    for op in (o for o in wm.get("openings", []) if o["kind"] != "window"):   # glazing is not a passage
         (x0, y0), (x1, y1) = op["span"]
         L = math.dist((x0, y0), (x1, y1)) or 1.0
         nx, ny = -(y1 - y0) / L, (x1 - x0) / L
@@ -105,14 +105,17 @@ def annotate_rooms(model) -> list:
                     seg = LineString(f["segment"])
                     if seg.intersects(poly):
                         lines.append(seg)
+        base = unary_union(lines)
+        closing = []
         for op in inside:
             (x0, y0), (x1, y1) = op["span"]
             L = math.dist((x0, y0), (x1, y1)) or 1.0
             nx, ny = -(y1 - y0) / L, (x1 - x0) / L
             h = op["thickness_ft"] / 2
             for sgn in (1, -1):   # close both wall faces across the opening
-                lines.append(LineString([(x0 + sgn * nx * h, y0 + sgn * ny * h), (x1 + sgn * nx * h, y1 + sgn * ny * h)]))
-        faces = [f for f in polygonize(unary_union(lines)) if poly.buffer(0.05).contains(f) and f.area >= 20.0]
+                seg = LineString([(x0 + sgn * nx * h, y0 + sgn * ny * h), (x1 + sgn * nx * h, y1 + sgn * ny * h)])
+                closing.append(snap(seg, base, 1e-3))   # must be noded into the linework to separate
+        faces = [f for f in polygonize(unary_union([base] + closing)) if poly.buffer(0.05).contains(f) and f.area >= 20.0]
         labels = [by_id[i] for i in el.properties.get("label_entity_ids", []) if i in by_id]
         cand = []
         for f in faces:

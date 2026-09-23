@@ -215,3 +215,12 @@ __marimo__/
 tests/real_drawings_local/
 tests/real_drawings_outputs_local/
 **/*_LOCAL_ONLY*
+
+# Milestone 1.7 safeguard: drawings anywhere outside the synthetic golden set are never tracked
+# (real/private drawings belong in tests/real_drawings_local/, which is ignored above).
+*.dwg
+*.DWG
+*.dxf
+*.DXF
+!tests/golden/drawings/*.dwg
+!tests/golden/drawings/*.dxf

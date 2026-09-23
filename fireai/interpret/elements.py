@@ -14,7 +14,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 
 from shapely.geometry import LineString, Point, Polygon
-from shapely.ops import polygonize, unary_union
+from shapely.ops import polygonize, snap, unary_union
 from shapely.prepared import prep
 from shapely.validation import make_valid
 
@@ -35,6 +35,8 @@ DOOR_CLOSURE_MIN_FT = 1.5      # shorter pairs are wall thickness, not an openin
 DOOR_CLOSURE_MAX_FT = 8.0      # widest opening bridged (pair of doors)
 DOOR_CLOSURE_MARGIN_FT = 0.75  # search margin around a door's footprint
 LABEL_NEAR_FT = 1.0            # R-LABEL-NEAR: max distance of an outside label from a boundary
+ROOM_TAG_TOKENS = {"ROOM", "RM", "RMTAG", "ROOMTAG", "RMNAME", "ROOMNAME", "SPACE", "IDEN", "RMNO"}
+SNAP_TOL_FT = 1e-4             # analysis closure endpoints are snapped onto wall linework within this
 WALL_QUALIFIER_TOKENS = {"ABOVE", "BELOW", "OVHD", "OVERHEAD", "HIDDEN", "DEMO", "DEMOLITION", "DEMOLISH",
                          "FUTURE", "NIC", "EXIST", "EXISTING", "REMOVE", "RMV"}
 
@@ -386,7 +388,9 @@ class Interpreter:
             if lines:
                 method = "polygonized_wall_linework"
                 closures = self._door_closures(walls, lines)
-                closure_lines = [c["line"] for c in closures]
+                # analysis lines must be NODED into the wall linework or they separate nothing
+                wall_union = unary_union(lines)
+                closure_lines = [snap(c["line"], wall_union, SNAP_TOL_FT) for c in closures]
                 for face in polygonize(unary_union(lines + closure_lines)):
                     if face.area < MIN_POLYGONIZED_ROOM_SF:
                         continue
@@ -424,7 +428,8 @@ class Interpreter:
 
         # Label association (text inside boundary, smallest containing polygon wins)
         texts = [t for t in self.model_entities() if t.id not in self.claimed and t.normalized is not None
-                 and t.normalized.kind == "text" and t.normalized.text and self.room_logic_allowed(t)]
+                 and t.normalized.kind == "text" and t.normalized.text and self.room_logic_allowed(t)
+                 and not self._symbol_text(t)]
         prepared = [(prep(c[0]), c) for c, _ in rooms]
         labels: dict[int, list[SourceEntity]] = defaultdict(list)
         near_labels: dict[int, list[SourceEntity]] = defaultdict(list)
@@ -540,6 +545,26 @@ class Interpreter:
                                          message=f"{len(unassoc)} room-label text item(s) are not inside any detected room boundary: "
                                                  + ", ".join(repr(t.normalized.text) for t in unassoc[:10])))
 
+    def _symbol_text(self, t: SourceEntity) -> bool:
+        """R-SYMBOL-TEXT: text embedded in a symbol block (a switch's "3", a receptacle's "GFI", a
+        window tag number) belongs to that symbol, not to a room label. Block text counts as a
+        room label only when its layer, or the block's name, says it is a room tag."""
+        if not t.parent_id:
+            return False
+        r = self.role(t)
+        if r and r.role in ("room_label", "room_boundary"):
+            return False
+        p = self.by_id.get(t.parent_id)
+        while p is not None:
+            pr = self.role(p)
+            if pr and pr.role in ("room_label", "room_boundary"):
+                return False
+            name = (p.attributes.get("effective_block") or p.attributes.get("block") or "").upper()
+            if set(R.tokens(name)) & ROOM_TAG_TOKENS:
+                return False
+            p = self.by_id.get(p.parent_id) if p.parent_id else None
+        return True
+
     def _door_closures(self, walls, wall_lines) -> list[dict]:
         """Analysis-only segments bridging wall openings at detected doors (rule
         G-DOOR-OPENING-CLOSURE). Vertices of wall linework inside a door's footprint
@@ -548,11 +573,14 @@ class Interpreter:
         doors = [el for el in self.out.elements if el.category == "door" and el.geometry and el.geometry.points]
         if not doors:
             return []
-        verts = []
+        # Keep the EXACT vertex coordinates (rounding is only used as a de-duplication key):
+        # a closure endpoint that is even 1e-7 ft off the wall linework is not noded by
+        # polygonize and silently fails to separate rooms (found on a real drawing, M1.7).
+        exact: dict[tuple, tuple] = {}
         for w in walls:
             for p in (w.geometry.points if w.geometry else []):
-                verts.append((round(p[0], 6), round(p[1], 6)))
-        verts = list(dict.fromkeys(verts))
+                exact.setdefault((round(p[0], 6), round(p[1], 6)), (float(p[0]), float(p[1])))
+        verts = list(exact.values())
         wall_union = unary_union(wall_lines)
         out = []
         for d in doors:

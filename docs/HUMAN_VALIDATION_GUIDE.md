@@ -1,125 +1,124 @@
-# Human Validation Guide — reviewing FireAI's ground truth
+# Human Validation Guide — reviewing FireAI (Milestone 1.7)
 
-**Who this is for:** the owner / a fire-protection professional reviewing the 11 real drawings in
-the validation corpus. No programming needed.
+**Who this is for:** the owner / a fire-protection professional. You judge the drawing and FireAI's
+reading of it the way you would check a colleague's work. **You never need to count CAD objects,
+type coordinates, or understand FireAI's internals.**
 
-**Why it matters:** the 11 ground-truth records were **drafted by Claude** from rendered drawings.
-They are *not* independent truth and stay `PENDING_HUMAN_VERIFICATION` until you review them. Until
-then, FireAI's accuracy on real drawings is **not measured** — only described. Your decisions become
-the reference FireAI is evaluated against. Claude's drafts and FireAI's output never are.
-
----
+**Why it matters:** the 11 records in `tests/real_drawings/ground_truth/` are Claude **drafts**
+(`PENDING_HUMAN_VERIFICATION`). Only your answers become ground truth. FireAI is measured against
+your answers, never against Claude's drafts or its own output.
 
 ## 1. Start the review tool (one command)
 
-Prerequisites (one time): Docker Desktop running, and this repository on your computer. The drawings
-themselves are already in `tests/real_drawings_local/` on this machine (they are never in GitHub).
+Prerequisites: Docker Desktop running and this repository on your computer (the drawings stay in
+`tests/real_drawings_local/`, never in GitHub).
 
-From the repository folder:
-
-| Computer | Command |
+| Computer | Command (run in the repository folder) |
 |---|---|
 | Windows (PowerShell) | `powershell -ExecutionPolicy Bypass -File scripts\review.ps1` |
 | macOS / Linux / Git Bash | `sh scripts/review.sh` |
 
-The first start builds the `fireai:dev` image (several minutes). Then your browser opens
-<http://127.0.0.1:8765>. The tool only listens on this computer. Press **Ctrl+C** in the terminal to
-stop it.
+Your browser opens <http://127.0.0.1:8765> (this computer only). **Ctrl+C** in the terminal stops it.
+If the tool was already running from an earlier session, stop it and start it again to load the
+current version.
 
-The images come from the latest local corpus run. If a drawing shows "no local rendering", run:
-`docker run --rm --user root -v "%CD%:/app" -w /app fireai:dev python scripts/validate_corpus.py --label <new-label>`
-(PowerShell: use `${PWD}` instead of `%CD%`).
+## 2. What the page shows
 
-## 2. What you see for each drawing
+1. **SOURCE DRAWING** (from the file) next to **FIREAI INTERPRETATION** (FireAI's overlay).
+2. **Point at problems on the drawing** — an interactive view of the drawing (grey) with FireAI's
+   items on top: green = rooms, blue = walls, red = doors, teal = windows. Dashed items are ones
+   FireAI itself flagged as uncertain. Hover any item to see what FireAI thinks it is. Scroll to
+   zoom, drag to pan, **Fit** to reset.
+3. **Facts about the drawing** and **Is FireAI's interpretation right?** — the questions.
 
-| Panel | What it is | Is it truth? |
-|---|---|---|
-| **SOURCE DRAWING** | The drawing rendered straight from the file | It is the evidence |
-| **FIREAI INTERPRETATION** | FireAI's overlay: what it found, colour-coded | No — machine output |
-| **CLAUDE DRAFT** column | What Claude wrote when drafting the record | No — a draft |
-| **FIREAI VALUE** column | FireAI's value for the same category | No — machine output |
-| **YOUR DECISION** column | Your decision | **Yes — this is the ground truth** |
+Tick **"Hide FireAI's interpretation"** if you want to answer the facts without seeing FireAI first.
 
-Tick **"Hide FireAI's interpretation"** to judge the drawing without seeing FireAI's answer first. We
-recommend this for your first pass. Click an image to open it full size.
+## 3. The questions
 
-## 3. Decide each category
+**Facts** (they become ground truth; choose *how you know*: visual review, CAD file, project
+documents, site knowledge, other):
 
-For every category choose one of:
+* What units is the drawing drawn in? (or *cannot tell*)
+* What kind of drawing is this?
+* How many distinct plan views / drawings are visible?
+* What type is each view? (floor plan, reflected ceiling plan, section, elevation, detail, site plan,
+  riser diagram, legend, schedule …)
 
-* **CONFIRMED** — Claude's draft is right. Only possible when a draft value exists.
-* **CORRECTED** — the draft is wrong or missing. Enter the right value in the structured box.
-* **NOT_EVALUATED** — you cannot or will not judge it. This records *no* truth, which is fine.
+For each fact you see the value FireAI shows (or Claude's draft, if FireAI has none). Answer
+**Correct**, **Wrong — correct value: …**, or **Skip**.
 
-Also choose the **basis** of your decision: visual review of the source rendering, CAD file
-inspection, project documents, site knowledge, or other. "FireAI output" is not an accepted basis.
+**Statements about FireAI's interpretation** — answer **Yes**, **No**, or **Skip / cannot judge**:
 
-Structured corrections (no free-text parsing needed):
+* The major rooms/spaces are recognized.
+* Room labels are associated with the correct spaces.
+* The displayed room boundaries visually match the source.
+* Major walls are represented in the correct locations.
+* Door and opening locations are represented correctly.
+* Windows are represented correctly (where relevant).
+* Stairs, columns and major structural elements are represented correctly.
+* Fire-protection content is classified correctly (sprinkler vs fire alarm vs other).
+* Unrelated content (annotation, furniture, electrical, schedules) is kept out of the building model.
+* Nothing important is missing.
+* FireAI has not confidently interpreted anything that is visibly wrong.
+* FireAI's warnings / review flags are appropriate.
 
-| Category | How to enter a correction |
+If you answer **No**, write a few words about what is wrong; how serious it is (minor / major /
+critical) is optional. You can add an open question to anything you are unsure about.
+
+## 4. Pointing at problems (optional but very useful)
+
+* **Flag a FireAI item** (default): click a FireAI item and choose what is wrong — *wrong room,
+  not a room/space, several rooms merged into one, wrong room label, boundary does not match the
+  drawing, wrong kind of object, should not be part of the building model*.
+* **Mark something missing**: click where something is missing — *a room/space, a wall, a door /
+  opening, something else*.
+
+Each flag appears in a numbered list (with **remove**) and is saved with your review. You never
+draw geometry: pointing is enough. (Drawing corrected room outlines is future work.)
+
+## 5. Saving, stale answers, and what is stored
+
+* Save part-way whenever you like; unanswered questions stay open.
+* Your review is a separate file — public drawings: `tests/real_drawings/human_reviews/`; the
+  private drawing (REAL_001): `tests/real_drawings_local/human_reviews/` (never leaves this computer).
+  Claude's draft is never modified.
+* **Facts** stay valid until the drawing file (or Claude's draft) changes.
+* **Statements and flags** judge one specific FireAI output. When FireAI is improved and its
+  output for that drawing changes, those answers are kept on file but shown as **needing a fresh
+  look**; the index page says so.
+* The reviewer name is **not an authenticated identity** (`reviewer_identity: "unauthenticated_name"`).
+
+## 6. Summary and metrics
+
+**Summary and metrics** in the tool (or `python scripts/gt_review_summary.py`, local only) shows
+review progress, open questions, facts vs FireAI, and — only for drawings where you judged the
+*current* FireAI output — engineering-meaning metrics, each as a fraction per drawing:
+
+| Metric | Meaning |
 |---|---|
-| units | pick in / ft / mm / cm / m / undeclared_or_unknown |
-| drawing_type | short description |
-| view_count | number of separate plans/views |
-| view_types | a number per view type (FLOOR_PLAN, SECTION, RISER_DIAGRAM, …) |
-| extents | width and height in feet |
-| room_count | number |
-| room_names | one name per line (repeat duplicates) |
-| room_areas | one per line: `NAME = area_sf` |
-| room_boundaries | JSON: `[{"name": "OFFICE", "polygon_src": [[x, y], ...]}]` in the drawing's own coordinates |
-| walls, doors, windows, columns, stairs, grids | count and/or a short description |
-| sprinkler_components, fire_alarm_components | count and/or description (kept separate on purpose) |
-| title_block | one per line: `field: value` |
-| other | free text |
+| view classification | FireAI's view types vs yours |
+| false-room rate | FireAI rooms you flagged *not a room / wrong room* ÷ FireAI rooms |
+| missed-room rate | rooms you marked missing ÷ rooms you consider present |
+| room-label association | FireAI rooms flagged *wrong label* ÷ labelled FireAI rooms |
+| room-boundary correctness | FireAI rooms flagged *wrong boundary / merged* ÷ FireAI rooms |
+| opening recognition | your answer on doors/openings + missing-opening marks |
+| major wall geometry | your answer on walls + missing-wall marks |
+| false confident interpretation rate | flagged items FireAI presented as confident ÷ flagged items |
+| critical unflagged error rate | flagged items FireAI did not itself flag for review ÷ flagged items |
 
-Optional per category: a **reason**, and an **open question**. Open questions appear in the summary
-so nothing you are unsure about gets lost.
+There is deliberately **no single accuracy score**.
 
-You can **save partial reviews** and come back later. A category you did not touch simply stays "not
-reviewed". A drawing becomes `HUMAN_VERIFIED` only when every category has a decision (NOT_EVALUATED
-counts as a decision).
+## 7. Suggested order
 
-## 4. Where your review is stored
+REAL_002 → REAL_004 → REAL_001 → REAL_003 (metric twin of REAL_002) → REAL_005, REAL_006 →
+REAL_007–011 (software test drawings; units and drawing type are enough).
 
-* Claude's draft (`tests/real_drawings/ground_truth/REAL_###.json`) is **never modified**.
-* Your review is a separate file:
-  * public drawings → `tests/real_drawings/human_reviews/REAL_###.json` (may be committed)
-  * the private drawing (REAL_001) → `tests/real_drawings_local/human_reviews/REAL_001.json`
-    (never leaves this computer)
-* For each category the file keeps `claude_draft` (what you saw), `human_decision`,
-  `human_corrected_value`, `basis`, `reason`, `open_question` and `decided_at`. The whole review
-  records `reviewer`, `reviewer_identity` and `review_timestamp`.
-* If the drawing file or Claude's draft changes later, your review is automatically marked
-  **INVALIDATED** instead of being silently reused.
+REAL_002 already contains your first observations (recorded from your message of 2026-09-22 and
+marked as transcribed): two floor plans, and the merged second-floor room was wrong. Because
+FireAI's output for REAL_002 changed in Milestone 1.7, the tool will ask you to take a fresh look at
+the room statements.
 
-**Limitation:** the reviewer name is typed in and is **not an authenticated identity**
-(`reviewer_identity: "unauthenticated_name"`). That is acceptable for local validation, but not for
-production approvals.
+## 8. Local housekeeping
 
-## 5. Summary and evaluation
-
-Open **Review summary** in the tool, or run `python scripts/gt_review_summary.py` in the container. It
-writes the local, git-ignored `tests/real_drawings_outputs_local/gt_review_summary.md`. It shows:
-
-* drawings awaiting review / partially reviewed / fully reviewed;
-* per category: how many CONFIRMED / CORRECTED / NOT_EVALUATED / not reviewed;
-* open questions;
-* FireAI vs **human** truth per category: agree / disagree / not comparable / no human truth yet,
-  plus the list of disagreements.
-
-There is deliberately **no single accuracy score**. FireAI is compared only with your decisions
-(CONFIRMED or CORRECTED), never with Claude's unconfirmed drafts.
-
-## 6. Suggested order
-
-1. REAL_002 and REAL_003 (real floor plans; rooms, walls, doors, windows matter most).
-2. REAL_004 (sections — check that no rooms/plan content is claimed).
-3. REAL_001 (the sprinkler drawing — units, views, sprinkler vs fire alarm, XREFs).
-4. REAL_005, 007–011 (test/library/site drawings — mostly units, extents, drawing type).
-5. REAL_006 (3D model; FireAI correctly refuses it — confirm drawing_type, mark the rest NOT_EVALUATED).
-
-## 7. Local housekeeping (not part of the review)
-
-Historical worktrees `../fireai-pro-m1-baseline` (Milestone 1, `f45b03d`) and `../fireai-pro-m15`
-(Milestone 1.5, `b6a1fb3`) are kept for reproducing old results. They can be removed later with
-`git worktree remove <path>`.
+Historical worktrees `../fireai-pro-m1-baseline` (`f45b03d`) and `../fireai-pro-m15` (`b6a1fb3`) are
+kept for reproducing old results; remove later with `git worktree remove <path>`.

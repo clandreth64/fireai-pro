@@ -1,0 +1,96 @@
+{
+  "schema": "human_review/3",
+  "id": "REAL_002",
+  "reviewer": "owner",
+  "reviewer_identity": "unauthenticated_name",
+  "review_timestamp": "2026-09-23T06:58:28.087119+00:00",
+  "source_sha256s": [
+    "3c95e8a82d5c8c251483fabc61efa8ca904f4e4bc8c2fce4786d74e812284d07"
+  ],
+  "claude_draft_sha256": "e6818ad4a49fd27f9ad3c3c44d6637897e72379ac4c59d4f1d6e0bcc840f2c3b",
+  "evaluated_model": {
+    "output": "m16_final/REAL_002_dwg/building_model.json",
+    "model_sha256": "d4ae12619b9989f946b33102d9349f9315c743f000c3869f81ac70a73a438184",
+    "engine_version": "0.1.0+interp.m16.1",
+    "model_id": "0889912c647e4832b6aec0befe814390"
+  },
+  "items": {
+    "view_count": {
+      "question": "How many distinct plan views / drawings are visible?",
+      "type": "fact",
+      "claude_draft": {
+        "separate_views_in_model_space": {
+          "value": 2,
+          "assertion": "EXACT"
+        }
+      },
+      "human_decision": "CONFIRMED",
+      "confirmed_value": 2,
+      "confirmed_value_source": "fireai",
+      "human_corrected_value": null,
+      "basis": "visual_review_of_source_rendering",
+      "reason": "the source clearly contains two separate floor plans",
+      "open_question": null,
+      "decided_at": "2026-09-23T06:58:28.087073+00:00"
+    },
+    "view_types": {
+      "question": "What type is each view? (number of views of each type)",
+      "type": "fact",
+      "claude_draft": null,
+      "human_decision": "CONFIRMED",
+      "confirmed_value": {
+        "FLOOR_PLAN": 2
+      },
+      "confirmed_value_source": "fireai",
+      "human_corrected_value": null,
+      "basis": "visual_review_of_source_rendering",
+      "reason": "both views are floor plans",
+      "open_question": null,
+      "decided_at": "2026-09-23T06:58:28.087101+00:00"
+    },
+    "room_boundaries": {
+      "question": "The displayed room boundaries visually match the source.",
+      "type": "evaluation",
+      "claude_draft": null,
+      "human_decision": "CORRECTED",
+      "confirmed_value": null,
+      "confirmed_value_source": null,
+      "human_corrected_value": {
+        "severity": null,
+        "description": "Second floor: FireAI shows one large merged, unlabeled region spanning multiple actual rooms; this is not a correct representation of the source. Both floors contain multiple individual rooms/spaces."
+      },
+      "basis": null,
+      "reason": null,
+      "open_question": null,
+      "decided_at": "2026-09-23T06:58:28.087109+00:00"
+    },
+    "review_flags": {
+      "question": "FireAI's warnings / review flags are appropriate (it flags what it should not be trusted on).",
+      "type": "evaluation",
+      "claude_draft": null,
+      "human_decision": "CONFIRMED",
+      "confirmed_value": null,
+      "confirmed_value_source": null,
+      "human_corrected_value": null,
+      "basis": null,
+      "reason": "ROOM_BOUNDARY_SPANS_MULTIPLE_LABELS appropriately prevents the merged result from being trusted",
+      "open_question": null,
+      "decided_at": "2026-09-23T06:58:28.087115+00:00"
+    }
+  },
+  "visual_flags": [
+    {
+      "flag": "merged_spaces",
+      "target_uid": "9aece01d-3975-5731-a446-f4b5db275cf6",
+      "point_local": null,
+      "note": "owner: large merged second-floor region spans multiple actual rooms",
+      "target_category": "room",
+      "target_label": null,
+      "target_id": "R00070",
+      "target_confident": false,
+      "target_flagged_by_fireai": true
+    }
+  ],
+  "note": null,
+  "recorded_by": "Claude, transcribing the owner's chat statement of 2026-09-22 (Milestone 1.7 instruction, first human validation attempt on REAL_002); no other decisions were supplied"
+}

@@ -16,8 +16,9 @@ it came from. Nothing is inferred without linework evidence:
                 or free end.
 * W-OPENING     a gap between two collinear pieces of equal thickness,
                 MIN..MAX_OPENING_FT long. With a door element in the gap -> door
-                opening; otherwise doorless opening (cased opening, pass-through,
-                or simply two walls that do not meet -> always needs review).
+                opening; with a window element spanning the gap -> window (glazing,
+                not a passage); otherwise doorless opening (cased opening,
+                pass-through, or two walls that do not meet -> always needs review).
                 Jamb lines across the wall at both ends are recorded as evidence.
 * W-EXTERIOR    a piece with a face on the OUTER outline of the closed wall
                 linework is "exterior_evidence"; otherwise "interior_evidence";
@@ -45,6 +46,7 @@ TYPICAL_THICKNESS_FT = (0.29, 1.5)   # 3.5 in .. 18 in
 PARALLEL_TOL_DEG = 1.0
 MIN_OVERLAP_FT = 0.5
 MIN_OPENING_FT = 1.5
+WINDOW_OFFSET_FT = 1.5         # offset (bay/box) window search distance from a jamb-less gap
 MAX_OPENING_FT = 12.0
 COLLINEAR_TOL_FT = 0.1
 MIN_SEGMENT_FT = 0.05
@@ -287,10 +289,15 @@ def _junctions(walls_out):
     return out
 
 
-def _openings(walls_out, straight_segs, doors):
+def _el_geom(d, pad):
+    return (LineString(d.geometry.points).buffer(pad) if len(d.geometry.points) > 1
+            else Point(d.geometry.points[0]).buffer(pad * 2))
+
+
+def _openings(walls_out, straight_segs, doors, windows=()):
     by_axis = [w for w in walls_out if w["kind"] == "straight"]
-    door_geoms = [(d.id, LineString(d.geometry.points).buffer(0.25) if len(d.geometry.points) > 1
-                   else Point(d.geometry.points[0]).buffer(0.5)) for d in doors if d.geometry and d.geometry.points]
+    door_geoms = [(d.id, _el_geom(d, 0.25)) for d in doors if d.geometry and d.geometry.points]
+    window_geoms = [(w.id, _el_geom(w, 0.1)) for w in windows if w.geometry and w.geometry.points]
     seg_lines = [(s, LineString([s.a, s.b])) for s in straight_segs]
     out = []
     for i, a in enumerate(by_axis):
@@ -339,16 +346,33 @@ def _openings(walls_out, straight_segs, doors):
                 if abs(_dot(s.u, ua)) < 0.05 and abs(s.length - th) <= 0.1 + 0.1 * th and ln.distance(e) <= 0.1:
                     jambs += 1
                     break
-        kind = "door" if door_ids else "doorless"
-        conf = 0.7 if door_ids else (0.5 if jambs == 2 else 0.3)
+        # a window element in the gap means the wall is interrupted by glazing, not a passage.
+        # Direct: the window spans the gap's midpoint. Offset (bay/box windows): a window just
+        # outside the wall line, and no door jambs at the gap -> window at lower confidence.
+        mid = gapline.interpolate(0.5, normalized=True)
+        window_ids, window_offset = [], False
+        if not door_ids:
+            window_ids = [wid for wid, g in window_geoms if g.intersects(mid)]
+            if not window_ids and jambs < 2:
+                near = gapline.buffer(max(WINDOW_OFFSET_FT, 2 * th))
+                window_ids = [wid for wid, g in window_geoms if g.intersects(near)]
+                window_offset = bool(window_ids)
+        kind = "door" if door_ids else ("window" if window_ids else "doorless")
+        conf = (0.7 if door_ids or (window_ids and not window_offset) else
+                0.5 if window_ids else (0.5 if jambs == 2 else 0.3))
         ev = [f"gap of {gap:.2f} ft between collinear wall pieces {a['id']} and {b['id']} "
               f"(thickness {th:.3f} ft)", f"jamb lines found at {jambs} of 2 ends"]
         ev.append(f"door element(s) {door_ids} in the gap" if door_ids else
-                  "no door element in the gap: doorless opening (cased opening / pass-through) or two walls "
-                  "that do not meet")
+                  (f"window element(s) {window_ids} "
+                   + ("lie just outside the gap (offset/bay window) and the gap has no door jambs"
+                      if window_offset else "span the gap") + ": glazing, not a passage between spaces")
+                  if window_ids else
+                  "no door or window element in the gap: doorless opening (cased opening / pass-through) or two "
+                  "walls that do not meet")
         out.append({"kind": kind, "wall_ids": [a["id"], b["id"]], "width_ft": round(gap, 4),
                     "thickness_ft": round(th, 4), "center": [(p0[0] + p1[0]) / 2, (p0[1] + p1[1]) / 2],
-                    "span": [list(p0), list(p1)], "door_element_ids": door_ids, "jambs": jambs,
+                    "span": [list(p0), list(p1)], "door_element_ids": door_ids, "window_element_ids": window_ids,
+                    "jambs": jambs,
                     "confidence": conf, "rules": ["W-OPENING"], "evidence": ev,
                     "requires_verification": kind == "doorless" or conf < 0.7, "region": a["region"]})
     return out
@@ -434,7 +458,8 @@ def build_wall_model(model, source_uid: str | None) -> dict:
 
     doors = [el for el in model.elements if el.category == "door"]
     junctions = _junctions(walls_out)
-    openings = _openings(walls_out, segs, doors)
+    windows = [el for el in model.elements if el.category == "window"]
+    openings = _openings(walls_out, segs, doors, windows)
     for n, j in enumerate(junctions, start=1):
         j["id"] = f"WJ{n:05d}"
         j["rules"] = ["W-JUNCTION"]
@@ -464,6 +489,7 @@ def build_wall_model(model, source_uid: str | None) -> dict:
                   "curved_pieces": len(curved), "junctions": len(junctions),
                   "door_openings": sum(1 for o in openings if o["kind"] == "door"),
                   "doorless_openings": sum(1 for o in openings if o["kind"] == "doorless"),
+                  "window_openings": sum(1 for o in openings if o["kind"] == "window"),
                   "wall_elements_in_non_plan_views_skipped": skipped,
                   "exterior_outline_by_region": {str(k): v[0] for k, v in outlines.items()}},
     }
