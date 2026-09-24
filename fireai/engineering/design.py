@@ -16,7 +16,7 @@ from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field, model_validator
 
-PLACEMENT_ENGINE_VERSION = "fireai.engineering.placement/0.1.0"
+PLACEMENT_ENGINE_VERSION = "fireai.engineering.placement/0.2.0"      # M2.2A: new measurements, fingerprint covers system/eligibility/deflector
 ORDERING_STRATEGY = "ORDER-LONGAXIS-LR-BT/1"      # layouts: fewer sprinklers first; sprinklers: by v (bottom-to-top) then u (left-to-right) in the room frame
 SYNTHETIC_DISCLAIMERS = ("TEST ONLY", "SYNTHETIC RULE VALUES", "NOT NFPA 13 COMPLIANT", "NOT FOR ENGINEERING USE")
 

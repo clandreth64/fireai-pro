@@ -61,16 +61,14 @@ def main() -> int:
         print(json.dumps({"gate": "REFUSED", "blockers": exc.blockers}, indent=1))
         return 2
     out = {"gate": "PASSED", "contract_version": pkg.contract_version, "verified_by": pkg.verified_by}
-    from fireai.rules import RuleSet
-    from fireai.rules.catalog import NFPA13_2025_BASE as ID
-    draft = RuleSet(rule_set_id=ID.rule_set_id, version=ID.first_version, layer=ID.layer,       # EMPTY + DRAFT, in memory
-                    governing_standard=ID.governing_standard, edition=ID.edition, content_basis="authoritative",
-                    review_status="draft", rules=[], description=ID.description)
-    real = DesignRequest(package=pkg, space_uid=a.space, mode="engineering", rule_sets=[draft],
-                         requested_by="m2_design_check")
-    t0 = time.perf_counter()
-    out["engineering"] = _summary(run_design(real))
-    out["engineering"]["seconds"] = round(time.perf_counter() - t0, 3)
+    from fireai.rules.catalog import NFPA13_2019_BASE, NFPA13_2025_BASE, empty_draft
+    # each registered edition separately (never mixed), as an IN-MEMORY EMPTY DRAFT; nothing is written
+    for name, ident in (("engineering", NFPA13_2025_BASE), ("engineering_nfpa13_2019", NFPA13_2019_BASE)):
+        real = DesignRequest(package=pkg, space_uid=a.space, mode="engineering", rule_sets=[empty_draft(ident)],
+                             requested_by="m2_design_check")
+        t0 = time.perf_counter()
+        out[name] = _summary(run_design(real))
+        out[name]["seconds"] = round(time.perf_counter() - t0, 3)
     if a.synthetic:
         sys.path.insert(0, str(ROOT / "tests"))
         from fixtures import synthetic_design as S           # TEST ONLY fixture

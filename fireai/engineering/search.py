@@ -4,6 +4,8 @@ Same search space and same valid set as the M2.0 brute force (``reference_search
 candidates that are PROVEN invalid are skipped. Every pruning step is a proof of failure of one
 specific constraint, and the rejection is attributed to that constraint:
 
+  0. GLOBAL  constraints that do not depend on plan position (M2.2A: ceiling-to-deflector vertical
+             distance) are measured once; a failure rejects the whole search space.
   1. AXIS    array_axis_spacing (either bound) and pairwise_min_distance (min bound) are decided per
              axis before any combination: in a rectangular array the closest pair is adjacent along an
              axis, so min pairwise distance = min of the present axis spacings.
@@ -29,7 +31,8 @@ from itertools import combinations
 
 from fireai.engineering.geometry import dist_point_segment, nearest_cells, worst_boundary_point, worst_space_point
 
-PIPELINE = ("axis", "count", "points", "pair", "cover", "full")
+PIPELINE = ("global", "axis", "count", "points", "pair", "cover", "full")
+GLOBAL_MEAS = {"ceiling_to_deflector_vertical_distance"}
 AXIS_MEAS = {"array_axis_spacing"}
 POINT_MEAS = {"point_to_boundary_min"}
 COVER_MEAS = {"boundary_point_to_nearest_sprinkler_max", "space_point_to_nearest_sprinkler_max"}
@@ -84,6 +87,15 @@ def search(st) -> SearchOutcome:
             stages[stage] += n
             if ex is not None and len(examples) < s.max_rejected_examples:
                 examples.append(ex)
+
+    # 0. GLOBAL ----------------------------------------------------------------------------------
+    for c in [c for c in cons if c.measurement in GLOBAL_MEAS]:
+        m = full_measure(st, c, [], None)
+        if m is None or _viol(c, m, _tol(st, c)):
+            first = next(((u, v) for u in axis_sets(st.ku, 1) for v in axis_sets(st.kv, 1)), None)
+            note("global", c.key, size, first)
+            return SearchOutcome(valid=[], rejected_by=dict(rejected), pruned_by_stage=dict(stages),
+                                 search_space_size=size, fully_evaluated=0, examples=examples)
 
     # 1. AXIS ------------------------------------------------------------------------------------
     axis_cons = [c for c in cons if c.measurement in AXIS_MEAS or (c.measurement == "pairwise_min_distance"
@@ -187,7 +199,7 @@ def search(st) -> SearchOutcome:
     verts = {c.key: ([pt for seg in st.segs(c.reference_kinds) for pt in seg]
                      if c.measurement == "boundary_point_to_nearest_sprinkler_max" else list(st.polygon)) for c in cover}
     full_cons = [c for c in cons if not (c.measurement in AXIS_MEAS or c.measurement in POINT_MEAS
-                                         or (c.measurement == "pairwise_min_distance"))]
+                                         or c.measurement in GLOBAL_MEAS or c.measurement == "pairwise_min_distance")]
     valid, evaluated = [], 0
     for u, v in survivors:
         pts = [st.point(i, j)["xy"] for j in v for i in u]
@@ -209,7 +221,8 @@ def search(st) -> SearchOutcome:
         if failed is None:
             evaluated += 1
             for c in full_cons:
-                if _viol(c, full_measure(st, c, pts), _tol(st, c)):
+                m = full_measure(st, c, pts, (u, v))
+                if m is None or _viol(c, m, _tol(st, c)):          # None = not evaluable: never valid
                     failed = ("full", c.key)
                     break
         if failed:
@@ -221,8 +234,16 @@ def search(st) -> SearchOutcome:
                          search_space_size=size, fully_evaluated=evaluated, examples=examples)
 
 
-def full_measure(st, c, pts) -> float:
-    """Exact measurement for constraints decided in the FULL stage (a vacuous measurement passes)."""
+def full_measure(st, c, pts, arr) -> float | None:
+    """Exact measurement for constraints decided in the FULL stage (a vacuous measurement passes; None =
+    not evaluable, which is never a pass). ``arr`` = (u index set, v index set)."""
+    if c.measurement in GLOBAL_MEAS or c.measurement in ("array_sxl_protection_area", "perpendicular_wall_distance"):
+        from fireai.engineering.placement import measure_special
+        grid = ([i * st.step for i in arr[0]], [j * st.step for j in arr[1]]) if arr else None
+        m = measure_special(st, c, grid)
+        if m.not_evaluable:
+            return None
+        return m.value if m.value is not None else (-math.inf if c.bound == "max" else math.inf)
     if c.measurement == "boundary_point_to_nearest_sprinkler_max":
         segs = st.segs(c.reference_kinds)
         return worst_boundary_point(segs, pts)[0] if segs else (-math.inf if c.bound == "max" else math.inf)

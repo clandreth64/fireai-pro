@@ -57,13 +57,26 @@ class CeilingFeature(BaseModel):
     source: Optional[InputSource] = None
 
 
+class ConstructionClassification(BaseModel):
+    """M2.2A: the construction CLASSIFICATION a standard uses for rule applicability (the standard
+    defines the categories; a person states which applies). Distinct from the GEOMETRIC ceiling facts
+    (surface, slope, elevation, the observed ``construction`` condition): a geometrically flat, smooth,
+    unobstructed ceiling does not by itself establish a classification, and FireAI never derives one."""
+    scheme: str                               # e.g. which standard / edition's classification scheme
+    value: str                                # the stated category, verbatim as the person recorded it
+    reason: str = ""
+    source: InputSource
+
+
 class CeilingRegion(BaseModel):
     uid: str
     extent: Literal["whole_space"] | list[tuple[float, float]] = "whole_space"
     surface: Literal["flat", "sloped", "curved", "stepped", "open_structure", "unknown"] = "unknown"
-    # M2.1: the construction type the person establishes (the standard defines the categories; FireAI
-    # only records the stated one). Unknown is the default and is never treated as unobstructed.
+    # GEOMETRIC / observed condition (M2.1): what the person states about the ceiling's form. Unknown is
+    # the default and is never treated as unobstructed. NOT the standard's construction classification.
     construction: Literal["smooth_unobstructed", "obstructed", "unknown"] = "unknown"
+    # M2.2A: the standard's construction classification (rule applicability) — a separate fact
+    construction_classification: Optional[ConstructionClassification] = None
     slope: Slope = Field(default_factory=Slope)
     elevation: Elevation = Field(default_factory=Elevation)
     source: Optional[InputSource] = None
@@ -140,11 +153,48 @@ class SprinklerListing(BaseModel):
 
 
 class SystemCondition(BaseModel):
-    """The system and storage condition of the design area: explicit, attributed inputs (never assumed)."""
-    system_type: str                                  # e.g. "wet_pipe" (a stated fact, not inferred)
+    """The system and storage condition of the design area: explicit, attributed inputs (never assumed).
+    M2.2A: ``design_method`` (how the system is designed) is a separate fact from ``system_type`` (what
+    kind of system it is); neither implies the other."""
+    system_type: str                                  # e.g. "wet_pipe" / "dry_pipe" / "preaction" (stated, not inferred)
     storage: str                                      # e.g. "non_storage" / "storage" / "unknown"
+    design_method: Literal["hydraulically_calculated", "pipe_schedule", "other", "unknown"] = "unknown"
     reason: str = ""
     source: InputSource
+
+
+class EligibilityCriterion(BaseModel):
+    """One consideration a person weighed (hazard, area, ceiling/construction, walls/openings, ...)."""
+    fact: str
+    value: Optional[str | float | bool] = None
+    note: str = ""
+
+
+class EligibilityDecision(BaseModel):
+    """M2.2A: an explicit, human-attributed eligibility determination for a special provision (e.g. a
+    small-room provision). FireAI never derives eligibility — in particular not from area alone. Only
+    ``eligible`` can activate a provision; ``unknown`` never does, and an absent decision is UNKNOWN to
+    the rules engine (a rule that needs it refuses)."""
+    status: Literal["eligible", "not_eligible", "unknown"]
+    criteria: list[EligibilityCriterion] = Field(default_factory=list)
+    reason: str = ""
+    source: InputSource
+
+    @model_validator(mode="after")
+    def _decided_by_a_person(self):
+        if self.status != "unknown" and (self.source.kind not in ("human_decision", "project_document",
+                                                                 "synthetic_test_only") or not self.source.by):
+            raise ValueError("an eligibility determination must be a named human decision or project document")
+        if self.status == "eligible" and not self.criteria:
+            raise ValueError("an 'eligible' determination must record the criteria that were considered")
+        return self
+
+
+class DeflectorPosition(BaseModel):
+    """M2.2A: the sprinkler deflector elevation, as an explicit design input on an explicit datum.
+    With it, placements carry a known Z; without it Z stays UNKNOWN and vertical rules refuse."""
+    frame: Literal["LOCAL", "PROJECT"] = "LOCAL"
+    elevation: Elevation                               # deflector elevation (value, datum, source)
 
 
 class EngineeringTolerances(BaseModel):
@@ -183,4 +233,6 @@ class DesignRequest(BaseModel):
     system: Optional[SystemCondition] = None
     tolerances: Optional[EngineeringTolerances] = None
     search: Optional[PlacementSearchSpace] = None
+    eligibility: dict[str, EligibilityDecision] = Field(default_factory=dict)   # M2.2A, e.g. {"small_room": ...}
+    deflector: Optional[DeflectorPosition] = None                               # M2.2A
     requested_by: Optional[str] = None

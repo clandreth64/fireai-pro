@@ -407,3 +407,23 @@ def make_room(path: Path, unit: str = "ft", w: float = 10.0, h: float = 10.0, *,
     msp.add_text(label, height=0.5 * k, dxfattribs={"layer": "A-AREA-IDEN"}).set_placement(P(t + 1.0, t + 1.0))
     doc.saveas(path)
     return path
+
+
+def make_polygon_room(path: Path, inner: list[tuple[float, float]], unit: str = "ft", *, t: float = 0.5,
+                      label: str = "SYN ROOM") -> Path:
+    """One closed room with double-line walls of thickness ``t`` around an arbitrary simple polygon
+    ``inner`` (ft, LOCAL; counter-clockwise). Used for rotated and angled-wall rooms (M2.2A)."""
+    from shapely.geometry import Polygon
+    k = PER_FT[unit]
+    doc = _new(unit)
+    for n in ("A-WALL", "A-AREA-IDEN"):
+        doc.layers.add(n)
+    msp = doc.modelspace()
+    outer = list(Polygon(inner).buffer(t, join_style=2).exterior.coords)[:-1]
+    for ring in (inner, outer):
+        msp.add_lwpolyline([(x * k, y * k) for x, y in ring], close=True, dxfattribs={"layer": "A-WALL"})
+    cx = sum(x for x, _y in inner) / len(inner)
+    cy = sum(y for _x, y in inner) / len(inner)
+    msp.add_text(label, height=0.5 * k, dxfattribs={"layer": "A-AREA-IDEN"}).set_placement((cx * k, cy * k))
+    doc.saveas(path)
+    return path

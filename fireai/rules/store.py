@@ -26,7 +26,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from fireai.rules.constraints import BOUNDARY_MEASUREMENTS, FACTS, MEASUREMENTS
+from fireai.rules.constraints import BOUNDARY_MEASUREMENTS, DECLARED_MEASUREMENTS, FACTS, MEASUREMENTS
 from fireai.rules.model import UNSUPPORTED_MEASUREMENT, Quantity, Rule, RuleSet
 from fireai.rules.units import UnitError, dimension
 
@@ -71,11 +71,19 @@ def approval_problems(rule: Rule, rs: RuleSet) -> list[str]:
         p.append("no deterministic constraint: the rule cannot be evaluated by an engine")
     elif c.measurement == UNSUPPORTED_MEASUREMENT:
         p.append(f"UNSUPPORTED_MEASUREMENT: {c.unsupported_reason or 'measurement not implemented'}")
+    elif c.measurement in DECLARED_MEASUREMENTS:
+        p.append(f"measurement {c.measurement!r} is declared but not implemented")
     elif c.measurement not in MEASUREMENTS:
         p.append(f"unknown measurement {c.measurement!r}")
     else:
-        lim = rule.parameter(c.limit_parameter)
-        if lim is None or not isinstance(lim.value, Quantity):
+        lim = rule.parameter(c.limit_parameter) if c.derived is None else None
+        if c.derived is not None:
+            fac = rule.parameter(c.derived.factor_parameter)
+            if fac is None or isinstance(fac.value, bool) or not isinstance(fac.value, (int, float)):
+                p.append(f"derived limit: factor {c.derived.factor_parameter!r} missing or not a dimensionless number")
+            if c.derived.from_key not in {r.constraint.key for r in rs.rules if r.constraint}:
+                p.append(f"derived limit: {c.derived.from_key!r} is not a constraint of this rule set")
+        elif lim is None or not isinstance(lim.value, Quantity):
             p.append(f"limit parameter {c.limit_parameter!r} missing or without a unit")
         else:
             try:

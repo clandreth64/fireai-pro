@@ -65,12 +65,28 @@ NFPA13_2025_FIRST_ENVELOPE = DevelopmentEnvelope(
          "first; it is not permission to classify any real space and carries no NFPA requirement.",
     approved_at="2026-09-24")
 
-REGISTERED_IDENTITIES: dict[tuple[str, str], RuleSetIdentity] = {("NFPA 13", "2025"): NFPA13_2025_BASE}
+# M2.2A: NFPA 13-2019 — a separate identity (never a copy of 2025). EMPTY + DRAFT; no development
+# envelope is registered for it yet (an owner decision), so real design under 2019 also refuses
+# (NO_SUPPORTED_ENVELOPE) even after rules are approved, until the owner registers one.
+NFPA13_2019_BASE = RuleSetIdentity(
+    rule_set_id="NFPA13-2019-BASE", layer="base_standard", governing_standard="NFPA 13", edition="2019",
+    description="NFPA 13, 2019 edition - base rule set. Rules are entered only by qualified people from "
+                "lawfully accessed source material and approved by a second person.")
+
+REGISTERED_IDENTITIES: dict[tuple[str, str], RuleSetIdentity] = {("NFPA 13", "2025"): NFPA13_2025_BASE,
+                                                                 ("NFPA 13", "2019"): NFPA13_2019_BASE}
 ENVELOPES: dict[tuple[str, str], DevelopmentEnvelope] = {("NFPA 13", "2025"): NFPA13_2025_FIRST_ENVELOPE}
 
 
 def envelope_for(standard: str, edition: Optional[str]) -> Optional[DevelopmentEnvelope]:
     return ENVELOPES.get((standard, edition or ""))
+
+
+def empty_draft(identity: RuleSetIdentity) -> RuleSet:
+    """The identity's first version as an IN-MEMORY EMPTY DRAFT (nothing written): carries no rule."""
+    return RuleSet(rule_set_id=identity.rule_set_id, version=identity.first_version, layer=identity.layer,
+                   governing_standard=identity.governing_standard, edition=identity.edition,
+                   content_basis="authoritative", review_status="draft", rules=[], description=identity.description)
 
 
 def ensure_rule_set_identity(store, identity: RuleSetIdentity, created_by: str) -> RuleSet:

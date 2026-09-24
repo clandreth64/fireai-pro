@@ -11,10 +11,10 @@ code (enforced by tests/test_engineering_boundary.py).
 """
 
 from fireai.rules.constraints import MEASUREMENTS, EngineeringConstraint
-from fireai.rules.model import (LAYER_ORDER, Condition, ConstraintTemplate, Quantity, Rule, RuleApplicability,
+from fireai.rules.model import (LAYER_ORDER, Condition, ConstraintTemplate, DerivedLimit, Quantity, Rule, RuleApplicability,
                                 RuleException, RuleParameter, RuleSet, RuleSource)
 from fireai.rules.resolve import RuleResolution, resolve
 
-__all__ = ["LAYER_ORDER", "MEASUREMENTS", "Condition", "ConstraintTemplate", "EngineeringConstraint", "Quantity",
+__all__ = ["LAYER_ORDER", "MEASUREMENTS", "Condition", "ConstraintTemplate", "DerivedLimit", "EngineeringConstraint", "Quantity",
            "Rule", "RuleApplicability", "RuleException", "RuleParameter", "RuleResolution", "RuleSet", "RuleSource",
            "resolve"]

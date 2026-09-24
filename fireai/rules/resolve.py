@@ -19,7 +19,7 @@ from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field
 
-from fireai.rules.constraints import MEASUREMENTS, Contribution, EngineeringConstraint
+from fireai.rules.constraints import DECLARED_MEASUREMENTS, MEASUREMENTS, Contribution, EngineeringConstraint
 from fireai.rules.model import LAYER_ORDER, UNSUPPORTED_MEASUREMENT, Condition, Quantity, Rule, RuleSet
 from fireai.rules.units import UnitError, dimension, to_canonical
 
@@ -242,61 +242,153 @@ def resolve(rule_sets: list[RuleSet], facts: dict[str, Any], mode: Mode,
                                               f"({r.constraint.unsupported_reason or 'unspecified'}); refusing rather "
                                               "than approximating"))
             continue
+        if r.constraint.measurement in DECLARED_MEASUREMENTS:
+            refusals.append(RuleIssue(code="MEASUREMENT_NOT_IMPLEMENTED", rule_id=r.rule_id, rule_set_id=s.rule_set_id,
+                                      message=f"{r.rule_id} applies and uses the declared measurement "
+                                              f"{r.constraint.measurement!r}, which FireAI does not implement yet; "
+                                              "refusing rather than applying straight-wall logic"))
+            continue
         groups.setdefault(r.constraint.key, []).append((r, s))
 
     constraints: list[EngineeringConstraint] = []
-    for key, members in groups.items():
-        live = [(r, s) for r, s in members if r.rule_id not in replaced]
-        c0 = live[0][0].constraint
-        if c0.measurement not in MEASUREMENTS:
-            refusals.append(RuleIssue(code="UNKNOWN_MEASUREMENT", rule_id=live[0][0].rule_id,
-                                      message=f"measurement {c0.measurement!r} is not implemented"))
-            continue
-        if any((r.constraint.measurement, r.constraint.bound, sorted(r.constraint.reference_kinds))
-               != (c0.measurement, c0.bound, sorted(c0.reference_kinds)) for r, _s in live):
-            refusals.append(RuleIssue(code="CONSTRAINT_DEFINITION_CONFLICT",
-                                      message=f"rules for {key} disagree on what is measured; only an explicit "
-                                              "permitted replacement may change it"))
-            continue
-        want = MEASUREMENTS[c0.measurement][0]
-        contribs, bad = [], False
-        for r, s in members:
-            p = r.parameter(r.constraint.limit_parameter)
-            if p is None or not isinstance(p.value, Quantity):
-                refusals.append(RuleIssue(code="RULE_PARAMETER_MISSING", rule_id=r.rule_id,
-                                          message=f"{r.rule_id}: limit parameter {r.constraint.limit_parameter!r} "
-                                                  "missing or without a unit"))
-                bad = True
-                continue
-            try:
-                if dimension(p.value.unit) != want:
-                    raise UnitError(f"{p.value.unit} is not a {want}")
-                val, unit = to_canonical(p.value)
-            except UnitError as exc:
-                refusals.append(RuleIssue(code="RULE_UNIT_INVALID", rule_id=r.rule_id, message=str(exc)))
-                bad = True
-                continue
-            contribs.append((r, s, val, unit))
-        if bad or not contribs:
-            continue
-        live_c = [c for c in contribs if c[0].rule_id not in replaced]
-        pick = (min if c0.bound == "max" else max)(live_c, key=lambda c: (c[2], _layer_index(c[1].layer)))
-        if c0.bound == "min":   # ties: earliest layer
-            best = pick[2]
-            pick = min((c for c in live_c if c[2] == best), key=lambda c: _layer_index(c[1].layer))
-        out_c = []
-        for r, s, val, unit in contribs:
-            action = ("replaced" if r.rule_id in replaced else "governs" if r is pick[0] else
-                      "replaces" if r.replaces else "less_restrictive")
-            out_c.append(Contribution(rule_id=r.rule_id, rule_set_id=s.rule_set_id, rule_set_version=s.version,
-                                      layer=s.layer, content_basis=s.content_basis, source_document=r.source.document,
-                                      source_reference=r.source.reference, limit=val, unit=unit, action=action,
-                                      note=(f"replaced by {replaced[r.rule_id]}" if r.rule_id in replaced else "")))
-        constraints.append(EngineeringConstraint(key=key, measurement=c0.measurement, bound=c0.bound, limit=pick[2],
-                                                 unit=pick[3], reference_kinds=list(c0.reference_kinds),
-                                                 contributions=out_c, governing_rule_id=pick[0].rule_id))
+    effective: dict[str, EngineeringConstraint] = {}
+    for key in _key_order(groups, refusals):
+        c = _resolve_key(key, groups[key], replaced, effective, refusals)
+        if c is not None:
+            effective[key] = c
+            constraints.append(c)
     constraints.sort(key=lambda c: c.key)
     return RuleResolution(status="refused" if refusals else "resolved", mode=mode, basis=basis,
                           rule_sets=[s.identity() for s in stack], constraints=constraints if not refusals else [],
                           outcomes=sorted(outcomes.values(), key=lambda o: (_layer_index(o.layer), o.rule_id)),
                           refusals=refusals, limitations=limitations)
+
+
+# ── effective limits (M2.2A: fixed or derived) ──────────────────────────────────────────────────
+
+def _key_order(groups: dict[str, list], refusals: list[RuleIssue]) -> list[str]:
+    """Keys in dependency order (a derived limit after the constraint it scales). A key in or behind a
+    cycle, or depending on a key with no applicable rule, is REFUSED and left out."""
+    deps = {k: sorted({r.constraint.derived.from_key for r, _s in m if r.constraint.derived}) for k, m in groups.items()}
+    order: list[str] = []
+    state: dict[str, str] = {}
+    bad: set[str] = set()
+
+    def visit(k: str, path: list[str]) -> bool:
+        if state.get(k) == "done":
+            return k not in bad
+        if state.get(k) == "active":
+            cyc = path[path.index(k):] + [k]
+            refusals.append(RuleIssue(code="DERIVED_DEPENDENCY_CYCLE",
+                                      message="derived limits form a cycle: " + " -> ".join(cyc)))
+            bad.update(cyc)
+            return False
+        state[k] = "active"
+        ok = True
+        for d in deps.get(k, []):
+            if d not in groups:
+                rid = next(r.rule_id for r, _s in groups[k]
+                           if r.constraint.derived and r.constraint.derived.from_key == d)
+                refusals.append(RuleIssue(code="DERIVED_DEPENDENCY_MISSING", rule_id=rid,
+                                          message=f"{rid} derives {k} from {d}, but no applicable rule resolves {d}"))
+                ok = False
+            elif not visit(d, path + [k]):
+                ok = False
+        state[k] = "done"
+        if ok and k not in bad:
+            order.append(k)
+        else:
+            bad.add(k)
+        return ok and k not in bad
+
+    for k in sorted(groups):
+        visit(k, [])
+    return [k for k in order if k not in bad]
+
+
+def _contribution_limit(r: Rule, want: str, effective: dict[str, EngineeringConstraint],
+                        refusals: list[RuleIssue]) -> Optional[tuple[float, str, Optional[dict]]]:
+    """(value, canonical unit, derivation) of one rule's contribution, or None (refused)."""
+    c = r.constraint
+    if c.derived is not None:
+        d = c.derived
+        base = effective.get(d.from_key)
+        if base is None:
+            refusals.append(RuleIssue(code="DERIVED_DEPENDENCY_UNRESOLVED", rule_id=r.rule_id,
+                                      message=f"{r.rule_id}: {d.from_key} did not resolve, so {c.key} cannot be derived"))
+            return None
+        fp = r.parameter(d.factor_parameter)
+        if fp is None:
+            refusals.append(RuleIssue(code="RULE_PARAMETER_MISSING", rule_id=r.rule_id,
+                                      message=f"{r.rule_id}: factor parameter {d.factor_parameter!r} missing"))
+            return None
+        if isinstance(fp.value, bool) or not isinstance(fp.value, (int, float)):
+            refusals.append(RuleIssue(code="DERIVED_UNIT_MISMATCH", rule_id=r.rule_id,
+                                      message=f"{r.rule_id}: factor {d.factor_parameter!r} must be a dimensionless "
+                                              f"number, got {fp.value!r}"))
+            return None
+        from_dim = MEASUREMENTS[base.measurement][0]
+        if from_dim != want:
+            refusals.append(RuleIssue(code="DERIVED_UNIT_MISMATCH", rule_id=r.rule_id,
+                                      message=f"{r.rule_id}: {c.key} measures a {want} but {d.from_key} is a "
+                                              f"{from_dim}; a dimensionless factor cannot convert between them"))
+            return None
+        return (float(fp.value) * base.limit, base.unit,
+                {"op": d.op, "from_key": d.from_key, "from_limit": base.limit, "from_unit": base.unit,
+                 "from_governing_rule_id": base.governing_rule_id, "factor": float(fp.value)})
+    p = r.parameter(c.limit_parameter)
+    if p is None or not isinstance(p.value, Quantity):
+        refusals.append(RuleIssue(code="RULE_PARAMETER_MISSING", rule_id=r.rule_id,
+                                  message=f"{r.rule_id}: limit parameter {c.limit_parameter!r} missing or without a unit"))
+        return None
+    try:
+        if dimension(p.value.unit) != want:
+            raise UnitError(f"{p.value.unit} is not a {want}")
+        val, unit = to_canonical(p.value)
+    except UnitError as exc:
+        refusals.append(RuleIssue(code="RULE_UNIT_INVALID", rule_id=r.rule_id, message=str(exc)))
+        return None
+    return val, unit, None
+
+
+def _resolve_key(key: str, members: list, replaced: dict[str, str], effective: dict[str, EngineeringConstraint],
+                 refusals: list[RuleIssue]) -> Optional[EngineeringConstraint]:
+    live = [(r, s) for r, s in members if r.rule_id not in replaced]
+    c0 = live[0][0].constraint
+    if c0.measurement not in MEASUREMENTS:
+        refusals.append(RuleIssue(code="UNKNOWN_MEASUREMENT", rule_id=live[0][0].rule_id,
+                                  message=f"measurement {c0.measurement!r} is not implemented"))
+        return None
+    if any((r.constraint.measurement, r.constraint.bound, sorted(r.constraint.reference_kinds))
+           != (c0.measurement, c0.bound, sorted(c0.reference_kinds)) for r, _s in live):
+        refusals.append(RuleIssue(code="CONSTRAINT_DEFINITION_CONFLICT",
+                                  message=f"rules for {key} disagree on what is measured; only an explicit "
+                                          "permitted replacement may change it"))
+        return None
+    want = MEASUREMENTS[c0.measurement][0]
+    contribs, bad = [], False
+    for r, s in members:
+        got = _contribution_limit(r, want, effective, refusals)
+        if got is None:
+            bad = True
+            continue
+        contribs.append((r, s, *got))
+    if bad or not contribs:
+        return None
+    live_c = [c for c in contribs if c[0].rule_id not in replaced]
+    pick = (min if c0.bound == "max" else max)(live_c, key=lambda c: (c[2], _layer_index(c[1].layer)))
+    if c0.bound == "min":   # ties: earliest layer
+        best = pick[2]
+        pick = min((c for c in live_c if c[2] == best), key=lambda c: _layer_index(c[1].layer))
+    out_c = []
+    for r, s, val, unit, deriv in contribs:
+        action = ("replaced" if r.rule_id in replaced else "governs" if r is pick[0] else
+                  "replaces" if r.replaces else "less_restrictive")
+        out_c.append(Contribution(rule_id=r.rule_id, rule_set_id=s.rule_set_id, rule_set_version=s.version,
+                                  layer=s.layer, content_basis=s.content_basis, source_document=r.source.document,
+                                  source_reference=r.source.reference, limit=val, unit=unit, action=action,
+                                  note=(f"replaced by {replaced[r.rule_id]}" if r.rule_id in replaced else ""),
+                                  derived=deriv))
+    return EngineeringConstraint(key=key, measurement=c0.measurement, bound=c0.bound, limit=pick[2], unit=pick[3],
+                                 reference_kinds=list(c0.reference_kinds), contributions=out_c,
+                                 governing_rule_id=pick[0].rule_id)

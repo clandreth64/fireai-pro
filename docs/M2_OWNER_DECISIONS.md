@@ -248,3 +248,34 @@ Decision 1 (edition) is now **decided: 2025**. Still open:
 - known answers.
 
 See the two input checklists for what each needs.
+
+---
+
+## M2.2A — owner findings from NFPA 13-2019 source review (2026-09-24)
+
+These are recorded as SOFTWARE requirements, not rule content.
+
+| # | Finding | Implemented as |
+|---|---|---|
+| 20 | Standard spray protection area is an S/L method, not the Voronoi cell | `array_sxl_protection_area` (SXL-ARRAY/1); Voronoi kept as a separate measurement |
+| 21 | Maximum wall distance may be derived from another effective constraint (e.g. a factor × maximum spacing) | `perpendicular_wall_distance` plus `DerivedLimit` (`scale`) |
+| 22 | Door openings, open openings, windows and unknown segments are not automatically walls | the rule's `reference_kinds`; otherwise NOT EVALUABLE; unknown segments refuse |
+| 23 | Irregular or angled walls need their own treatment | refused (`IRREGULAR_BOUNDARY_UNSUPPORTED`); two declared-but-not-implemented measurement contracts |
+| 24 | Small-room eligibility is not decided by area alone | `EligibilityDecision` (a named person, with criteria); only `eligible` activates |
+| 25 | System design method is distinct from system type | `system.design_method` |
+| 26 | The construction classification is distinct from geometric ceiling facts | `ceiling.construction_classification` |
+| 27 | A vertical deflector measurement is needed | `ceiling_to_deflector_vertical_distance`; `DeflectorPosition`; Z `from_input` |
+| 28 | An NFPA 13-2019 identity, empty and draft, never mixed with 2025 | `NFPA13-2019-BASE` |
+
+**Decisions now open (owner or qualified reviewer):**
+1. Confirm or correct SXL-ARRAY/1 against the 2019 definition, including:
+   - which wall reference applies at perimeter sprinklers;
+   - how openings are treated.
+2. For the maximum-wall-distance requirement:
+   - whether it is fixed or derived;
+   - if derived, from which requirement and with what factor (entered as rule data).
+3. The participating boundary kinds for each wall-referenced rule.
+4. Which criteria a person must record for small-room eligibility.
+5. Whether to register a 2019 development envelope. Until one is registered, real design under 2019
+   refuses with `NO_SUPPORTED_ENVELOPE`.
+6. Whether `system.design_method` should become an envelope condition.

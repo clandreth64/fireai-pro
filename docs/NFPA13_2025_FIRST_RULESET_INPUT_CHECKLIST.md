@@ -55,6 +55,9 @@ Identity assurance is `unauthenticated_name (NOT PRODUCTION SAFE)` and is record
 | `sprinkler.type` / `.orientation` / `.response` | approved `SprinklerListing` | `standard_spray` / `pendent` |
 | `ceiling.surface` / `.construction` / `.slope_deg` / `.elevation_ft` / `.obstructions` | `CeilingCondition` | `flat` / `smooth_unobstructed` / known / known / `none_present` |
 | `space.area_sf` | verified `engineering_input/3` region | — |
+| `system.design_method` (M2.2A) | `SystemCondition.design_method` — separate from `system.type` | (not part of the envelope yet) |
+| `ceiling.construction_classification` (+ `.scheme`) (M2.2A) | `CeilingRegion.construction_classification` — the standard's classification, separate from the geometric `ceiling.construction` | — |
+| `space.eligibility.small_room` (M2.2A) | `DesignRequest.eligibility["small_room"]` — a named person's decision with criteria | — |
 
 A requirement that depends on anything else (e.g. room volume, ceiling pocket, a use not in this list)
 cannot be approved yet: add the fact first as a reviewed engine change.
@@ -66,14 +69,14 @@ For each row: *does the 2025 edition impose something in this category for the e
 
 | # | Category (neutral name) | Measurement consumed today | Unit dim. | Typical facts in applicability | Supported now? | Engineering work needed first |
 |---|---|---|---|---|---|---|
-| 1 | Maximum protection area per sprinkler | `nearest_sprinkler_cell_area` (Voronoi cell clipped to space) | area | hazard, sprinkler type, ceiling | **Only if** the standard's definition equals this measurement | If the standard defines protection area differently (e.g. from spacing products along axes), a new reviewed measurement is required; until then mark `UNSUPPORTED_MEASUREMENT` |
+| 1 | Maximum protection area per sprinkler | **M2.2A:** `array_sxl_protection_area` (SXL-ARRAY/1: S along u, L along v; each = larger side; a side = adjacent sprinkler distance, or twice the perpendicular distance to the participating wall reference). `nearest_sprinkler_cell_area` (Voronoi) is a DIFFERENT measurement | area | hazard, sprinkler type, ceiling | Yes, for rectangular arrays in frame-aligned rooms, if the author confirms the standard's definition matches SXL-ARRAY/1 | Obstruction-governed S/L and angled walls refuse; non-array layouts are NOT_EVALUABLE |
 | 2 | Maximum spacing between sprinklers | `array_axis_spacing` (adjacent, along array axes) | length | hazard, sprinkler type | Yes for rectangular arrays | Non-array layouts evaluate as `NOT_EVALUABLE` (UNKNOWN), never PASS |
 | 3 | Minimum spacing between sprinklers | `pairwise_min_distance` | length | sprinkler type | Yes | — |
-| 4 | Maximum distance from walls | `boundary_point_to_nearest_sprinkler_max` is the only related measurement; it is **not** a per-wall perpendicular distance | length | hazard, sprinkler type | **Mapping decision required** | Likely a new measurement (perpendicular wall-to-sprinkler distance, per wall) — reviewed engine change |
+| 4 | Maximum distance from walls | **M2.2A:** `perpendicular_wall_distance` (PERP-WALL/1), with the limit either a fixed quantity or DERIVED (`derived`: factor x the effective limit of another constraint, e.g. the spacing constraint) | length | hazard, sprinkler type | Yes, frame-aligned walls; the RULE lists the participating kinds (wall / window / door_opening / open_opening) | Angled / irregular walls REFUSE (`IRREGULAR_BOUNDARY_UNSUPPORTED`; declared contracts `angled_wall_perpendicular_distance`, `angled_wall_protected_floor_worst_distance`) |
 | 5 | Minimum distance from walls | `point_to_boundary_min` | length | sprinkler type | Yes | Record which boundary kinds participate (door openings? windows?) |
 | 6 | Coverage of the whole space (worst point) | `space_point_to_nearest_sprinkler_max` | length | — | Yes, if the standard's requirement is of this form | — |
-| 7 | Small-room provisions | same measurements, conditioned on `space.area_sf` and other room facts | — | `space.area_sf` + others | **Partially** | Any room fact beyond area (e.g. room definition conditions) needs new facts |
-| 8 | Deflector position below ceiling | none (vertical) | length | ceiling construction | **No** — Z is `unknown` | Vertical placement engine; mark `UNSUPPORTED_MEASUREMENT` |
+| 7 | Small-room provisions | same measurements; activation ONLY through the human-attributed fact `space.eligibility.small_room` = `eligible` (never from area alone) | — | `space.eligibility.small_room` | Yes, as an exception / applicability condition | The person recording eligibility lists the criteria considered (hazard, area, ceiling/construction, walls/openings, ...) |
+| 8 | Deflector position below ceiling | **M2.2A:** `ceiling_to_deflector_vertical_distance` (signed, positive = below the ceiling; one explicit datum) | length | ceiling construction classification | Yes, single flat ceiling region with known elevation and an explicit deflector elevation | Sloped / stepped ceilings, beams: not supported (refused) |
 | 9 | Obstruction rules (beams, soffits, ducts, lights, clouds) | none | — | — | **No** — refused (`CEILING_NOT_SUPPORTED_IN_M2_0`) | Obstruction geometry + measurements |
 | 10 | Ceiling slope / height applicability limits | applicability only (`ceiling.slope_deg`, `ceiling.elevation_ft`) | — | ceiling | Yes, as conditions | — |
 | 11 | Exceptions / alternatives within the above | `exceptions`, specific rule, `replaceable_by` | — | — | Yes | Author decides and reviewer confirms precedence |

@@ -659,3 +659,20 @@ The engineering package uses stable semantic-space uids, so `SP00098` / `R00097`
 retained `reference_search`. The search space is unchanged; only rejection is cheaper. Most of the
 remaining cost is the full evaluation of valid layouts. Beyond 200 valid layouts, the compact valid
 set no longer materialises them.
+
+## §M2.2A: Measurement foundation and REAL_002 regression
+
+The run was read-only, with `.fireai_data` mounted `:ro` and nothing written:
+`scripts/m2_design_check.py --job f4cd139f… --space be6afed8-1b66-5ad7-b06c-e358a8b9de3b --synthetic`.
+
+* REAL gate: PASSED (`engineering_input/3`, verified by clandreth).
+* NFPA 13-2025, empty draft, engineering mode: **REFUSED** with `MISSING_SPRINKLER_LISTING`,
+  `MISSING_CEILING_CONDITION`, `MISSING_DESIGN_CLASSIFICATION`, `MISSING_TOLERANCES`,
+  `MISSING_SEARCH_SPACE`, `MISSING_SYSTEM_CONDITION`, `RULESET_NOT_APPROVED` and
+  `JURISDICTION_NOT_SPECIFIED`.
+* NFPA 13-2019, empty draft, run as a separate request: **REFUSED** with the same codes, except that
+  `NO_SUPPORTED_ENVELOPE` replaces `MISSING_SYSTEM_CONDITION`.
+* Nothing was classified or assumed: no small-room eligibility, no construction classification, no
+  design method, no ceiling height and no Z.
+* The TEST ONLY synthetic run is unchanged from M2.0 and M2.1: 21,263 candidates and 10,629 valid, in
+  9.9 s. Z stays `unknown` because no deflector position exists for REAL_002.

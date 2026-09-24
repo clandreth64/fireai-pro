@@ -225,3 +225,79 @@ A proposal never changes validity and is never ground truth.
   verified model or its verification changed.
 - A layout selection must be a member of the valid set.
 - Downstream consumers re-materialise placements from the stored request, never from CAD.
+
+## 7. Milestone 2.2A: measurement foundation
+
+These are software requirements derived from the owner's review of NFPA 13-2019 source material.
+The repository still holds no rule values. Tests: `tests/test_m22a_measurements.py`.
+
+**S×L protection area** (`array_sxl_protection_area`, SXL-ARRAY/1, `fireai/engineering/measure.py`):
+- It is a separate, named measurement. `nearest_sprinkler_cell_area` (Voronoi) is unchanged and does
+  not stand in for it: in test 7 the two differ (120 vs 140 sf) and the requested one is used.
+- For each sprinkler of a rectangular room-frame array, S is taken along u and L along v.
+- Each dimension is the larger of its two sides. A side's value is the distance to the adjacent
+  sprinkler, or, with no adjacent sprinkler, twice the perpendicular distance to the participating
+  wall reference reached on that side.
+- The explanation records, per sprinkler and per side, which geometry produced each value (adjacent
+  sprinkler, or wall kind, segment uid and distance).
+- The S×L product doesn't depend on which axis is called S, and the room frame makes it independent
+  of plan rotation (test 6).
+
+**Perpendicular wall distance** (`perpendicular_wall_distance`, PERP-WALL/1): for each sprinkler and
+each array direction with no adjacent sprinkler, the distance to the first boundary reached. That
+boundary must be perpendicular to the direction, within the explicit length tolerance, and of a kind
+the rule lists in `reference_kinds`. A window, door opening, open opening or unknown segment is never
+silently a wall. If the rule doesn't list it, the measurement is NOT EVALUABLE, which is never a pass.
+
+**Irregular walls:** if any boundary segment is angled relative to the array frame, a request with a
+wall-reference measurement refuses up front (`IRREGULAR_BOUNDARY_UNSUPPORTED`). Straight-wall logic is
+never applied to angled walls. Two measurement contracts are declared but not implemented:
+`angled_wall_perpendicular_distance` and `angled_wall_protected_floor_worst_distance`. A rule that
+uses one can't be approved, and if it applies the design refuses (`MEASUREMENT_NOT_IMPLEMENTED`).
+The worst-horizontal-distance measurement `space_point_to_nearest_sprinkler_max` already works for
+any polygon. A boundary segment of unknown kind refuses too (`BOUNDARY_KIND_UNKNOWN`).
+
+**Derived limits** (`ConstraintTemplate.derived = DerivedLimit(op="scale", from_key, factor_parameter)`):
+the limit is a factor times the effective limit of another constraint.
+- The referenced limit is the one the resolver computed (most restrictive, after replacements), so
+  the derived value follows it when that rule changes.
+- The factor is a dimensionless parameter of the same rule.
+- Keys are resolved in dependency order, and the result is deterministic and unit-safe.
+- There is one operation (`scale`): no expressions and no `eval`.
+- It is covered by the digest, because the template is part of the rule set.
+- These refuse: a missing reference (`DERIVED_DEPENDENCY_MISSING`), a reference that didn't resolve
+  (`DERIVED_DEPENDENCY_UNRESOLVED`), a cycle (`DERIVED_DEPENDENCY_CYCLE`), and a factor with a unit or
+  a cross-dimension reference (`DERIVED_UNIT_MISMATCH`).
+- Each contribution's `derived` field records the op, source key, source limit, its governing rule
+  and the factor, and `explain()` prints them.
+- Approval requires a numeric factor and a source constraint in the same rule set.
+
+**New facts, each explicit and attributed:**
+- `system.design_method` (`hydraulically_calculated`, `pipe_schedule`, `other` or `unknown`) is
+  separate from `system.type`. Unknown means the fact is absent.
+- `ceiling.construction_classification` (+ `.scheme`) is the standard's construction classification,
+  stated by a person. It is separate from the geometric `ceiling.construction`, `surface`, `slope`
+  and `elevation`.
+- `space.eligibility.<name>` comes from `DesignRequest.eligibility`: a named person's decision with
+  the criteria considered. Only `eligible` activates a provision; an explicit `unknown` never does.
+  With no decision the fact is absent, and a rule that needs it refuses. Area alone never sets it.
+
+**Vertical deflector measurement** (`ceiling_to_deflector_vertical_distance`): ceiling elevation minus
+deflector elevation, on one explicit datum, signed so that positive means below the ceiling.
+- The deflector position is an explicit input (`DeflectorPosition`: frame plus `Elevation`). With it,
+  placements carry `Z = from_input`; without it Z stays `unknown`.
+- A vertical rule refuses with `VERTICAL_CEILING_ELEVATION_UNKNOWN`, `SPRINKLER_Z_UNKNOWN`,
+  `WRONG_COORDINATE_FRAME` or `VERTICAL_DATUM_MISMATCH`.
+- In the search, the measurement is evaluated once in a new GLOBAL stage.
+- This starts the 3D path. Sloped and stepped ceilings are still refused.
+
+**Fingerprints:** the request fingerprint now also covers `system`, `eligibility` and `deflector`. The
+M2.1 fingerprint omitted `system`; that gap is now fixed. The engine version is `placement/0.2.0`, so
+fingerprints from earlier engines differ by design. Valid sets for the old measurements are unchanged
+(test 25, and the REAL_002 regression).
+
+**Editions:** `NFPA13-2019-BASE` and `NFPA13-2025-BASE` are separate EMPTY DRAFT identities. No
+engine or rules-mechanism module contains an edition literal (a structural test checks this).
+Mixing editions refuses (`MULTIPLE_BASE_RULESETS`, `EDITION_MISMATCH`), and both refuse real
+engineering while empty. 2019 has no development envelope yet, so it also refuses with
+`NO_SUPPORTED_ENVELOPE`.

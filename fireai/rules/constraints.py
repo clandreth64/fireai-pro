@@ -26,9 +26,41 @@ MEASUREMENTS: dict[str, tuple[str, str]] = {
     "space_point_to_nearest_sprinkler_max": ("length", "over every point of the space, the distance to the "
                                                        "nearest sprinkler (the worst point)"),
     "nearest_sprinkler_cell_area": ("area", "for each sprinkler, the area of the part of the space closer to "
-                                            "it than to any other sprinkler (Voronoi cell clipped to the space)"),
+                                            "it than to any other sprinkler (Voronoi cell clipped to the space). "
+                                            "NOT an S x L protection area: see array_sxl_protection_area"),
+    # ── M2.2A ────────────────────────────────────────────────────────────────────────────────────
+    "array_sxl_protection_area": ("area", "for each sprinkler of a rectangular (room-frame) array: S x L, where "
+                                          "S is taken along the array's u axis and L along its v axis, and each "
+                                          "dimension is the larger of the two sides' values; a side's value is the "
+                                          "distance to the adjacent sprinkler on that side, or, with no adjacent "
+                                          "sprinkler, TWICE the perpendicular distance to the participating wall "
+                                          "reference reached on that side (SXL-ARRAY/1)"),
+    "perpendicular_wall_distance": ("length", "for each sprinkler of a rectangular (room-frame) array and each "
+                                              "array direction with no adjacent sprinkler, the perpendicular plan "
+                                              "distance from the sprinkler centre to the first boundary reached in "
+                                              "that direction, which must be a participating kind and perpendicular "
+                                              "to the direction (PERP-WALL/1)"),
+    "ceiling_to_deflector_vertical_distance": ("length", "ceiling elevation minus sprinkler deflector elevation, on "
+                                                         "one explicit datum (signed: positive = deflector below the "
+                                                         "ceiling); single flat ceiling region only (VERT-DEFLECTOR/1)"),
 }
-BOUNDARY_MEASUREMENTS = {"point_to_boundary_min", "boundary_point_to_nearest_sprinkler_max"}
+BOUNDARY_MEASUREMENTS = {"point_to_boundary_min", "boundary_point_to_nearest_sprinkler_max",
+                         "array_sxl_protection_area", "perpendicular_wall_distance"}
+# measurements that follow array directions to a wall reference: straight, room-frame-aligned
+# boundaries only; angled / irregular boundaries REFUSE (never evaluated with straight-wall logic)
+WALL_RAY_MEASUREMENTS = {"array_sxl_protection_area", "perpendicular_wall_distance"}
+# measurements that need an established vertical position (ceiling elevation + deflector elevation)
+VERTICAL_MEASUREMENTS = {"ceiling_to_deflector_vertical_distance"}
+# measurement CONTRACTS that are declared (so a rule can name them honestly) but not implemented: an
+# applicable rule using one REFUSES (MEASUREMENT_NOT_IMPLEMENTED) and it can never be approved.
+DECLARED_MEASUREMENTS: dict[str, tuple[str, str]] = {
+    "angled_wall_perpendicular_distance": ("length", "perpendicular plan distance from a sprinkler to the "
+                                                     "applicable ANGLED / irregular wall segment; which segment "
+                                                     "applies to which sprinkler needs a reviewed definition"),
+    "angled_wall_protected_floor_worst_distance": ("length", "worst horizontal distance from protected floor area "
+                                                             "bounded by an angled / irregular wall to the "
+                                                             "sprinkler(s) assigned to it"),
+}
 
 # The design facts a rule's applicability may test, and which explicit input supplies each. A rule
 # conditioned on a fact outside this vocabulary cannot be approved: FireAI could never establish it.
@@ -46,6 +78,13 @@ FACTS: dict[str, str] = {
     "ceiling.elevation_ft": "CeilingRegion.elevation",
     "ceiling.obstructions": "CeilingCondition.obstructions_statement",
     "space.area_sf": "engineering_input/3 physical region area",
+    # M2.2A
+    "system.design_method": "SystemCondition.design_method (distinct from system.type)",
+    "ceiling.construction_classification.scheme": "CeilingRegion.construction_classification.scheme",
+    "ceiling.construction_classification": "CeilingRegion.construction_classification.value (the classification "
+                                           "the standard uses — distinct from the geometric ceiling facts)",
+    "space.eligibility.small_room": "DesignRequest.eligibility['small_room'].status (human-attributed; never "
+                                    "derived from area alone)",
 }
 
 
@@ -62,6 +101,8 @@ class Contribution(BaseModel):
     unit: str
     action: Literal["governs", "less_restrictive", "replaced", "replaces"]
     note: str = ""
+    # M2.2A: set when the limit is derived from another resolved constraint (provenance of the value)
+    derived: Optional[dict] = None           # {op, from_key, from_limit, from_unit, from_governing_rule_id, factor}
 
 
 class EngineeringConstraint(BaseModel):
@@ -80,4 +121,6 @@ class EngineeringConstraint(BaseModel):
         return (f"{self.key}: {self.bound} {self.limit:g} {self.unit} ({self.measurement}"
                 + (f" vs {'/'.join(self.reference_kinds)}" if self.reference_kinds else "") + f") governed by "
                 f"{g.rule_id} [{g.layer}, {g.rule_set_id} v{g.rule_set_version}]"
+                + (f" = {g.derived['factor']:g} x {g.derived['from_key']} ({g.derived['from_limit']:g} "
+                   f"{g.derived['from_unit']}, governed by {g.derived['from_governing_rule_id']})" if g.derived else "")
                 + (f"; also considered: {', '.join(f'{c.rule_id} ({c.action})' for c in others)}" if others else ""))

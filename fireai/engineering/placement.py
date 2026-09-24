@@ -33,16 +33,19 @@ from fireai.engineering.search import layout_key, search
 from fireai.engineering.geometry import (RoomFrame, dist_point_segment, nearest_cells, room_frame,
                                          worst_boundary_point, worst_space_point)
 from fireai.engineering.inputs import CeilingCondition, DesignRequest, InputSource
-from fireai.rules.constraints import EngineeringConstraint
+from fireai.engineering.measure import (array_sxl, boundary_uv, ceiling_to_deflector, misaligned_segments,
+                                        perpendicular_walls)
+from fireai.rules.constraints import VERTICAL_MEASUREMENTS, WALL_RAY_MEASUREMENTS, EngineeringConstraint
 from fireai.rules.resolve import RuleResolution, resolve
 
 # evaluation order (cheap first); rejected layouts record the FIRST failure in this order
-MEASUREMENT_ORDER = ("point_to_boundary_min", "pairwise_min_distance", "array_axis_spacing",
-                     "boundary_point_to_nearest_sprinkler_max", "space_point_to_nearest_sprinkler_max",
-                     "nearest_sprinkler_cell_area")
+MEASUREMENT_ORDER = ("ceiling_to_deflector_vertical_distance", "point_to_boundary_min", "pairwise_min_distance",
+                     "array_axis_spacing", "perpendicular_wall_distance", "boundary_point_to_nearest_sprinkler_max",
+                     "space_point_to_nearest_sprinkler_max", "nearest_sprinkler_cell_area",
+                     "array_sxl_protection_area")
+Z_LIMITATION = ("Sprinkler elevation (Z) is not established: no deflector position was supplied, so placements "
+                "carry Z UNKNOWN and no vertical rule was evaluated")
 M2_LIMITATIONS = (
-    "Sprinkler elevation (Z) is not established: the ceiling elevation is an input, the sprinkler position "
-    "below it is not derived in M2.0",
     "Only a single flat ceiling region with no features and an explicit 'no obstructions' statement is supported",
     "Only the bounded search space was examined (room-axis arrays on the stated lattice); layouts outside it "
     "were not considered",
@@ -70,7 +73,11 @@ def request_fingerprint(req: DesignRequest) -> str:
                  "ceiling": req.ceiling.model_dump(mode="json") if req.ceiling else None,
                  "classification": req.classification.model_dump(mode="json") if req.classification else None,
                  "tolerances": req.tolerances.model_dump(mode="json") if req.tolerances else None,
-                 "search": req.search.model_dump(mode="json") if req.search else None})
+                 "search": req.search.model_dump(mode="json") if req.search else None,
+                 # M2.2A: every input that can change a result is fingerprinted
+                 "system": req.system.model_dump(mode="json") if req.system else None,
+                 "eligibility": {k: v.model_dump(mode="json") for k, v in sorted(req.eligibility.items())},
+                 "deflector": req.deflector.model_dump(mode="json") if req.deflector else None})
 
 
 def _uid(ns: uuid.UUID, key: str) -> str:
@@ -117,6 +124,10 @@ def design_facts(req: DesignRequest, area_sf: float | None) -> dict[str, Any]:
     if req.system:
         f["system.type"] = req.system.system_type
         f["system.storage"] = req.system.storage
+        if req.system.design_method != "unknown":
+            f["system.design_method"] = req.system.design_method
+    for name, dec in req.eligibility.items():       # "unknown" is a value that never equals "eligible"
+        f[f"space.eligibility.{name}"] = dec.status
     if req.listing:
         f["sprinkler.type"] = req.listing.sprinkler_type
         f["sprinkler.orientation"] = req.listing.orientation
@@ -125,7 +136,10 @@ def design_facts(req: DesignRequest, area_sf: float | None) -> dict[str, Any]:
     if req.ceiling and len(req.ceiling.regions) == 1:
         r = req.ceiling.regions[0]
         f["ceiling.surface"] = r.surface
-        f["ceiling.construction"] = r.construction
+        f["ceiling.construction"] = r.construction                  # geometric / observed condition
+        if r.construction_classification is not None:              # the standard's classification (separate)
+            f["ceiling.construction_classification.scheme"] = r.construction_classification.scheme
+            f["ceiling.construction_classification"] = r.construction_classification.value
         if r.slope.status == "known":
             f["ceiling.slope_deg"] = r.slope.value_deg
         if r.elevation.status == "known":
@@ -141,7 +155,12 @@ def _sources(req: DesignRequest) -> list[InputSource]:
             out.append(obj.source)
     if req.ceiling:
         out += [s for s in [req.ceiling.statement_source] + [r.source for r in req.ceiling.regions]
-                + [r.elevation.source for r in req.ceiling.regions] if s is not None]
+                + [r.elevation.source for r in req.ceiling.regions]
+                + [r.construction_classification.source for r in req.ceiling.regions if r.construction_classification]
+                if s is not None]
+    out += [d.source for d in req.eligibility.values()]
+    if req.deflector and req.deflector.elevation.source:
+        out.append(req.deflector.elevation.source)
     return out
 
 
@@ -161,6 +180,7 @@ class _State:
         self.kv = self._count(self.frame.extent_v)
         self.excluded = [prep(Polygon(r)) for r in req.search.excluded_regions_local_ft]
         self.segments = [s for ring in region.boundary.rings for s in ring.segments]
+        self.bsegs_uv = boundary_uv(self.frame, self.segments)
         order = {m: i for i, m in enumerate(MEASUREMENT_ORDER)}
         self.constraints = sorted(resolution.constraints, key=lambda c: (order.get(c.measurement, 99), c.key))
         self._point_cache: dict[tuple[int, int], dict] = {}
@@ -236,7 +256,51 @@ def _validate(req: DesignRequest) -> tuple[list[DesignIssue], Any, Any, RuleReso
     if res.status == "resolved" and not res.constraints:
         issues.append(DesignIssue(code="NO_CONSTRAINTS_RESOLVED",
                                   message="no machine-evaluable constraint applies; no design can be declared valid"))
+    issues.extend(_measurement_blockers(req, region, res))
     return issues, space, region, res
+
+
+def _measurement_blockers(req: DesignRequest, region, res: RuleResolution) -> list[DesignIssue]:
+    """M2.2A: conditions under which a resolved measurement cannot be made at all -> REFUSE up front."""
+    out: list[DesignIssue] = []
+    meas = {c.measurement for c in res.constraints}
+    if region is not None and req.tolerances is not None and meas & WALL_RAY_MEASUREMENTS:
+        segs = [s for ring in region.boundary.rings for s in ring.segments]
+        frame = room_frame([tuple(p) for p in region.polygon_local_ft])
+        angled = misaligned_segments(boundary_uv(frame, segs), req.tolerances.length_ft)
+        if angled:
+            out.append(DesignIssue(code="IRREGULAR_BOUNDARY_UNSUPPORTED",
+                                   message=f"{len(angled)} boundary segment(s) are angled relative to the array frame; "
+                                           "array wall-reference measurements (S x L, perpendicular wall distance) "
+                                           "are defined for straight, frame-aligned walls only and are not applied "
+                                           "to irregular walls (declared measurement contracts: "
+                                           "angled_wall_perpendicular_distance, angled_wall_protected_floor_worst_distance)",
+                                   detail={"segments": [{"uid": a.uid, "index": a.index, "kind": a.kind} for a in angled]}))
+        unknown = [s for s in segs if s.kind == "unknown"]
+        if unknown:
+            out.append(DesignIssue(code="BOUNDARY_KIND_UNKNOWN",
+                                   message=f"{len(unknown)} boundary segment(s) are of unknown kind; a wall-reference "
+                                           "measurement cannot tell whether they are walls",
+                                   detail={"segments": [s.uid for s in unknown]}))
+    if meas & VERTICAL_MEASUREMENTS:
+        creg = req.ceiling.regions[0] if req.ceiling and len(req.ceiling.regions) == 1 else None
+        if creg is None or creg.elevation.status != "known":
+            out.append(DesignIssue(code="VERTICAL_CEILING_ELEVATION_UNKNOWN",
+                                   message="a vertical rule applies but the ceiling elevation is not known"))
+        if req.deflector is None or req.deflector.elevation.status != "known":
+            out.append(DesignIssue(code="SPRINKLER_Z_UNKNOWN",
+                                   message="a vertical rule applies but no sprinkler deflector elevation was supplied; "
+                                           "FireAI never invents Z"))
+        elif req.deflector.frame != "LOCAL":
+            out.append(DesignIssue(code="WRONG_COORDINATE_FRAME",
+                                   message=f"deflector position is in frame {req.deflector.frame}; the evaluator works "
+                                           "in LOCAL (no silent transformation)"))
+        elif creg is not None and creg.elevation.status == "known" \
+                and creg.elevation.datum != req.deflector.elevation.datum:
+            out.append(DesignIssue(code="VERTICAL_DATUM_MISMATCH",
+                                   message=f"ceiling elevation datum {creg.elevation.datum!r} differs from the deflector "
+                                           f"datum {req.deflector.elevation.datum!r}; no silent conversion"))
+    return out
 
 
 # ── A. candidate generation ──────────────────────────────────────────────────
@@ -263,7 +327,9 @@ def generate_candidates(st: _State) -> Iterator[tuple[tuple[int, ...], tuple[int
 
 # ── B. constraint evaluation ─────────────────────────────────────────────────
 
-def _eval_constraint(st: _State, c: EngineeringConstraint, cells: list[dict], arr) -> ConstraintEvaluation:
+def _eval_constraint(st: _State, c: EngineeringConstraint, cells: list[dict], arr, grid=None) -> ConstraintEvaluation:
+    """``arr``: (spacing_u, spacing_v) of a uniform room-aligned array, else None. ``grid``: (us, vs) room-
+    frame coordinates of a complete rectangular grid (uniform or not), else None."""
     tol = st.req.tolerances.length_ft if c.unit == "ft" else st.req.tolerances.area_sf
     pts = [p["xy"] for p in cells]
     measured, subject, note = None, None, ""
@@ -311,6 +377,13 @@ def _eval_constraint(st: _State, c: EngineeringConstraint, cells: list[dict], ar
         areas = [(g.area, i) for i, g in enumerate(nearest_cells(st.polygon, pts))]
         measured, idx = worst(areas)
         subject = {"sprinkler_index": idx}
+    elif c.measurement in WALL_RAY_MEASUREMENTS or c.measurement in VERTICAL_MEASUREMENTS:
+        m = measure_special(st, c, grid)
+        if m.not_evaluable:
+            return _not_evaluable(st, c, m.not_evaluable, m.subject)
+        measured, subject = m.value, m.subject
+        if measured is None:
+            note = "nothing to measure"
     else:  # unreachable: the resolver refuses unknown measurements
         raise ValueError(c.measurement)
     if measured is None:
@@ -329,11 +402,26 @@ def _eval_constraint(st: _State, c: EngineeringConstraint, cells: list[dict], ar
                            for x in c.contributions}), note=note)
 
 
-def _not_evaluable(st: _State, c: EngineeringConstraint, why: str) -> ConstraintEvaluation:
+def measure_special(st: _State, c: EngineeringConstraint, grid):
+    """M2.2A measurements (shared by evaluation, the pruned search and proposals)."""
+    from fireai.engineering.measure import Measured
+    worst = max if c.bound == "max" else min
+    if c.measurement in VERTICAL_MEASUREMENTS:
+        creg = st.req.ceiling.regions[0]
+        return ceiling_to_deflector(creg.elevation, st.req.deflector)
+    if grid is None:
+        return Measured(None, not_evaluable="the layout is not a complete room-aligned rectangular grid, so array "
+                                            "directions are undefined; it is not assumed to pass")
+    us, vs = grid
+    fn = array_sxl if c.measurement == "array_sxl_protection_area" else perpendicular_walls
+    return fn(st.bsegs_uv, us, vs, c.reference_kinds, st.req.tolerances.length_ft, worst)
+
+
+def _not_evaluable(st: _State, c: EngineeringConstraint, why: str, subject=None) -> ConstraintEvaluation:
     tol = st.req.tolerances.length_ft if c.unit == "ft" else st.req.tolerances.area_sf
     return ConstraintEvaluation(
         constraint_key=c.key, measurement=c.measurement, bound=c.bound, limit=c.limit, unit=c.unit, tolerance=tol,
-        passed=False, outcome="not_evaluable", reference_kinds=list(c.reference_kinds),
+        passed=False, outcome="not_evaluable", reference_kinds=list(c.reference_kinds), worst_subject=subject,
         governing_rule_id=c.governing_rule_id, contributing_rule_ids=[x.rule_id for x in c.contributions],
         references=sorted({x.source_document + (f" {x.source_reference}" if x.source_reference else "")
                            for x in c.contributions}), note=why)
@@ -341,6 +429,10 @@ def _not_evaluable(st: _State, c: EngineeringConstraint, why: str) -> Constraint
 
 def _spacings(st: _State, iu, iv) -> tuple:
     return ((iu[1] - iu[0]) * st.step if len(iu) > 1 else None, (iv[1] - iv[0]) * st.step if len(iv) > 1 else None)
+
+
+def _grid_of(st: _State, iu, iv) -> tuple[list[float], list[float]]:
+    return [i * st.step for i in iu], [j * st.step for j in iv]
 
 
 def _cells(st: _State, iu, iv) -> list[dict]:
@@ -366,7 +458,7 @@ def evaluate_layout(st: _State, iu, iv, full: bool) -> LayoutEvaluation:
     for c in st.constraints:          # fast path stops at the first failure; full explains everything
         if first is not None and not full:
             break
-        e = _eval_constraint(st, c, cells, _spacings(st, iu, iv))
+        e = _eval_constraint(st, c, cells, _spacings(st, iu, iv), _grid_of(st, iu, iv))
         evals.append(e)
         if not e.passed and first is None:
             first = c.key
@@ -385,9 +477,14 @@ def _placements(st: _State, luid: str, cells: list[dict]) -> list[SprinklerPlace
         package_verification_fingerprint=req.package.verification_fingerprint, space_uid=req.space_uid,
         rule_sets=st.resolution.rule_sets, listing=req.listing.identity(), ceiling_uid=req.ceiling.uid,
         derived_from=[u for u in (getattr(st.space, "uid", None), st.region.uid, creg.uid) if u])
-    z = ZState(status="unknown", reference=f"ceiling_region:{creg.uid}",
-               note="sprinkler elevation not established in M2.0 (the ceiling elevation is an input; the position "
-                    "below it is not derived)")
+    d = req.deflector
+    if d is not None and d.frame == "LOCAL" and d.elevation.status == "known":
+        z = ZState(status="from_input", value_ft=d.elevation.value_ft, datum=d.elevation.datum,
+                   reference=f"ceiling_region:{creg.uid}",
+                   note="deflector elevation from the explicit design input (DeflectorPosition)")
+    else:
+        z = ZState(status="unknown", reference=f"ceiling_region:{creg.uid}",
+                   note="sprinkler elevation not established: no deflector position was supplied (never invented)")
     return [SprinklerPlacement(uid=_uid(st.ns, f"{luid}|{i}"), layout_uid=luid, index=i,
                                position=DesignPoint(x=p["xy"][0], y=p["xy"][1], z=z, room_uv=p["uv"]),
                                listing_ref=req.listing.identity(), orientation=req.listing.orientation, provenance=prov)
@@ -424,7 +521,10 @@ def _inputs(req: DesignRequest) -> dict:
             "classification": req.classification.model_dump(mode="json") if req.classification else None,
             "tolerances": req.tolerances.model_dump(mode="json") if req.tolerances else None,
             "search": req.search.model_dump(mode="json") if req.search else None,
-            "jurisdiction": req.jurisdiction}
+            "jurisdiction": req.jurisdiction,
+            "system": req.system.model_dump(mode="json") if req.system else None,
+            "eligibility": {k: v.model_dump(mode="json") for k, v in sorted(req.eligibility.items())},
+            "deflector": req.deflector.model_dump(mode="json") if req.deflector else None}
 
 
 def _finish(res: EngineeringDesignResult) -> EngineeringDesignResult:
@@ -467,7 +567,8 @@ def run_design(req: DesignRequest) -> EngineeringDesignResult:
         result_uid=_uid(ns, "result"), status="VALID_LAYOUTS_FOUND" if out.valid else "NO_VALID_LAYOUT_IN_SEARCH_SPACE",
         basis=res.basis, engineering_use="NOT_FOR_ENGINEERING_USE" if synthetic else "REQUIRES_QUALIFIED_HUMAN_APPROVAL",
         disclaimers=list(SYNTHETIC_DISCLAIMERS) if synthetic else [],
-        limitations=list(res.limitations) + list(M2_LIMITATIONS), context=_context(req, space, region, st.frame),
+        limitations=list(res.limitations) + ([] if _z_known(req) else [Z_LIMITATION]) + list(M2_LIMITATIONS),
+        context=_context(req, space, region, st.frame),
         inputs=_inputs(req), rules=rules,
         search={"family": req.search.family, "algorithm": "exact_pruned/1", "lattice_step_ft": st.step,
                 "lattice_u": st.ku, "lattice_v": st.kv, "candidates_generated": out.search_space_size,
@@ -477,6 +578,10 @@ def run_design(req: DesignRequest) -> EngineeringDesignResult:
                 "evaluation_order": "pipeline axis -> count -> points (structural, point constraints) -> pair -> "
                                     "cover -> full; a rejection is attributed to the first stage that proves it"},
         valid_layouts=valid, rejected_examples=rejected_examples, valid_set=valid_set, request_fingerprint=fp))
+
+
+def _z_known(req: DesignRequest) -> bool:
+    return bool(req.deflector and req.deflector.frame == "LOCAL" and req.deflector.elevation.status == "known")
 
 
 def explain_layout(req: DesignRequest, layout_uid: str) -> LayoutEvaluation | None:
@@ -529,13 +634,22 @@ def _proposal_digest(p: CandidateProposal) -> str:
     return _sha(p.model_dump(mode="json"))
 
 
-def _as_array(st: _State, pts: list[tuple[float, float]]):
-    """(spacing_u, spacing_v) if the points form a complete, uniformly spaced room-aligned grid, else None."""
+def _grid(st: _State, pts: list[tuple[float, float]]):
+    """(us, vs) room-frame coordinates if the points form a complete room-aligned grid, else None."""
     uv = [st.frame.to_uv(x, y) for x, y in pts]
     us = sorted({round(u, 9) for u, _v in uv})
     vs = sorted({round(v, 9) for _u, v in uv})
     if len(us) * len(vs) != len(uv) or {(round(u, 9), round(v, 9)) for u, v in uv} != {(u, v) for u in us for v in vs}:
         return None
+    return us, vs
+
+
+def _as_array(st: _State, pts: list[tuple[float, float]]):
+    """(spacing_u, spacing_v) if the points form a complete, uniformly spaced room-aligned grid, else None."""
+    g = _grid(st, pts)
+    if g is None:
+        return None
+    us, vs = g
 
     def uniform(a):
         if len(a) < 2:
@@ -590,8 +704,9 @@ def evaluate_proposal(req: DesignRequest, proposal: CandidateProposal) -> Propos
     if excluded:
         reasons.append(DesignIssue(code="IN_EXCLUDED_REGION", message=f"sprinklers {excluded} are in excluded regions"))
     arr = _as_array(st, pts)
+    grid = _grid(st, pts)
     for c in st.constraints:
-        e = _eval_constraint(st, c, cells, arr)
+        e = _eval_constraint(st, c, cells, arr, grid)
         evals.append(e)
         if e.outcome == "fail":
             reasons.append(DesignIssue(code="CONSTRAINT_FAILED", message=f"{c.key}: measured {e.measured} vs {c.bound} "

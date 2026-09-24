@@ -111,6 +111,20 @@ class RuleException(BaseModel):
 UNSUPPORTED_MEASUREMENT = "UNSUPPORTED_MEASUREMENT"
 
 
+class DerivedLimit(BaseModel):
+    """M2.2A: a limit DERIVED from another resolved constraint, instead of a duplicated number:
+
+        limit = factor x (effective limit of constraint ``from_key``)
+
+    The factor is a dimensionless RuleParameter of the same rule; the referenced constraint's
+    effective limit is the one the resolver computed (most restrictive, after replacements), so the
+    derived value follows it when that rule or its layer changes. One operation only (``scale``): no
+    expressions, no code. Missing references, cycles and dimension mismatches REFUSE."""
+    op: Literal["scale"] = "scale"
+    from_key: str                                   # constraint key whose EFFECTIVE limit is scaled
+    factor_parameter: str                           # name of a dimensionless RuleParameter of this rule
+
+
 class ConstraintTemplate(BaseModel):
     """What the rule asks the deterministic engines to check, in their measurement vocabulary
     (``fireai/rules/constraints.py``). The rule decides WHAT is measured and against which boundary
@@ -122,9 +136,18 @@ class ConstraintTemplate(BaseModel):
     key: str                                        # identity for layering, e.g. "sprinkler.max_boundary_distance"
     measurement: str                                # a MEASUREMENTS key, or UNSUPPORTED_MEASUREMENT
     bound: Literal["max", "min"]
-    limit_parameter: str                            # name of the RuleParameter holding the limit
+    limit_parameter: str = ""                       # name of the RuleParameter holding the limit ...
+    derived: Optional[DerivedLimit] = None          # ... OR a limit derived from another constraint (M2.2A)
     reference_kinds: list[str] = Field(default_factory=list)   # boundary segment kinds that participate
     unsupported_reason: Optional[str] = None
+
+    @model_validator(mode="after")
+    def _one_limit_source(self):
+        if bool(self.limit_parameter) == (self.derived is not None) and self.measurement != UNSUPPORTED_MEASUREMENT:
+            raise ValueError("a constraint takes its limit from exactly one of limit_parameter or derived")
+        if self.derived is not None and self.derived.from_key == self.key:
+            raise ValueError(f"{self.key}: a limit cannot be derived from itself")
+        return self
 
 
 class Rule(BaseModel):
