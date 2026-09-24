@@ -25,8 +25,11 @@ from shapely.prepared import prep
 
 from fireai.contract import EngineeringInput, space_engineering_blockers
 from fireai.engineering.design import (ORDERING_STRATEGY, PLACEMENT_ENGINE_VERSION, SYNTHETIC_DISCLAIMERS,
-                                       ConstraintEvaluation, DesignIssue, DesignPoint, DesignProvenance,
-                                       EngineeringDesignResult, LayoutEvaluation, SprinklerPlacement, ZState)
+                                       CandidateProposal, ConstraintEvaluation, DesignIssue, DesignPoint,
+                                       DesignProvenance, EngineeringDesignResult, LayoutEvaluation, ProposalEvaluation,
+                                       SprinklerPlacement, ValidLayoutFamily, ValidLayoutSet, ZState)
+from fireai.engineering.envelope import envelope_blockers
+from fireai.engineering.search import layout_key, search
 from fireai.engineering.geometry import (RoomFrame, dist_point_segment, nearest_cells, room_frame,
                                          worst_boundary_point, worst_space_point)
 from fireai.engineering.inputs import CeilingCondition, DesignRequest, InputSource
@@ -74,24 +77,32 @@ def _uid(ns: uuid.UUID, key: str) -> str:
     return str(uuid.uuid5(ns, key))
 
 
-def m2_ceiling_support(c: CeilingCondition) -> list[str]:
-    """Reasons the ceiling is outside what M2.0 supports (the schema itself is broader)."""
+def m2_ceiling_support(c: CeilingCondition) -> list[tuple[str, str]]:
+    """(condition, reason) for every way the ceiling is outside what the engine supports. The schema
+    is broader; nothing outside the supported condition is approximated as flat."""
     out = []
     if len(c.regions) != 1:
-        out.append(f"{len(c.regions)} ceiling regions (M2.0 supports exactly one covering the whole space)")
+        elevs = {r.elevation.value_ft for r in c.regions if r.elevation.status == "known"}
+        cond = "elevation_change" if len(elevs) > 1 else "multiple_regions" if c.regions else "no_ceiling_region"
+        out.append((cond, f"{len(c.regions)} ceiling regions (exactly one covering the whole space is supported)"))
     for r in c.regions:
         if r.extent != "whole_space":
-            out.append(f"ceiling region {r.uid} does not cover the whole space")
+            out.append(("partial_region", f"ceiling region {r.uid} does not cover the whole space"))
         if r.surface != "flat":
-            out.append(f"ceiling region {r.uid} surface is {r.surface!r} (M2.0 supports 'flat' only)")
-        if r.slope.status != "known" or (r.slope.value_deg or 0.0) != 0.0:
-            out.append(f"ceiling region {r.uid} slope is {r.slope.status} / {r.slope.value_deg}")
+            out.append(("surface", f"ceiling region {r.uid} surface is {r.surface!r} (only 'flat' is supported)"))
+        if r.slope.status != "known":
+            out.append(("slope_unknown", f"ceiling region {r.uid} slope is unknown"))
+        elif (r.slope.value_deg or 0.0) != 0.0:
+            out.append(("slope", f"ceiling region {r.uid} is sloped ({r.slope.value_deg} deg)"))
         if r.elevation.status != "known":
-            out.append(f"ceiling region {r.uid} elevation is unknown")
-    if c.features:
-        out.append(f"{len(c.features)} ceiling features (beams, soffits, obstructions…) are not supported in M2.0")
+            out.append(("elevation_unknown", f"ceiling region {r.uid} elevation is unknown"))
+        if r.construction == "obstructed":
+            out.append(("construction_obstructed", f"ceiling region {r.uid} construction is obstructed"))
+    for f in c.features:
+        out.append((f"feature:{f.kind}", f"ceiling feature {f.uid} ({f.kind}) is not supported"))
     if c.obstructions_statement != "none_present":
-        out.append(f"obstructions statement is {c.obstructions_statement!r} (an explicit 'none_present' is required)")
+        out.append(("obstructions_" + c.obstructions_statement,
+                    f"obstructions statement is {c.obstructions_statement!r} (an explicit 'none_present' is required)"))
     return out
 
 
@@ -103,6 +114,9 @@ def design_facts(req: DesignRequest, area_sf: float | None) -> dict[str, Any]:
     if req.classification:
         f["hazard.scheme"] = req.classification.scheme
         f["hazard.classification"] = req.classification.value
+    if req.system:
+        f["system.type"] = req.system.system_type
+        f["system.storage"] = req.system.storage
     if req.listing:
         f["sprinkler.type"] = req.listing.sprinkler_type
         f["sprinkler.orientation"] = req.listing.orientation
@@ -111,6 +125,7 @@ def design_facts(req: DesignRequest, area_sf: float | None) -> dict[str, Any]:
     if req.ceiling and len(req.ceiling.regions) == 1:
         r = req.ceiling.regions[0]
         f["ceiling.surface"] = r.surface
+        f["ceiling.construction"] = r.construction
         if r.slope.status == "known":
             f["ceiling.slope_deg"] = r.slope.value_deg
         if r.elevation.status == "known":
@@ -121,7 +136,7 @@ def design_facts(req: DesignRequest, area_sf: float | None) -> dict[str, Any]:
 
 def _sources(req: DesignRequest) -> list[InputSource]:
     out = []
-    for obj in (req.classification, req.tolerances, req.search):
+    for obj in (req.classification, req.tolerances, req.search, req.system):
         if obj is not None:
             out.append(obj.source)
     if req.ceiling:
@@ -187,8 +202,8 @@ def _validate(req: DesignRequest) -> tuple[list[DesignIssue], Any, Any, RuleReso
     else:
         if req.ceiling.space_uid not in {req.space_uid, getattr(space, "uid", None), getattr(region, "uid", None)}:
             issues.append(DesignIssue(code="CEILING_FOR_ANOTHER_SPACE", message="the ceiling condition names another space"))
-        for why in m2_ceiling_support(req.ceiling):
-            issues.append(DesignIssue(code="CEILING_NOT_SUPPORTED_IN_M2_0", message=why))
+        for cond, why in m2_ceiling_support(req.ceiling):
+            issues.append(DesignIssue(code="CEILING_NOT_SUPPORTED_IN_M2_0", message=why, detail={"condition": cond}))
     if req.classification is None:
         issues.append(DesignIssue(code="MISSING_DESIGN_CLASSIFICATION",
                                   message="no hazard / design classification supplied (FireAI never infers it)"))
@@ -210,6 +225,8 @@ def _validate(req: DesignRequest) -> tuple[list[DesignIssue], Any, Any, RuleReso
     elif req.listing and req.listing.content_basis != "synthetic_test_only":
         issues.append(DesignIssue(code="MIXED_SYNTHETIC_AND_AUTHORITATIVE_INPUTS",
                                   message="synthetic test runs may only use synthetic listings"))
+    if req.mode == "engineering":
+        issues.extend(envelope_blockers(req, req.rule_sets))
     area = region.area_sf if region is not None else None
     stack = list(req.rule_sets) + ([req.listing.rules] if req.listing else [])
     res = resolve(stack, design_facts(req, area), req.mode, req.jurisdiction)
@@ -271,12 +288,10 @@ def _eval_constraint(st: _State, c: EngineeringConstraint, cells: list[dict], ar
         else:
             note = "fewer than two sprinklers"
     elif c.measurement == "array_axis_spacing":
-        (iu, iv) = arr
-        sp = []
-        if len(iu) >= 2:
-            sp.append(((iu[1] - iu[0]) * st.step, "u"))
-        if len(iv) >= 2:
-            sp.append(((iv[1] - iv[0]) * st.step, "v"))
+        if arr is None:
+            return _not_evaluable(st, c, "the layout is not a room-aligned rectangular array, so array axis spacing "
+                                         "is undefined; it is not assumed to pass")
+        sp = [(v, a) for v, a in ((arr[0], "u"), (arr[1], "v")) if v is not None]
         if sp:
             measured, axis = worst(sp)
             subject = {"axis": axis}
@@ -307,10 +322,25 @@ def _eval_constraint(st: _State, c: EngineeringConstraint, cells: list[dict], ar
         passed, margin = measured >= c.limit - tol, measured - c.limit
     return ConstraintEvaluation(
         constraint_key=c.key, measurement=c.measurement, bound=c.bound, limit=c.limit, unit=c.unit, tolerance=tol,
-        measured=measured, margin=margin, passed=passed, worst_subject=subject, reference_kinds=list(c.reference_kinds),
+        measured=measured, margin=margin, passed=passed, outcome="pass" if passed else "fail",
+        worst_subject=subject, reference_kinds=list(c.reference_kinds),
         governing_rule_id=c.governing_rule_id, contributing_rule_ids=[x.rule_id for x in c.contributions],
         references=sorted({f"{x.source_document}" + (f" {x.source_reference}" if x.source_reference else "")
                            for x in c.contributions}), note=note)
+
+
+def _not_evaluable(st: _State, c: EngineeringConstraint, why: str) -> ConstraintEvaluation:
+    tol = st.req.tolerances.length_ft if c.unit == "ft" else st.req.tolerances.area_sf
+    return ConstraintEvaluation(
+        constraint_key=c.key, measurement=c.measurement, bound=c.bound, limit=c.limit, unit=c.unit, tolerance=tol,
+        passed=False, outcome="not_evaluable", reference_kinds=list(c.reference_kinds),
+        governing_rule_id=c.governing_rule_id, contributing_rule_ids=[x.rule_id for x in c.contributions],
+        references=sorted({x.source_document + (f" {x.source_reference}" if x.source_reference else "")
+                           for x in c.contributions}), note=why)
+
+
+def _spacings(st: _State, iu, iv) -> tuple:
+    return ((iu[1] - iu[0]) * st.step if len(iu) > 1 else None, (iv[1] - iv[0]) * st.step if len(iv) > 1 else None)
 
 
 def _cells(st: _State, iu, iv) -> list[dict]:
@@ -336,7 +366,7 @@ def evaluate_layout(st: _State, iu, iv, full: bool) -> LayoutEvaluation:
     for c in st.constraints:          # fast path stops at the first failure; full explains everything
         if first is not None and not full:
             break
-        e = _eval_constraint(st, c, cells, (iu, iv))
+        e = _eval_constraint(st, c, cells, _spacings(st, iu, iv))
         evals.append(e)
         if not e.passed and first is None:
             first = c.key
@@ -415,29 +445,38 @@ def run_design(req: DesignRequest) -> EngineeringDesignResult:
             refusals=issues, limitations=list(res.limitations if res else []), context=_context(req, space, region, frame),
             inputs=_inputs(req), rules=rules, request_fingerprint=fp))
     st = _State(req, space, region, res)
-    valid, rejected_examples, counts, generated = [], [], {}, 0
-    for iu, iv in generate_candidates(st):
-        generated += 1
-        ev = evaluate_layout(st, iu, iv, full=False)
-        if ev.valid:
-            valid.append(evaluate_layout(st, iu, iv, full=True))
-        else:
-            counts[ev.first_failure] = counts.get(ev.first_failure, 0) + 1
-            if len(rejected_examples) < req.search.max_rejected_examples:
-                rejected_examples.append(evaluate_layout(st, iu, iv, full=True))
+    out = search(st)
+    explicit = len(out.valid) <= req.search.max_explicit_layouts
+    valid = [evaluate_layout(st, iu, iv, full=True) for iu, iv in out.valid] if explicit else []
+    rejected_examples = [evaluate_layout(st, iu, iv, full=True) for iu, iv in out.examples]
     synthetic = res.basis == "synthetic_test_only"
+    fams: dict[tuple, list] = {}
+    for iu, iv in out.valid:
+        key = (len(iu), (iu[1] - iu[0]) if len(iu) > 1 else 0, len(iv), (iv[1] - iv[0]) if len(iv) > 1 else 0)
+        fams.setdefault(key, []).append((iu[0], iv[0]))
+    frame = st.frame
+    valid_set = ValidLayoutSet(
+        count=len(out.valid), lattice_step_ft=st.step,
+        room_frame={"u_axis": [frame.ux, frame.uy], "origin_uv": [frame.ou, frame.ov], "extent_u_ft": frame.extent_u,
+                    "extent_v_ft": frame.extent_v, "strategy": frame.strategy},
+        families=[ValidLayoutFamily(n_u=k[0], ds_u=k[1], n_v=k[2], ds_v=k[3], offsets=v) for k, v in sorted(fams.items())],
+        explicit_layouts_included=explicit,
+        note="" if explicit else f"{len(out.valid)} valid layouts exceed max_explicit_layouts="
+                                 f"{req.search.max_explicit_layouts}: enumerate on demand (iter_valid_layouts)")
     return _finish(EngineeringDesignResult(
-        result_uid=_uid(ns, "result"), status="VALID_LAYOUTS_FOUND" if valid else "NO_VALID_LAYOUT_IN_SEARCH_SPACE",
+        result_uid=_uid(ns, "result"), status="VALID_LAYOUTS_FOUND" if out.valid else "NO_VALID_LAYOUT_IN_SEARCH_SPACE",
         basis=res.basis, engineering_use="NOT_FOR_ENGINEERING_USE" if synthetic else "REQUIRES_QUALIFIED_HUMAN_APPROVAL",
         disclaimers=list(SYNTHETIC_DISCLAIMERS) if synthetic else [],
         limitations=list(res.limitations) + list(M2_LIMITATIONS), context=_context(req, space, region, st.frame),
         inputs=_inputs(req), rules=rules,
-        search={"family": req.search.family, "lattice_step_ft": st.step, "lattice_u": st.ku, "lattice_v": st.kv,
-                "candidates_generated": generated, "valid": len(valid), "rejected": generated - len(valid),
-                "rejected_by_first_failure": dict(sorted(counts.items())),
-                "evaluation_order": ["structural:outside_space", "structural:excluded_region"]
-                + [c.key for c in st.constraints]},
-        valid_layouts=valid, rejected_examples=rejected_examples, request_fingerprint=fp))
+        search={"family": req.search.family, "algorithm": "exact_pruned/1", "lattice_step_ft": st.step,
+                "lattice_u": st.ku, "lattice_v": st.kv, "candidates_generated": out.search_space_size,
+                "valid": len(out.valid), "rejected": out.search_space_size - len(out.valid),
+                "rejected_by_first_failure": out.rejected_by, "pruned_by_stage": out.pruned_by_stage,
+                "fully_evaluated": out.fully_evaluated,
+                "evaluation_order": "pipeline axis -> count -> points (structural, point constraints) -> pair -> "
+                                    "cover -> full; a rejection is attributed to the first stage that proves it"},
+        valid_layouts=valid, rejected_examples=rejected_examples, valid_set=valid_set, request_fingerprint=fp))
 
 
 def explain_layout(req: DesignRequest, layout_uid: str) -> LayoutEvaluation | None:
@@ -450,3 +489,118 @@ def explain_layout(req: DesignRequest, layout_uid: str) -> LayoutEvaluation | No
         if _layout_uid(st, _cells(st, iu, iv)) == layout_uid:
             return evaluate_layout(st, iu, iv, full=True)
     return None
+
+
+# ── M2.1: reference search, compact-set enumeration, agent proposals ─────────
+
+def reference_search(req: DesignRequest) -> tuple[list[tuple], int]:
+    """The M2.0 brute force (every candidate fully checked). Kept as the equivalence reference for the
+    pruned search; returns (valid (u-set, v-set) in layout order, candidates examined)."""
+    issues, space, region, res = _validate(req)
+    if issues:
+        raise ValueError("reference_search needs a valid request")
+    st = _State(req, space, region, res)
+    valid, n = [], 0
+    for iu, iv in generate_candidates(st):
+        n += 1
+        if evaluate_layout(st, iu, iv, full=False).valid:
+            valid.append((iu, iv))
+    return valid, n
+
+
+def iter_valid_layouts(result: EngineeringDesignResult) -> Iterator[list[tuple[float, float]]]:
+    """Deterministically re-materialise every valid layout (LOCAL x, y) from the compact set, in the
+    documented layout order. Nothing is re-read from CAD."""
+    vs = result.valid_set
+    if vs is None:
+        return
+    f = vs.room_frame
+    frame = RoomFrame(f["u_axis"][0], f["u_axis"][1], f["origin_uv"][0], f["origin_uv"][1], f["extent_u_ft"],
+                      f["extent_v_ft"])
+    arrays = [(tuple(i0 + t * fam.ds_u for t in range(fam.n_u)), tuple(j0 + t * fam.ds_v for t in range(fam.n_v)))
+              for fam in vs.families for i0, j0 in fam.offsets]
+    arrays.sort(key=lambda a: layout_key(*a))
+    for iu, iv in arrays:
+        cells = sorted(((i * vs.lattice_step_ft, j * vs.lattice_step_ft) for j in iv for i in iu), key=lambda q: (q[1], q[0]))
+        yield [frame.to_xy(u, v) for u, v in cells]
+
+
+def _proposal_digest(p: CandidateProposal) -> str:
+    return _sha(p.model_dump(mode="json"))
+
+
+def _as_array(st: _State, pts: list[tuple[float, float]]):
+    """(spacing_u, spacing_v) if the points form a complete, uniformly spaced room-aligned grid, else None."""
+    uv = [st.frame.to_uv(x, y) for x, y in pts]
+    us = sorted({round(u, 9) for u, _v in uv})
+    vs = sorted({round(v, 9) for _u, v in uv})
+    if len(us) * len(vs) != len(uv) or {(round(u, 9), round(v, 9)) for u, v in uv} != {(u, v) for u in us for v in vs}:
+        return None
+
+    def uniform(a):
+        if len(a) < 2:
+            return None, True
+        d = [b - x for x, b in zip(a, a[1:], strict=False)]
+        return d[0], all(abs(x - d[0]) <= 1e-9 for x in d)
+    su, ok_u = uniform(us)
+    sv, ok_v = uniform(vs)
+    return (su, sv) if ok_u and ok_v else None
+
+
+def evaluate_proposal(req: DesignRequest, proposal: CandidateProposal) -> ProposalEvaluation:
+    """Deterministically evaluate a PROPOSED layout. PASS / FAIL / UNKNOWN / REFUSED come only from the
+    rules engine and the geometry evaluator; nothing in the proposal can override them."""
+    fp = request_fingerprint(req)
+    digest = _proposal_digest(proposal)
+    refusals: list[DesignIssue] = []
+    if proposal.frame != "LOCAL" or proposal.units != "ft":
+        refusals.append(DesignIssue(code="WRONG_COORDINATE_FRAME",
+                                    message=f"proposal is in {proposal.frame}/{proposal.units}; the evaluator works in "
+                                            "LOCAL/ft of the verified package (no silent conversion)"))
+    if (proposal.package_content_fingerprint, proposal.package_verification_fingerprint) != (
+            req.package.content_fingerprint, req.package.verification_fingerprint):
+        refusals.append(DesignIssue(code="STALE_SOURCE_FINGERPRINT",
+                                    message="the proposal was made against a different (or superseded) verified model"))
+    want = sorted((s.rule_set_id, s.version, s.digest()) for s in req.rule_sets)
+    got = sorted((r.get("rule_set_id"), r.get("version"), r.get("digest")) for r in proposal.rule_sets)
+    if want != got:
+        refusals.append(DesignIssue(code="RULESET_VERSION_MISMATCH",
+                                    message="the proposal names different rule sets / versions than the request"))
+    if req.listing is None or (proposal.listing.get("listing_id"), proposal.listing.get("version"),
+                               proposal.listing.get("digest")) != (req.listing.listing_id, req.listing.version,
+                                                                   req.listing.digest()):
+        refusals.append(DesignIssue(code="LISTING_VERSION_MISMATCH",
+                                    message="the proposal names a different listing / version than the request"))
+    if not proposal.positions:
+        refusals.append(DesignIssue(code="EMPTY_PROPOSAL", message="no sprinkler positions proposed"))
+    issues, space, region, res = _validate(req)
+    refusals += issues
+    basis = res.basis if res and not refusals else "none"
+    if refusals:
+        return ProposalEvaluation(verdict="REFUSED", reasons=refusals, proposal_digest=digest, request_fingerprint=fp,
+                                  basis="none")
+    st = _State(req, space, region, res)
+    pts = [tuple(p) for p in proposal.positions]
+    cells = [{"xy": p, "uv": st.frame.to_uv(*p), "bmin": {}} for p in pts]
+    reasons, evals = [], []
+    outside = [i for i, p in enumerate(pts) if not st.prepared.contains(Point(p))]
+    excluded = [i for i, p in enumerate(pts) if any(e.intersects(Point(p)) for e in st.excluded)]
+    if outside:
+        reasons.append(DesignIssue(code="OUTSIDE_SPACE", message=f"sprinklers {outside} are not strictly inside the space"))
+    if excluded:
+        reasons.append(DesignIssue(code="IN_EXCLUDED_REGION", message=f"sprinklers {excluded} are in excluded regions"))
+    arr = _as_array(st, pts)
+    for c in st.constraints:
+        e = _eval_constraint(st, c, cells, arr)
+        evals.append(e)
+        if e.outcome == "fail":
+            reasons.append(DesignIssue(code="CONSTRAINT_FAILED", message=f"{c.key}: measured {e.measured} vs {c.bound} "
+                                       f"{c.limit} {c.unit}", detail={"rule": c.governing_rule_id}))
+        elif e.outcome == "not_evaluable":
+            reasons.append(DesignIssue(code="NOT_EVALUABLE", message=f"{c.key}: {e.note}"))
+    failed = bool(outside or excluded or any(e.outcome == "fail" for e in evals))
+    unknown = any(e.outcome == "not_evaluable" for e in evals)
+    verdict = "FAIL" if failed else "UNKNOWN" if unknown else "PASS"
+    return ProposalEvaluation(verdict=verdict, reasons=reasons, evaluations=evals, proposal_digest=digest,
+                              request_fingerprint=fp, basis=basis,
+                              disclaimers=list(SYNTHETIC_DISCLAIMERS) if basis == "synthetic_test_only" else [])

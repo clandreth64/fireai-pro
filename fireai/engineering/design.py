@@ -72,6 +72,7 @@ class ConstraintEvaluation(BaseModel):
     measured: Optional[float] = None
     margin: Optional[float] = None            # positive = inside the limit
     passed: bool
+    outcome: Literal["pass", "fail", "not_evaluable"] = "pass"      # M2.1: not_evaluable is never a pass
     worst_subject: Optional[dict[str, Any]] = None
     reference_kinds: list[str] = Field(default_factory=list)
     governing_rule_id: Optional[str] = None
@@ -111,6 +112,7 @@ class EngineeringDesignResult(BaseModel):
     search: dict[str, Any] = Field(default_factory=dict)
     valid_layouts: list[LayoutEvaluation] = Field(default_factory=list)
     rejected_examples: list[LayoutEvaluation] = Field(default_factory=list)
+    valid_set: Optional["ValidLayoutSet"] = None       # M2.1: the complete valid set, compactly
     ordering_strategy: str = ORDERING_STRATEGY
     engine_version: str = PLACEMENT_ENGINE_VERSION
     request_fingerprint: str
@@ -124,9 +126,66 @@ class EngineeringDesignResult(BaseModel):
             missing = [d for d in SYNTHETIC_DISCLAIMERS if d not in self.disclaimers]
             if missing or self.engineering_use != "NOT_FOR_ENGINEERING_USE":
                 raise ValueError(f"synthetic results must be NOT_FOR_ENGINEERING_USE with disclaimers {missing}")
-        if self.status == "REFUSED" and (self.valid_layouts or self.engineering_use != "NONE_REFUSED"):
+        if self.status == "REFUSED" and (self.valid_layouts or self.valid_set or self.engineering_use != "NONE_REFUSED"):
             raise ValueError("a refused design carries no layouts and no engineering use")
+        if self.valid_set is not None and (self.valid_set.count > 0) != (self.status == "VALID_LAYOUTS_FOUND"):
+            raise ValueError("status must agree with the complete valid set, not only the explicit layouts")
         if self.basis == "authoritative" and self.status != "REFUSED" \
                 and self.engineering_use != "REQUIRES_QUALIFIED_HUMAN_APPROVAL":
             raise ValueError("an authoritative design result always requires qualified human approval")
         return self
+
+
+class ValidLayoutFamily(BaseModel):
+    """Arrays with the same shape: n_u x n_v sprinklers at lattice spacings ds_u, ds_v (indices)."""
+    n_u: int
+    ds_u: int
+    n_v: int
+    ds_v: int
+    offsets: list[tuple[int, int]]            # first lattice index (u, v) of each valid array of this shape
+
+
+class ValidLayoutSet(BaseModel):
+    """The COMPLETE valid set of the search space, compactly (M2.1). Layout k is re-materialised
+    deterministically from the lattice (``fireai.engineering.placement.iter_valid_layouts``); nothing
+    here is optimised or ranked. Positions: (u, v) = (i * step, j * step) in the room frame, mapped to
+    LOCAL with ``room_frame``."""
+    representation: Literal["room_axis_array_indices/1"] = "room_axis_array_indices/1"
+    count: int
+    lattice_step_ft: float
+    room_frame: dict[str, Any]
+    families: list[ValidLayoutFamily] = Field(default_factory=list)
+    explicit_layouts_included: bool
+    note: str = ""
+
+
+class CandidateProposal(BaseModel):
+    """A layout PROPOSED by an agent / optimiser / person. It carries no authority: the rules engine and
+    the deterministic evaluator decide. It must say which verified model, rules and listing it was
+    proposed against; any mismatch is refused (never silently re-targeted)."""
+    proposed_by: str
+    frame: str = "LOCAL"
+    units: str = "ft"
+    package_content_fingerprint: str
+    package_verification_fingerprint: str
+    rule_sets: list[dict[str, str]]           # [{rule_set_id, version, digest}]
+    listing: dict[str, str]                   # {listing_id, version, digest}
+    positions: list[tuple[float, float]]      # sprinkler plan positions (x, y) in the stated frame
+    note: str = ""
+
+
+class ProposalEvaluation(BaseModel):
+    verdict: Literal["PASS", "FAIL", "UNKNOWN", "REFUSED"]
+    reasons: list[DesignIssue] = Field(default_factory=list)
+    evaluations: list[ConstraintEvaluation] = Field(default_factory=list)
+    proposal_digest: str
+    request_fingerprint: str
+    basis: Literal["authoritative", "synthetic_test_only", "none"]
+    disclaimers: list[str] = Field(default_factory=list)
+    note: str = ("The verdict comes only from the rules engine and deterministic evaluation; the proposer cannot "
+                 "override it. PASS on synthetic rules is TEST ONLY.")
+
+
+
+
+EngineeringDesignResult.model_rebuild()

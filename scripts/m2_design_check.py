@@ -1,10 +1,12 @@
-"""Run the Milestone 2.0 design path on a REAL verified job — READ-ONLY.
+"""Run the Milestone 2.0/2.1 design path on a REAL verified job — READ-ONLY.
 
     job model → REAL verification gate (the review store as it is) → engineering_input/3
       → DesignRequest (mode "engineering", only the inputs that actually exist) → placement engine
 
 It never records, simulates or bypasses a verification and never supplies engineering inputs that do
 not exist; with no approved NFPA 13 rule set it must REFUSE (that refusal is the expected outcome).
+M2.1: the real request also carries the registered NFPA 13-2025 base identity as an IN-MEMORY, EMPTY,
+DRAFT rule set (nothing is written to the data directory) — it must still refuse.
 ``--synthetic`` additionally runs the same verified geometry through the TEST ONLY synthetic rule set
 from the test fixtures; that output is marked TEST ONLY / NOT FOR ENGINEERING USE in its fields.
 
@@ -26,11 +28,12 @@ sys.path.insert(0, str(ROOT))
 
 def _summary(r) -> dict:
     return {"status": r.status, "basis": r.basis, "engineering_use": r.engineering_use, "disclaimers": r.disclaimers,
-            "refusals": [{"code": i.code, "message": i.message} for i in r.refusals], "limitations": r.limitations,
+            "refusals": [{"code": i.code, "message": i.message, "detail": i.detail} for i in r.refusals], "limitations": r.limitations,
             "space": r.context.get("space"), "regions": r.context.get("regions"), "frame": r.context.get("frame"),
             "z_status": r.context.get("z_status"), "verified_by": r.context.get("verified_by"),
             "package_content_fingerprint": r.context.get("package_content_fingerprint"),
             "search": r.search, "valid_layouts": len(r.valid_layouts),
+            "valid_set_count": r.valid_set.count if r.valid_set else None,
             "constraints": [{"key": c["key"], "limit": c["limit"], "unit": c["unit"], "governing": c["governing_rule_id"]}
                             for c in (r.rules.get("constraints") or [])],
             "first_valid_layout": ([{"x": p.position.x, "y": p.position.y, "z": p.position.z.status,
@@ -58,7 +61,13 @@ def main() -> int:
         print(json.dumps({"gate": "REFUSED", "blockers": exc.blockers}, indent=1))
         return 2
     out = {"gate": "PASSED", "contract_version": pkg.contract_version, "verified_by": pkg.verified_by}
-    real = DesignRequest(package=pkg, space_uid=a.space, mode="engineering", requested_by="m2_design_check")
+    from fireai.rules import RuleSet
+    from fireai.rules.catalog import NFPA13_2025_BASE as ID
+    draft = RuleSet(rule_set_id=ID.rule_set_id, version=ID.first_version, layer=ID.layer,       # EMPTY + DRAFT, in memory
+                    governing_standard=ID.governing_standard, edition=ID.edition, content_basis="authoritative",
+                    review_status="draft", rules=[], description=ID.description)
+    real = DesignRequest(package=pkg, space_uid=a.space, mode="engineering", rule_sets=[draft],
+                         requested_by="m2_design_check")
     t0 = time.perf_counter()
     out["engineering"] = _summary(run_design(real))
     out["engineering"]["seconds"] = round(time.perf_counter() - t0, 3)

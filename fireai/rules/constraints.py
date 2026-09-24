@@ -30,6 +30,24 @@ MEASUREMENTS: dict[str, tuple[str, str]] = {
 }
 BOUNDARY_MEASUREMENTS = {"point_to_boundary_min", "boundary_point_to_nearest_sprinkler_max"}
 
+# The design facts a rule's applicability may test, and which explicit input supplies each. A rule
+# conditioned on a fact outside this vocabulary cannot be approved: FireAI could never establish it.
+FACTS: dict[str, str] = {
+    "hazard.scheme": "DesignClassification.scheme",
+    "hazard.classification": "DesignClassification.value",
+    "system.type": "SystemCondition.system_type",
+    "system.storage": "SystemCondition.storage",
+    "sprinkler.type": "SprinklerListing.sprinkler_type",
+    "sprinkler.orientation": "SprinklerListing.orientation",
+    "sprinkler.response": "SprinklerListing.response_type",
+    "ceiling.surface": "CeilingRegion.surface",
+    "ceiling.construction": "CeilingRegion.construction",
+    "ceiling.slope_deg": "CeilingRegion.slope",
+    "ceiling.elevation_ft": "CeilingRegion.elevation",
+    "ceiling.obstructions": "CeilingCondition.obstructions_statement",
+    "space.area_sf": "engineering_input/3 physical region area",
+}
+
 
 class Contribution(BaseModel):
     """One rule's part in an effective constraint, and what happened to it."""

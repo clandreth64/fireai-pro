@@ -229,3 +229,22 @@ M1.9 contract check of the bathroom (throw-away simulated verification, not pers
 complete — 1 door opening (2.83 ft, shared with the adjacent space), 2 windows (2.33 ft each) and
 wall segments; the metric twin has the same order of kinds. Step-by-step product verification:
 `HUMAN_REVIEW.md` §4 (and the M1.9 report).
+
+---
+
+## M2.1 owner decisions (2026-09-24)
+
+| # | Decision | Implemented as |
+|---|---|---|
+| 16 | First base standard: **NFPA 13, 2025 edition** | `NFPA13_2025_BASE` identity (`fireai/rules/catalog.py`), EMPTY + DRAFT |
+| 17 | The next edition is likely NFPA 13-2022; edition is never a global constant; editions are never mixed | identities/envelopes keyed by (standard, edition); `EDITION_MISMATCH` refusal |
+| 18 | First development envelope: NFPA 13-2025 · commercial · wet pipe · Light Hazard · standard spray pendent · smooth flat unobstructed ceiling · non-storage · one simple known space | `NFPA13-2025-DEV-ENVELOPE-1`; `envelope_blockers`; `SystemCondition`; `CeilingRegion.construction` |
+| 19 | The envelope does not classify REAL_002 (or any space) and invents no requirement | classification, system and ceiling remain explicit human inputs; REAL_002 still refuses |
+
+Decision 1 (edition) is now **decided: 2025**. Still open:
+- rule content;
+- listing selection;
+- the trial space's classification, ceiling and tolerances;
+- known answers.
+
+See the two input checklists for what each needs.

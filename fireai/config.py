@@ -45,6 +45,18 @@ class Settings:
         return self.data_dir / "reviews"
 
     @property
+    def rules_dir(self) -> Path:          # M2.1: authoritative rule sets (human-authored, reviewed)
+        return self.data_dir / "rules"
+
+    @property
+    def listings_dir(self) -> Path:       # M2.1: sprinkler listing data (human-authored, reviewed)
+        return self.data_dir / "listings"
+
+    @property
+    def projects_dir(self) -> Path:       # M2.1: persistent project engineering model
+        return self.data_dir / "projects"
+
+    @property
     def jobs_dir(self) -> Path:
         return self.data_dir / "jobs"
 

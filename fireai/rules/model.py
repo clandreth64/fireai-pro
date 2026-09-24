@@ -42,7 +42,9 @@ SourceKind = Literal["authoritative_standard", "licensed_structured_content", "j
                      "referenced_standard", "manufacturer_listing_document", "project_specification",
                      "engineering_decision_record", "synthetic_test_only"]
 ContentBasis = Literal["authoritative", "synthetic_test_only"]
-ReviewStatus = Literal["draft", "reviewed", "approved", "withdrawn"]
+# lifecycle: draft -> under_review -> approved -> superseded / retired ("reviewed" = one reviewer's
+# approval of a single rule inside a rule set under review; "withdrawn" kept for M2.0 data)
+ReviewStatus = Literal["draft", "under_review", "reviewed", "approved", "superseded", "retired", "withdrawn"]
 EffectiveStatus = Literal["effective", "superseded", "withdrawn", "not_yet_effective"]
 
 SYNTHETIC_MARK = "TEST_ONLY_SYNTHETIC"
@@ -58,6 +60,10 @@ class RuleSource(BaseModel):
     revision: Optional[str] = None
     publication_date: Optional[str] = None
     note: Optional[str] = None
+    # M2.1: how the authoritative source was accessed (lawful access is the owner's responsibility)
+    source_id: Optional[str] = None                 # e.g. an internal document-control id for the licensed copy
+    access_method: Optional[str] = None             # e.g. "licensed print copy", "licensed online subscription"
+    accessed_at: Optional[str] = None
 
     @model_validator(mode="after")
     def _synthetic_has_no_standard_reference(self):
@@ -102,15 +108,23 @@ class RuleException(BaseModel):
     source: Optional[RuleSource] = None
 
 
+UNSUPPORTED_MEASUREMENT = "UNSUPPORTED_MEASUREMENT"
+
+
 class ConstraintTemplate(BaseModel):
     """What the rule asks the deterministic engines to check, in their measurement vocabulary
     (``fireai/rules/constraints.py``). The rule decides WHAT is measured and against which boundary
-    semantics; the geometry engine only performs the measurement."""
+    semantics; the geometry engine only performs the measurement.
+
+    ``measurement = UNSUPPORTED_MEASUREMENT`` records honestly that the standard defines a measurement
+    FireAI cannot compute yet (``unsupported_reason`` says what). Such a rule can be authored but never
+    approved for engineering, and an applicable one makes engineering REFUSE — it is never approximated."""
     key: str                                        # identity for layering, e.g. "sprinkler.max_boundary_distance"
-    measurement: str                                # a MEASUREMENTS key
+    measurement: str                                # a MEASUREMENTS key, or UNSUPPORTED_MEASUREMENT
     bound: Literal["max", "min"]
     limit_parameter: str                            # name of the RuleParameter holding the limit
     reference_kinds: list[str] = Field(default_factory=list)   # boundary segment kinds that participate
+    unsupported_reason: Optional[str] = None
 
 
 class Rule(BaseModel):
@@ -134,6 +148,8 @@ class Rule(BaseModel):
     review_status: ReviewStatus = "draft"
     effective_status: EffectiveStatus = "effective"
     change_reason: str = ""
+    version: str = "1"                              # M2.1: rule record version (a new version per change)
+    notes: str = ""                                 # structuring notes; never copied standard text
 
     def parameter(self, name: str) -> RuleParameter | None:
         return next((p for p in self.parameters if p.name == name), None)
@@ -147,6 +163,7 @@ class RuleSet(BaseModel):
     governing_standard: str                         # "NFPA 13" for the base standard; the amended/owning document otherwise
     edition: Optional[str]                          # REQUIRED for real NFPA 13 engineering; never defaulted
     jurisdiction: Optional[str] = None              # for jurisdiction_amendment layers
+    base_edition: Optional[str] = None              # M2.1: the NFPA 13 edition a non-base layer applies to
     content_basis: ContentBasis
     review_status: ReviewStatus = "draft"
     reviewer: Optional[str] = None
@@ -175,5 +192,6 @@ class RuleSet(BaseModel):
     def identity(self) -> dict:
         return {"rule_set_id": self.rule_set_id, "version": self.version, "layer": self.layer,
                 "governing_standard": self.governing_standard, "edition": self.edition,
+                "base_edition": self.base_edition,
                 "jurisdiction": self.jurisdiction, "content_basis": self.content_basis,
                 "review_status": self.review_status, "digest": self.digest()}

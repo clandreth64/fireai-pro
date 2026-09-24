@@ -158,3 +158,70 @@ Needed from the owner / qualified reviewer (FireAI cannot supply any of these):
    obstruction statement) and tolerances for the trial space, each attributed;
 8. independently authored and signed known-answer cases for the rule set (FireAI output is never the
    reference).
+
+## 6. Milestone 2.1 additions
+
+**Editions are data.** `fireai/rules/catalog.py` registers rule-set identities and development
+envelopes per (standard, edition). `NFPA13-2025-BASE` v1 is created EMPTY and DRAFT. NFPA 13-2022, or
+any later edition, is added by registering another identity and entering its rules, with no engine code
+change. `resolve()` refuses with `EDITION_MISMATCH` when a non-base layer declares a different
+`base_edition` or a base rule cites a different edition. Editions are never mixed.
+
+**Authoring and two-person review** (`fireai/rules/store.py`, `fireai/engineering/listings.py`):
+- Storage is write-once versioned files plus an append-only event log.
+- Lifecycle: draft → under_review → reviewed → approved → superseded / retired.
+- The reviewer must not be the author, and the set approver must have authored none of its rules.
+- Approval runs `approval_problems` / `listing_problems`. These check the source locator, edition,
+  access metadata, units and dimension, known measurement and boundary kinds, facts in the `FACTS`
+  vocabulary, and internal dependencies.
+- A requirement FireAI cannot yet measure is recorded with `UNSUPPORTED_MEASUREMENT`. If that rule
+  applies, the design refuses.
+- Identities are unauthenticated names and are not production safe.
+
+**Supported envelope** (`fireai/engineering/envelope.py`): in engineering mode, the explicit inputs
+must match the envelope registered for the base standard and edition. The inputs checked are system
+type, storage, classification, sprinkler type and orientation, ceiling surface and construction, and
+the obstruction statement. Otherwise the design refuses with `OUTSIDE_SUPPORTED_ENVELOPE`,
+`MISSING_SYSTEM_CONDITION` or `NO_SUPPORTED_ENVELOPE`. There is no fallback classification. Ceiling
+refusals now carry `detail.condition`: surface, slope, elevation change, beam/soffit/cloud features,
+obstructed construction, unknown obstruction statement, or unknown elevation or slope.
+
+**Exact pruned search** (`fireai/engineering/search.py`, `exact_pruned/1`): this uses the same
+candidate space as M2.0 (`room_axis_array/1`), evaluated as a pipeline:
+1. per-axis index sets;
+2. count bounds;
+3. point constraints, ranked per lattice point (bitmask);
+4. pairwise constraints;
+5. coverage;
+6. the full measure.
+
+A stage rejects a candidate only if the full evaluation would reject it for the same constraint, and
+every rejection is attributed. `reference_search` keeps the M2.0 brute force. Tests and the benchmark
+show identical valid sets and candidate counts.
+
+**Valid-set representation** (`ValidLayoutSet`, `room_axis_array_indices/1`):
+- The complete valid set is stored as families (n_u, ds_u, n_v, ds_v), each with its origin offsets on
+  the lattice, plus the room frame and step.
+- Explicit layouts with full explanations are included up to `max_explicit_layouts` (200). Beyond
+  that, `iter_valid_layouts` enumerates them on demand.
+- Implemented: an exact, lossless family encoding, and a status taken from the complete set.
+- Deferred: symbolic (interval) encoding of offsets, ranking or optimisation over the set, and
+  multi-space sets.
+
+**Agent candidate interface** (`evaluate_proposal`): an external proposer, such as a future agent,
+submits `CandidateProposal` positions in frame LOCAL, pinned to the package fingerprints, rule-set
+digests and listing digest. The deterministic engine returns one of:
+- PASS;
+- FAIL;
+- UNKNOWN, when a constraint can't be evaluated (for example, array spacing of a non-array layout);
+- REFUSED, for a stale fingerprint, wrong frame, version mismatch or any design refusal.
+
+A proposal never changes validity and is never ground truth.
+
+**Project persistence** (`fireai/project/`):
+- Hierarchy: project → building → level → design area (space refs), with versioned inputs.
+- Each design revision stores its request and result write-once.
+- `currency()` reports CURRENT; STALE when rules, listing or inputs changed; or INVALIDATED when the
+  verified model or its verification changed.
+- A layout selection must be a member of the valid set.
+- Downstream consumers re-materialise placements from the stored request, never from CAD.

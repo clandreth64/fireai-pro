@@ -20,7 +20,7 @@ from typing import Any, Literal, Optional
 from pydantic import BaseModel, Field
 
 from fireai.rules.constraints import MEASUREMENTS, Contribution, EngineeringConstraint
-from fireai.rules.model import LAYER_ORDER, Condition, Quantity, Rule, RuleSet
+from fireai.rules.model import LAYER_ORDER, UNSUPPORTED_MEASUREMENT, Condition, Quantity, Rule, RuleSet
 from fireai.rules.units import UnitError, dimension, to_canonical
 
 Mode = Literal["engineering", "synthetic_test"]
@@ -122,6 +122,16 @@ def _check_stack(rule_sets: list[RuleSet], mode: Mode, jurisdiction: Optional[Ju
             if s.layer == "edition" and s.edition != b.edition:
                 refusals.append(RuleIssue(code="EDITION_MISMATCH", rule_set_id=s.rule_set_id,
                                           message=f"edition layer {s.edition!r} does not match base {b.edition!r}"))
+            if s.layer != "base_standard" and s.base_edition is not None and s.base_edition != b.edition:
+                refusals.append(RuleIssue(code="EDITION_MISMATCH", rule_set_id=s.rule_set_id,
+                                          message=f"{s.layer} rule set {s.rule_set_id} applies to NFPA 13 "
+                                                  f"{s.base_edition!r}, the base is {b.edition!r}: editions are never "
+                                                  "mixed"))
+        for r in b.rules:
+            if r.source.edition is not None and r.source.edition != b.edition:
+                refusals.append(RuleIssue(code="EDITION_MISMATCH", rule_id=r.rule_id, rule_set_id=b.rule_set_id,
+                                          message=f"rule {r.rule_id} cites edition {r.source.edition!r} inside the "
+                                                  f"{b.edition!r} base rule set"))
     for s in rule_sets:
         if s.content_basis == "authoritative" and s.review_status != "approved":
             refusals.append(RuleIssue(code="RULESET_NOT_APPROVED", rule_set_id=s.rule_set_id,
@@ -225,6 +235,12 @@ def resolve(rule_sets: list[RuleSet], facts: dict[str, Any], mode: Mode,
             refusals.append(RuleIssue(code="RULE_NOT_MACHINE_EVALUABLE", rule_id=r.rule_id, rule_set_id=s.rule_set_id,
                                       message=f"{r.rule_id} applies but no deterministic engine evaluates it; a design "
                                               "cannot be declared valid"))
+            continue
+        if r.constraint.measurement == UNSUPPORTED_MEASUREMENT:
+            refusals.append(RuleIssue(code="UNSUPPORTED_MEASUREMENT", rule_id=r.rule_id, rule_set_id=s.rule_set_id,
+                                      message=f"{r.rule_id} applies but requires a measurement FireAI cannot compute "
+                                              f"({r.constraint.unsupported_reason or 'unspecified'}); refusing rather "
+                                              "than approximating"))
             continue
         groups.setdefault(r.constraint.key, []).append((r, s))
 

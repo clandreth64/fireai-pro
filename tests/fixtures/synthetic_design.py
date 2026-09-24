@@ -114,13 +114,13 @@ def verified_package(tmp: Path, path: Path):
 
 
 def request(package, *, rule_sets, space_uid=None, lst="default", ceil="default", cls="default", tol="default",
-            srch=None, mode="synthetic_test", jurisdiction=None) -> DesignRequest:
+            srch=None, mode="synthetic_test", jurisdiction=None, system=None) -> DesignRequest:
     space_uid = space_uid or package.semantic_spaces[0].uid
     return DesignRequest(package=package, space_uid=space_uid, mode=mode, rule_sets=list(rule_sets),
                          jurisdiction=jurisdiction, listing=listing() if lst == "default" else lst,
                          ceiling=ceiling(space_uid) if ceil == "default" else ceil,
                          classification=classification() if cls == "default" else cls,
-                         tolerances=tolerances() if tol == "default" else tol, search=srch or search(),
+                         tolerances=tolerances() if tol == "default" else tol, search=srch or search(), system=system,
                          requested_by="test-suite")
 
 

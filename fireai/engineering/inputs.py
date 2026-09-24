@@ -61,6 +61,9 @@ class CeilingRegion(BaseModel):
     uid: str
     extent: Literal["whole_space"] | list[tuple[float, float]] = "whole_space"
     surface: Literal["flat", "sloped", "curved", "stepped", "open_structure", "unknown"] = "unknown"
+    # M2.1: the construction type the person establishes (the standard defines the categories; FireAI
+    # only records the stated one). Unknown is the default and is never treated as unobstructed.
+    construction: Literal["smooth_unobstructed", "obstructed", "unknown"] = "unknown"
     slope: Slope = Field(default_factory=Slope)
     elevation: Elevation = Field(default_factory=Elevation)
     source: Optional[InputSource] = None
@@ -95,17 +98,23 @@ class SprinklerListing(BaseModel):
     manufacturer: str
     model: str
     sin: Optional[str] = None
+    product_family: Optional[str] = None
     sprinkler_type: str
     orientation: str
-    k_factor: Optional[Quantity] = None
+    k_factor: Optional[Quantity] = None                 # unknown stays None — never a remembered value
     temperature_rating: Optional[Quantity] = None
     response_type: Optional[str] = None
-    parameters: list[RuleParameter] = Field(default_factory=list)
-    document: RuleSource
+    parameters: list[RuleParameter] = Field(default_factory=list)          # further listed data, with units
+    installation_constraints: list[RuleParameter] = Field(default_factory=list)
+    document: RuleSource                                # data sheet / listing document: id, revision, date, access
+    author: Optional[str] = None
+    authored_at: Optional[str] = None
     reviewer: Optional[str] = None
     reviewed_at: Optional[str] = None
-    review_status: Literal["draft", "reviewed", "approved", "withdrawn"] = "draft"
-    rules: RuleSet
+    review_status: Literal["draft", "under_review", "reviewed", "approved", "superseded", "retired",
+                           "withdrawn"] = "draft"
+    change_reason: str = ""
+    rules: RuleSet                                      # coverage / spacing / other listed limits as listing rules
 
     @model_validator(mode="after")
     def _consistent(self):
@@ -117,11 +126,25 @@ class SprinklerListing(BaseModel):
             raise ValueError(f"synthetic listings must carry {SYNTHETIC_MARK} in their id")
         return self
 
+    def digest(self) -> str:
+        import hashlib
+        import json
+        body = self.model_dump(mode="json", exclude={"reviewer", "reviewed_at", "review_status"})
+        return hashlib.sha256(json.dumps(body, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
     def identity(self) -> dict:
         return {"listing_id": self.listing_id, "version": self.version, "content_basis": self.content_basis,
                 "manufacturer": self.manufacturer, "model": self.model, "sin": self.sin,
                 "document": self.document.document, "revision": self.document.revision,
-                "review_status": self.review_status, "rules_digest": self.rules.digest()}
+                "review_status": self.review_status, "rules_digest": self.rules.digest(), "digest": self.digest()}
+
+
+class SystemCondition(BaseModel):
+    """The system and storage condition of the design area: explicit, attributed inputs (never assumed)."""
+    system_type: str                                  # e.g. "wet_pipe" (a stated fact, not inferred)
+    storage: str                                      # e.g. "non_storage" / "storage" / "unknown"
+    reason: str = ""
+    source: InputSource
 
 
 class EngineeringTolerances(BaseModel):
@@ -141,6 +164,9 @@ class PlacementSearchSpace(BaseModel):
     max_per_axis: int = Field(ge=1)
     excluded_regions_local_ft: list[list[tuple[float, float]]] = Field(default_factory=list)
     max_rejected_examples: int = Field(default=3, ge=0)
+    # representation (not engineering): valid sets larger than this are returned compactly
+    # (ValidLayoutSet) and materialised on demand instead of as explicit layout objects
+    max_explicit_layouts: int = Field(default=200, ge=0)
     source: InputSource
 
 
@@ -154,6 +180,7 @@ class DesignRequest(BaseModel):
     listing: Optional[SprinklerListing] = None
     ceiling: Optional[CeilingCondition] = None
     classification: Optional[DesignClassification] = None
+    system: Optional[SystemCondition] = None
     tolerances: Optional[EngineeringTolerances] = None
     search: Optional[PlacementSearchSpace] = None
     requested_by: Optional[str] = None

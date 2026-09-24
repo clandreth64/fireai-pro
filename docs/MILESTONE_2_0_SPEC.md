@@ -170,3 +170,20 @@ Expected values will come from the selected ruleset **after** §6 is decided. No
 * Reviewer identity is not authenticated.
 * LibreDWG cannot decode some objects and uses pathological resources on some files.
 * 2D plans carry no Z (ceiling height must be entered explicitly).
+
+---
+
+## M2.1 status note (2026-09-24)
+
+The M2.0 envelope above remains the geometric core. M2.1 adds:
+- the NFPA 13-2025 identity (EMPTY / DRAFT);
+- the owner's first development envelope;
+- human rule and listing authoring with two-person review;
+- project persistence with invalidation;
+- the exact pruned search;
+- compact valid sets;
+- the agent candidate interface.
+
+See `NFPA13_RULES_ARCHITECTURE.md` §6 for details. The repository contains no NFPA 13 or manufacturer
+value, and real design still refuses. Input checklists:
+`NFPA13_2025_FIRST_RULESET_INPUT_CHECKLIST.md`, `SPRINKLER_LISTING_INPUT_CHECKLIST.md`.

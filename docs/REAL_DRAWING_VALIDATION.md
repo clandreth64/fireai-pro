@@ -606,3 +606,56 @@ full explanation of every valid layout. A 40 × 30 ft room with up to 12 sprinkl
 10 minutes. The `room_axis_array/1` family is therefore for single rooms. The commercial-scale strategy
 (partitioning, per-axis pruning, monotone-constraint pruning, compact valid sets, parallel evaluation,
 incremental recomputation) is in the architecture document §4.
+
+## §M2.1 — Persistence, rule authoring, exact pruned search: REAL_002 regression
+
+Tests: `tests/test_m21_persistence.py`, `tests/test_m21_rules_listings.py`,
+`tests/test_m21_search_agents_envelope.py`.
+
+**REAL_002 regression**, run read-only: `.fireai_data` mounted `:ro` with `FIREAI_DATA_DIR=/data`, and
+nothing written. Command: `scripts/m2_design_check.py --job f4cd139f… --space be6afed8-1b66-5ad7-b06c-e358a8b9de3b`.
+The engineering package uses stable semantic-space uids, so `SP00098` / `R00097` becomes
+`be6afed8…` / `90352ab2…`. The space is 69.74 sf with a complete boundary: wall 25.96 ft, window
+4.67 ft, door opening 2.83 ft.
+
+* REAL gate: PASSED, `engineering_input/3`, verified by clandreth.
+* Engineering mode with the in-memory NFPA 13-2025 EMPTY DRAFT identity: **REFUSED**, with no layout
+  and no valid set. Refusal codes:
+  - `MISSING_SPRINKLER_LISTING`
+  - `MISSING_CEILING_CONDITION`
+  - `MISSING_DESIGN_CLASSIFICATION`
+  - `MISSING_TOLERANCES`
+  - `MISSING_SEARCH_SPACE`
+  - `MISSING_SYSTEM_CONDITION`
+  - `RULESET_NOT_APPROVED`
+  - `JURISDICTION_NOT_SPECIFIED`
+* TEST ONLY synthetic run, with the same geometry and parameters as M2.0 (frame LOCAL, Z unknown,
+  `NOT_FOR_ENGINEERING_USE`):
+  - 21,263 candidates;
+  - **10,629 valid, identical to M2.0**;
+  - 10,728 fully evaluated;
+  - 10.5 s, down from 30.7 s in M2.0.
+* Bug found and fixed during this regression: when valid layouts exceeded `max_explicit_layouts`,
+  the status came from the explicit list, which is empty in that case, so it reported
+  `NO_VALID_LAYOUT_IN_SEARCH_SPACE`. The status now follows the complete valid set, and the result
+  validator enforces this.
+
+**Benchmark:**
+- generated rooms;
+- synthetic rules: boundary max, wall min, axis spacing max, cell area max;
+- single thread;
+- timing and memory measured in separate runs.
+
+| Room (ft) | Step | Max n / axis | Candidates | Valid | Fully evaluated | M2.1 time | Peak MB | M2.0 brute force (same run) | M2.0 as reported | Same valid set |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 10 × 10 | 1.0 | 4 / 4 | 2,475 | 823 | 855 | 0.72 s | 0.6 | 2.47 s | 9.9 s | yes |
+| 20 × 10 | 1.0 | 4 / 4 | 10,213 | 185 | 285 | 0.78 s | 13.3 | 2.11 s | 8.8 s | yes |
+| 20 × 10 | 0.5 | 4 / 4 | 164,653 | 2,779 | 4,127 | 5.03 s | 11.4 | 20.48 s | 138 s | yes |
+| 30 × 20 | 1.0 | 6 / 3 | 155,125 | 1 | 63 | 0.36 s | 3.7 | 16.21 s | 120 s | yes |
+| 30 × 20 | 1.0 | 9 / 3 | 171,001 | 68 | 217 | 1.32 s | 9.7 | 19.40 s | 218 s | yes |
+| 40 × 30 | 1.0 | 12 / 4 | 1,011,391 | 3 | 91 | **0.81 s** | 6.5 | 140.08 s | did not finish in 10 min | yes |
+
+"M2.0 as reported" includes a full explanation of every valid layout. The same-run brute force is the
+retained `reference_search`. The search space is unchanged; only rejection is cheaper. Most of the
+remaining cost is the full evaluation of valid layouts. Beyond 200 valid layouts, the compact valid
+set no longer materialises them.
