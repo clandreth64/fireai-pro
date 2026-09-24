@@ -1,18 +1,18 @@
 {
   "schema": "human_review/3",
-  "id": "REAL_002",
-  "reviewer": "owner",
+  "id": "REAL_003",
+  "reviewer": "clandreth",
   "reviewer_identity": "unauthenticated_name",
-  "review_timestamp": "2026-09-24T00:14:56.303855+00:00",
+  "review_timestamp": "2026-09-24T00:13:40.743266+00:00",
   "source_sha256s": [
-    "3c95e8a82d5c8c251483fabc61efa8ca904f4e4bc8c2fce4786d74e812284d07"
+    "7d5507da05fb70ba55875d99e676524ca2caa0ed7a5582ad130c3c06e8d925f1"
   ],
-  "claude_draft_sha256": "e6818ad4a49fd27f9ad3c3c44d6637897e72379ac4c59d4f1d6e0bcc840f2c3b",
+  "claude_draft_sha256": "f43762bc3515a5cda829e66a61cce83022305f8ab26b0246130360d9c270bc92",
   "evaluated_model": {
-    "output": "m18/REAL_002_dwg/building_model.json",
-    "model_sha256": "48555c613be2c2cbe5641d4955a785760dcdcb220ac9f08667532ab19e05025e",
+    "output": "m18/REAL_003_dwg/building_model.json",
+    "model_sha256": "0e95e1d1e4abd30a9512042ee48e15e82357e9363ce5550e751034c605eebd8f",
     "engine_version": "0.1.0+interp.m18.1",
-    "model_id": "d74f8cce5eca4e73a4bb11b29c6c7b77"
+    "model_id": "85749889719643dca17dca44b39f0320"
   },
   "items": {
     "units": {
@@ -20,37 +20,37 @@
       "type": "fact",
       "claude_draft": {
         "units": {
-          "value": "in",
+          "value": "m",
           "assertion": "EXACT",
-          "note": "header $INSUNITS=1; plan size (~33 x 40 ft per floor) is plausible"
+          "note": "header $INSUNITS=6"
         }
       },
       "human_decision": "CONFIRMED",
-      "confirmed_value": "in",
+      "confirmed_value": "m",
       "confirmed_value_source": "fireai",
       "human_corrected_value": null,
       "basis": "cad_file_inspection",
       "reason": null,
       "open_question": null,
-      "decided_at": "2026-09-23T17:09:03.536579+00:00"
+      "decided_at": "2026-09-24T00:13:40.743170+00:00"
     },
     "drawing_type": {
       "question": "What kind of drawing is this (e.g. two-storey residential floor plans)?",
       "type": "fact",
       "claude_draft": {
         "drawing_type": {
-          "value": "two-storey residential floor plans (floor 1 and floor 2 side by side)",
+          "value": "same plan as REAL_002, metric edition",
           "assertion": "EXACT"
         }
       },
       "human_decision": "CONFIRMED",
-      "confirmed_value": "two-storey residential floor plans (floor 1 and floor 2 side by side)",
+      "confirmed_value": "same plan as REAL_002, metric edition",
       "confirmed_value_source": "claude_draft",
       "human_corrected_value": null,
       "basis": "visual_review_of_source_rendering",
       "reason": null,
       "open_question": null,
-      "decided_at": "2026-09-23T17:09:03.536629+00:00"
+      "decided_at": "2026-09-24T00:13:40.743193+00:00"
     },
     "view_count": {
       "question": "How many distinct plan views / drawings are visible?",
@@ -68,7 +68,7 @@
       "basis": "visual_review_of_source_rendering",
       "reason": null,
       "open_question": null,
-      "decided_at": "2026-09-23T17:09:03.536648+00:00"
+      "decided_at": "2026-09-24T00:13:40.743199+00:00"
     },
     "view_types": {
       "question": "What type is each view? (number of views of each type)",
@@ -83,7 +83,7 @@
       "basis": "visual_review_of_source_rendering",
       "reason": null,
       "open_question": null,
-      "decided_at": "2026-09-23T17:09:03.536658+00:00"
+      "decided_at": "2026-09-24T00:13:40.743205+00:00"
     },
     "rooms_recognized": {
       "question": "The major rooms/spaces are recognized.",
@@ -96,7 +96,7 @@
       "basis": null,
       "reason": null,
       "open_question": null,
-      "decided_at": "2026-09-24T00:14:38.315127+00:00"
+      "decided_at": "2026-09-24T00:13:40.743210+00:00"
     },
     "room_labels": {
       "question": "Room labels are associated with the correct spaces.",
@@ -109,7 +109,7 @@
       "basis": null,
       "reason": null,
       "open_question": null,
-      "decided_at": "2026-09-23T17:09:03.536670+00:00"
+      "decided_at": "2026-09-24T00:13:40.743215+00:00"
     },
     "room_boundaries": {
       "question": "The displayed room boundaries visually match the source.",
@@ -122,17 +122,12 @@
       "basis": null,
       "reason": null,
       "open_question": null,
-      "decided_at": "2026-09-24T00:14:38.315160+00:00"
+      "decided_at": "2026-09-24T00:13:40.743220+00:00"
     },
     "walls": {
       "question": "Major walls are represented in the correct locations.",
       "type": "evaluation",
-      "claude_draft": {
-        "walls": {
-          "value": "double-line exterior and interior walls on layer 'Walls'",
-          "assertion": "EXACT"
-        }
-      },
+      "claude_draft": null,
       "human_decision": "CONFIRMED",
       "confirmed_value": null,
       "confirmed_value_source": null,
@@ -140,7 +135,7 @@
       "basis": null,
       "reason": null,
       "open_question": null,
-      "decided_at": "2026-09-23T17:09:03.536684+00:00"
+      "decided_at": "2026-09-24T00:13:40.743225+00:00"
     },
     "doors_openings": {
       "question": "Door and opening locations are represented correctly.",
@@ -153,18 +148,12 @@
       "basis": null,
       "reason": null,
       "open_question": null,
-      "decided_at": "2026-09-23T17:09:03.536689+00:00"
+      "decided_at": "2026-09-24T00:13:40.743230+00:00"
     },
     "windows": {
       "question": "Windows are represented correctly (where relevant).",
       "type": "evaluation",
-      "claude_draft": {
-        "windows": {
-          "value": 42,
-          "assertion": "APPROXIMATE",
-          "note": "Window dynamic-block copies (each includes a tag hexagon). Initial visual reading 'tags are not windows' was WRONG \u2014 corrected by effective block names"
-        }
-      },
+      "claude_draft": null,
       "human_decision": "CONFIRMED",
       "confirmed_value": null,
       "confirmed_value_source": null,
@@ -172,7 +161,7 @@
       "basis": null,
       "reason": null,
       "open_question": null,
-      "decided_at": "2026-09-23T17:09:03.536695+00:00"
+      "decided_at": "2026-09-24T00:13:40.743235+00:00"
     },
     "structure": {
       "question": "Stairs, columns and major structural elements are represented correctly.",
@@ -185,7 +174,7 @@
       "basis": null,
       "reason": null,
       "open_question": null,
-      "decided_at": "2026-09-23T17:09:03.536700+00:00"
+      "decided_at": "2026-09-24T00:13:40.743240+00:00"
     },
     "fire_protection": {
       "question": "Fire-protection content is classified correctly (sprinkler vs fire alarm vs other).",
@@ -198,7 +187,7 @@
       "basis": null,
       "reason": null,
       "open_question": null,
-      "decided_at": "2026-09-23T17:09:03.536706+00:00"
+      "decided_at": "2026-09-24T00:13:40.743244+00:00"
     },
     "excluded_content": {
       "question": "Unrelated content (annotation, furniture, electrical, schedules) is kept out of the building model.",
@@ -211,7 +200,7 @@
       "basis": null,
       "reason": null,
       "open_question": null,
-      "decided_at": "2026-09-23T17:09:03.536711+00:00"
+      "decided_at": "2026-09-24T00:13:40.743249+00:00"
     },
     "missing_content": {
       "question": "Nothing important is missing.",
@@ -224,7 +213,7 @@
       "basis": null,
       "reason": null,
       "open_question": null,
-      "decided_at": "2026-09-24T00:14:38.315204+00:00"
+      "decided_at": "2026-09-24T00:13:40.743254+00:00"
     },
     "confident_errors": {
       "question": "FireAI has not confidently interpreted anything that is visibly wrong.",
@@ -237,7 +226,7 @@
       "basis": null,
       "reason": null,
       "open_question": null,
-      "decided_at": "2026-09-23T17:09:03.536723+00:00"
+      "decided_at": "2026-09-24T00:13:40.743258+00:00"
     },
     "review_flags": {
       "question": "FireAI's warnings / review flags are appropriate (it flags what it should not be trusted on).",
@@ -250,9 +239,9 @@
       "basis": null,
       "reason": null,
       "open_question": null,
-      "decided_at": "2026-09-23T17:09:03.536731+00:00"
+      "decided_at": "2026-09-24T00:13:40.743263+00:00"
     }
   },
   "visual_flags": [],
-  "note": "M1.8 substantially improves this drawing. The physical enclosed regions visually match the source, and the major walls, doors, windows and stairs appear correctly represented. The open first-floor area contains multiple named architectural spaces including Kitchen, Hall, Living Room and Forum without physical walls separating them. FireAI now preserves these named semantic spaces while leaving their internal boundaries unresolved rather than inventing walls or precise boundaries. This appears appropriate and the unresolved condition is correctly flagged for human review. I do not see a confidently incorrect interpretation that should block the current human-gated engineering scope."
+  "note": "REAL_003 appears to be the metric counterpart of REAL_002 and shows consistent M1.8 behavior. The major physical regions, walls, doors, windows, stairs and named spaces visually correspond to the source drawing. The first floor contains multiple named semantic spaces, including Kitchen, Living Room, Forum and Hall, within an open physical region without walls establishing exact boundaries between them. FireAI appropriately preserves these spaces while leaving their internal boundaries unresolved rather than inventing geometry. The unresolved condition is appropriately flagged for human review. No obvious confidently incorrect interpretation is visible in the current output."
 }

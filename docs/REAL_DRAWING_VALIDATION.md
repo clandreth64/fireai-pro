@@ -348,3 +348,98 @@ Wall-clock differences in this run (REAL_010: 90 s → 124 s) came from stages M
 **Limitations:** semantic space boundaries inside an open region stay unresolved until a person draws
 them; section/elevation materials and construction semantics are not modelled; UNKNOWN views keep plan
 interpretation (marked unconfirmed); REAL_003 has no human review.
+
+## §M2.0-readiness — Final checkpoint before Milestone 2.0 (2026-09-24, at `a22dd7a`)
+
+No Drawing Understanding code changed in this checkpoint. A verification corpus run (`readiness`,
+outputs kept outside the repository so the reviewed m18 outputs stay current) is identical to `m18`
+for every file (categories, triggers, physical regions).
+
+### Human review state (corpus reviews, human_review/3)
+
+| Drawing | Reviewer | Evaluated output | Status | Facts | Evaluations |
+|---|---|---|---|---|---|
+| REAL_002 (in) | owner | m18, engine `interp.m18.1` (current) | HUMAN_VERIFIED | 4/4 CONFIRMED | 11 CONFIRMED, fire_protection NOT_EVALUATED, 0 stale |
+| REAL_003 (m) | clandreth | m18 (current) | HUMAN_VERIFIED | 4/4 CONFIRMED | 11 CONFIRMED, fire_protection NOT_EVALUATED, 0 stale |
+| REAL_004 (sections) | clandreth | m18 (current) | HUMAN_VERIFIED | 4/4 CONFIRMED | 6 CONFIRMED, 5 NOT_EVALUATED (room ×3, windows, fire protection), 1 CORRECTED (major: section materials/construction not modelled), 0 stale |
+
+These reviews measure FireAI's accuracy. They are **not** the product verification that the
+engineering gate reads (see below).
+
+### Imperial/metric semantic regression pair (permanent)
+
+`tests/test_unit_system_equivalence.py` with `tests/real_drawings/semantic_pair.py` compares
+engineering meaning:
+* view count and types;
+* physical regions, and whether they are merged;
+* known and unresolved semantic spaces;
+* door / window / stair / column / depiction counts per view;
+* space connectivity through openings;
+* per-view engineering blockers (the real contract under a throw-away simulated verification);
+* extents, areas and wall length in feet, within tolerances.
+
+It runs on generated drawings in in / mm / cm / m (always, exact tolerance), proves it detects a unit
+misreading and a semantic change, and runs on the real pair when the local corpus and LibreDWG exist.
+Evidence-backed differences are declared in `tests/real_drawings/equivalence_pairs.json`. A
+declaration must match exactly and fails the test when it stops being observed.
+
+REAL_002 ↔ REAL_003 result: view types, open-plan condition (the same 4 unresolved spaces),
+blockers, door/window/stair counts, extents (≤ 3 %), unique-room areas (≤ 8 %) and wall length
+(≤ 10 %) agree. Declared differences:
+
+| Difference | Class | Evidence |
+|---|---|---|
+| "DINING ROOM" vs "DINNING ROOM" | source | the metric file's label text is spelled that way |
+| 5 columns vs 0 | source | the imperial file inserts a `Column` block; the metric file has plain lines there and no column block |
+| 2 unlabelled closet regions (floor 2) only in imperial, plus the resulting connection change | **FireAI limitation** | the closets exist in both: 16.15 sf (in) vs 14.17 sf (m, thicker walls); the fixed 16.0 sf minimum for polygonized rooms keeps one pair and drops the other |
+
+Also found: one door can produce several overlapping wall-gap openings (3 in imperial, 4 in metric
+for the same closet door), and wall-gap analysis misses some doors and windows that do exist as
+elements. Connectivity is therefore compared as a set.
+
+### First real M2.0 candidate and the real engineering gate
+
+* **Real gate (`require_verified_model` / `build_engineering_input`), unchanged:** REAL_002 and
+  REAL_003 are **REFUSED** with `model is REVIEW_REQUIRED`. No product verification exists (no review
+  store record with selected regions and acknowledged triggers). The corpus review does not create
+  one, and FireAI does not create one on anyone's behalf.
+* **Other blockers:**
+  * none at model level: units resolved, no XREFs, and conversion loss is `review` (2 ACAD_TABLE
+    schedule objects, no plan geometry);
+  * per region: floor 1 (V1) is blocked by the open-plan merged region and its 4 unresolved spaces;
+    floor 2 (V2) has **no** other blocker.
+* **Candidates on V2 (known boundaries):**
+  * B/R (bathroom; bathtub inside), 69.7 sf, rectangular;
+  * second B/R, 69.2 sf;
+  * BEDROOM 117.8 sf and 141.7 sf (non-rectangular);
+  * WALK-IN CLOSET 54.4 sf;
+  * MASTER BEDROOM 231.5 sf;
+  * HALL 149.7 sf (contains the stair).
+
+  The same set is found in REAL_003.
+* **Simplest technically valid candidate:** REAL_002 `SP00098` "B/R" in physical region `R00097`:
+  * 69.74 sf, 7.9 × 8.8 ft, rectangularity 1.00;
+  * one boundary segment is a door-opening analysis line;
+  * metric twin: REAL_003 `SP00314`, 66.2 sf, rectangularity 1.00.
+* **Package preview:** built through the real contract code with a *simulated* verification in a
+  throw-away store. It is not a pass and was not persisted.
+  * It contains identity, schema 0.4.0, engine, source sha, fingerprint, the LOCAL frame, units in
+    and the SRC→LOCAL matrix, `spatial_context: unassigned`, `z_status: unknown`, the 8 `not_provided`
+    items, 9 physical regions, 7 known semantic spaces, 45 derived wall pieces (6 bound the
+    candidate) and 0 columns.
+  * The leak scan found no entity ids, handles, layers, block names or DXF types.
+  * **Missing:** openings and boundary-segment kinds (the door-closure segment is indistinguishable
+    from a wall). This is the M2.0 prerequisite in `MILESTONE_2_0_SPEC.md` §3a.
+
+### Technical debt found
+
+1. Contract draft 2 has no openings or boundary-segment kinds (blocks M2.0 wall-distance checks).
+2. Fixed `MIN_POLYGONIZED_ROOM_SF` edge sensitivity (the closet asymmetry above).
+3. Overlapping or missed wall-gap openings.
+4. Corpus-review evaluations bind to the output file's bytes. `model_id`, `created_at` and the
+   converter label change on every re-run, so a re-run with identical content makes evaluations
+   stale. This is conservative, but it costs the reviewer time. The product verification
+   fingerprint is not affected.
+5. Element provenance records `engine_version` "0.1.0" while the model binding records
+   "0.1.0+interp.m18.1".
+6. Selection is per view region, so an open-plan area on one floor blocks every room on that floor.

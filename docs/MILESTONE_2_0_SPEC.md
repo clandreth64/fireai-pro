@@ -4,6 +4,9 @@
 NFPA requirements**: every numeric engineering value is a placeholder until the ruleset decision in
 §6 is made. No value here may be copied into code as a requirement.
 
+Readiness checkpoint (2026-09-24): see `REAL_DRAWING_VALIDATION.md` §M2.0-readiness for the real
+candidate room, the real gate result and the input gap. Open owner decisions: `M2_OWNER_DECISIONS.md`.
+
 ## 1. Purpose
 
 Prove that FireAI can make its **first independently verifiable fire-protection engineering
@@ -15,24 +18,45 @@ constraints, with every placed sprinkler explainable.
 | In scope | Out of scope |
 |---|---|
 | one HUMAN_VERIFIED floor-plan region (via the engineering input contract) | piping, hydraulics |
-| one HUMAN_VERIFIED room/space, simple geometry | BIM coordination, clash detection |
+| one **known** semantic space (`boundary_state: known`) in that region, simple geometry | BIM coordination, clash detection |
 | flat ceiling, **explicit** ceiling height | fabrication |
 | **explicit** hazard/design classification | automatic hazard classification |
 | **explicit** sprinkler type (and its listing data, entered explicitly) | automatic code-edition selection |
 | **explicit** applicable ruleset and version | obstructions (the space must have none unresolved) |
 | | multiple spaces, sloped or obstructed ceilings, soffits, beams |
+| | any space with an **unresolved** boundary (open-plan named spaces); FireAI never invents one |
 
 ## 3. Inputs (all explicit, all recorded)
 
-1. `EngineeringInput` from `build_engineering_input` (contract `engineering_input/2-draft`) with
-   exactly one selected region and one selected space (the space uid is chosen by a person).
+1. `EngineeringInput` from `build_engineering_input` (contract `engineering_input/3`, see §3a) with
+   exactly one selected region and one selected space. A person chooses the space uid; it must be a
+   `semantic_spaces[]` entry, and its `region_uid` names the physical region (`spaces[]`) that
+   supplies the geometry.
 2. A **DesignCriteria** record, entered and attributed by a person:
-   * `ceiling_height` and ceiling type = flat (Z source: human input);
+   * the ceiling as an explicit **ceiling record**: type (flat, per owner decision 7), height, and the
+     height's **datum** (e.g. above the finished floor of the selected space; the level stays
+     `unassigned`). Z source: human input. Recorded as a ceiling object, not a scalar, so sloped or
+     multiple ceiling planes can later be added without changing the result format;
    * `hazard_classification` (human decision, with reason);
    * `sprinkler_type` and the listed parameters needed by the ruleset (human input, with source);
    * `ruleset_id` + `ruleset_version` (see §6);
    * `obstructions`: an explicit statement "none" for the space (otherwise out of scope → refuse).
 3. Anything missing → refuse with the list of missing inputs. No defaults.
+
+## 3a. Contract prerequisite (before any placement code)
+
+The draft-2 contract gives a space only its polygon. Distance-to-wall checks (§5) need to know
+**which boundary segments are walls**. FireAI's polygon is closed across door openings with analysis
+lines, which are not walls (the model already records these as `door_closures`). The contract must
+first gain, as a versioned change (`engineering_input/3`):
+
+* per space: boundary **segments** with a kind (`wall_face` | `door_opening_closure` | `closing_line`
+  | `human_boundary`) and the uids they derive from;
+* **openings** (doors/windows in the selected region) as normalized objects: uid, kind, width,
+  location, and the spaces they connect;
+* tests proving that no CAD concept crosses the boundary.
+
+How engineering treats each segment kind is owner decision 8. It is not decided here.
 
 ## 4. The only engineering task
 
@@ -50,7 +74,7 @@ decides validity.
 | Field | Meaning |
 |---|---|
 | `sprinkler_id` / uid | stable id, provenance → space uid, criteria record, ruleset version |
-| `location` | XY in LOCAL ft; Z = the explicit ceiling-height input, with its source recorded |
+| `location` | a 3D point: `frame` = LOCAL (ft) and the contract's `source_to_local` + `verification_fingerprint`, so it can be re-expressed in SRC / PROJECT later; X, Y; Z = the ceiling record's height with its **datum** and source. Never a bare 2D point |
 | `spacing_to_adjacent` | distance to each neighbour and the governing constraint id |
 | `distance_to_walls` | per boundary segment, with constraint id |
 | `coverage_area` | the area assigned to the sprinkler and how it was computed |
@@ -62,7 +86,16 @@ decides validity.
 Human approval is required before a result is used for anything else. The result is not a design
 deliverable.
 
+Each placed sprinkler is a **design object** in the authoritative model (`provenance.origin =
+"design"`, engine and ruleset versions, `derived_from` = space uid, ceiling record and criteria). It
+is the seed of a future sprinkler-graph node (`SPATIAL_BIM_ARCHITECTURE.md` §8), not a separate
+representation. Later systems (routing, hydraulics, coordination, BIM, fabrication) extend these
+objects; they never re-derive them from a drawing.
+
 ## 6. Decisions required BEFORE implementation (owner / engineering authority)
+
+Plain-English decision sheet with options and consequences: `M2_OWNER_DECISIONS.md` (14 decisions
+plus scope confirmations and the first real trial room).
 
 1. **NFPA 13 edition** to encode first (and whether others are needed).
 2. **Legal access** to the standard text for encoding rules (licence terms for commercial software;
@@ -82,6 +115,11 @@ deliverable.
 10. **Tolerances:** geometric tolerance for pass/fail at boundaries and rounding rules.
 11. **Who may approve** results, and how approval identity is authenticated.
 12. **Known-answer authority:** who produces and signs off the expected results in §7.
+13. **Listing-data provenance:** where a sprinkler's listed parameters come from, and how they are
+    versioned.
+14. **Product verification of the trial drawing:** a person verifies the model in the product review
+    workflow, selecting the region. The corpus human review measures FireAI's accuracy and does
+    **not** satisfy the engineering gate.
 
 ## 7. Known-answer test cases (to be authored with expected results by a qualified person)
 
@@ -109,12 +147,23 @@ Expected values will come from the selected ruleset **after** §6 is decided. No
 * Results are persisted with all versions and are reproducible.
 * Every rule evaluation records a classification: deterministic rule / interpretation / project
   assumption / human decision.
+* An AI component may only **propose** candidate positions. Validity comes from the deterministic
+  checker alone (`AGENTIC_LEARNING_ARCHITECTURE.md` §5).
+* Every human approval, rejection or correction of an M2.0 result is recorded as a structured
+  learning event (FireAI's result, the human decision, the reason, and all versions), scoped to the
+  project. It never changes rules globally without the versioned release process (§8–§9 of that
+  document).
 
 ## 9. Limitations carried forward from M1.x (visible, not fixed by M2.0)
 
 * Paper-space risers and legends are not classified.
 * UNKNOWN regions need human view-type decisions.
-* Merged rooms need human boundaries.
+* Merged rooms and open-plan semantic spaces (unresolved boundaries) need human boundaries.
+  Selection is per view region, so one open-plan area blocks every room on that floor until it is
+  resolved.
+* The draft-2 contract carries no openings or boundary-segment kinds (§3a).
+* Wall-gap analysis can report several overlapping openings for one door, and misses some openings
+  (see `REAL_DRAWING_VALIDATION.md` §M2.0-readiness).
 * Wrong-but-declared units may go undetected.
 * Fire alarm and fire protection content is not separated.
 * Reviewer identity is not authenticated.

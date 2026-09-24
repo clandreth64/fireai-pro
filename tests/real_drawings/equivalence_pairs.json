@@ -1,0 +1,37 @@
+{
+  "note": "Drawings of the SAME architecture in different unit systems. FireAI must understand them the same way (tests/test_unit_system_equivalence.py, tests/real_drawings/semantic_pair.py). Only evidence-backed differences may be declared. A declaration matches one exact difference; a declaration that stops being observed fails the test and must be removed. This file is test data: no production code reads it.",
+  "pairs": [
+    {
+      "a": "REAL_002.dwg",
+      "b": "REAL_003.dwg",
+      "relation": "same two-storey plan; a = imperial (in), b = metric (m); human reviews confirm both (units, 2 x FLOOR_PLAN)",
+      "declared_differences": [
+        {
+          "view": 0, "field": "regions", "a_only": ["DINING ROOM"], "b_only": ["DINNING ROOM"],
+          "class": "source_difference",
+          "evidence": "the metric source text reads 'DINNING ROOM' (spelling in the CAD file); FireAI reads each label verbatim"
+        },
+        {
+          "view": 0, "field": "known_spaces", "a_only": ["DINING ROOM"], "b_only": ["DINNING ROOM"],
+          "class": "source_difference",
+          "evidence": "same label spelling difference as above"
+        },
+        {
+          "view": 0, "field": "counts.column", "a": 5, "b": 0,
+          "class": "source_difference",
+          "evidence": "the imperial file inserts a 'Column' block at five deck positions; the metric file has no column block definition and only plain lines on the deck layer at those positions"
+        },
+        {
+          "view": 1, "field": "regions", "a_only": ["<unnamed>", "<unnamed>"], "b_only": [],
+          "class": "fireai_limitation",
+          "evidence": "two closets behind bifold doors exist in both drafts. Their enclosed faces are 16.15 sf (imperial) and 14.17 sf (metric, thicker walls); the fixed MIN_POLYGONIZED_ROOM_SF = 16.0 keeps one pair and drops the other. Threshold brittleness, not unit handling. Recorded M2.0 readiness checkpoint, 2026-09-24"
+        },
+        {
+          "view": 1, "field": "connections", "a_only": ["door:<unnamed>~BEDROOM"], "b_only": ["door:BEDROOM~<outside>", "door:HALL~<outside>"],
+          "class": "fireai_limitation",
+          "evidence": "consequence of the closet difference above: without the closet regions, the closet doors connect a room to 'outside'"
+        }
+      ]
+    }
+  ]
+}

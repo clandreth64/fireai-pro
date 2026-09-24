@@ -3,16 +3,16 @@
   "id": "REAL_004",
   "reviewer": "clandreth",
   "reviewer_identity": "unauthenticated_name",
-  "review_timestamp": "2026-09-23T15:30:31.922746+00:00",
+  "review_timestamp": "2026-09-24T00:18:46.314409+00:00",
   "source_sha256s": [
     "0e74f0aa84b1323c922345f067739c42ee26213dea010b407b87a94212271654"
   ],
   "claude_draft_sha256": "5bec0414391c73854ea88b036ed8023115d2d6f1849d4dbdeef6f203d3335829",
   "evaluated_model": {
-    "output": "m17/REAL_004_dwg/building_model.json",
-    "model_sha256": "67c7e9a269214dafcde5d9698d2b84a7786d8dc5d33ec191df9087ad597d5dcf",
-    "engine_version": "0.1.0+interp.m17.1",
-    "model_id": "b89373894f024f22be71c2b2ab375eed"
+    "output": "m18/REAL_004_dwg/building_model.json",
+    "model_sha256": "aa91e89b7d8550c02807edf46a5879adbcb780a409521a38a9c7cac49765954b",
+    "engine_version": "0.1.0+interp.m18.1",
+    "model_id": "fae8258857364af0b04052a474dad4e9"
   },
   "items": {
     "units": {
@@ -141,17 +141,14 @@
       "question": "Door and opening locations are represented correctly.",
       "type": "evaluation",
       "claude_draft": null,
-      "human_decision": "CORRECTED",
+      "human_decision": "CONFIRMED",
       "confirmed_value": null,
       "confirmed_value_source": null,
-      "human_corrected_value": {
-        "severity": "major",
-        "description": "FireAI shows red Door (4) detections in the central section that do not appear to be doors in the source"
-      },
+      "human_corrected_value": null,
       "basis": null,
       "reason": null,
       "open_question": null,
-      "decided_at": "2026-09-23T15:30:31.922709+00:00"
+      "decided_at": "2026-09-24T00:18:39.150350+00:00"
     },
     "windows": {
       "question": "Windows are represented correctly (where relevant).",
@@ -214,46 +211,40 @@
       "confirmed_value_source": null,
       "human_corrected_value": {
         "severity": "major",
-        "description": "FireAI captures geometry, but it does not semantically understand much of the section's construction/material information"
+        "description": "Section materials/construction information is not modeled"
       },
       "basis": null,
       "reason": null,
       "open_question": null,
-      "decided_at": "2026-09-23T15:30:31.922734+00:00"
+      "decided_at": "2026-09-24T00:18:39.150391+00:00"
     },
     "confident_errors": {
       "question": "FireAI has not confidently interpreted anything that is visibly wrong.",
       "type": "evaluation",
       "claude_draft": null,
-      "human_decision": "CORRECTED",
+      "human_decision": "CONFIRMED",
       "confirmed_value": null,
       "confirmed_value_source": null,
-      "human_corrected_value": {
-        "severity": "major",
-        "description": "The apparent false door detections are the clearest example"
-      },
+      "human_corrected_value": null,
       "basis": null,
       "reason": null,
       "open_question": null,
-      "decided_at": "2026-09-23T15:30:31.922739+00:00"
+      "decided_at": "2026-09-24T00:18:39.150397+00:00"
     },
     "review_flags": {
       "question": "FireAI's warnings / review flags are appropriate (it flags what it should not be trusted on).",
       "type": "evaluation",
       "claude_draft": null,
-      "human_decision": "CORRECTED",
+      "human_decision": "CONFIRMED",
       "confirmed_value": null,
       "confirmed_value_source": null,
-      "human_corrected_value": {
-        "severity": "major",
-        "description": "It flags general verification/uncertainty, but apparently does not specifically flag its door classification as questionable"
-      },
+      "human_corrected_value": null,
       "basis": null,
       "reason": null,
       "open_question": null,
-      "decided_at": "2026-09-23T15:30:31.922743+00:00"
+      "decided_at": "2026-09-24T00:18:39.150403+00:00"
     }
   },
   "visual_flags": [],
-  "note": "FireAI correctly identifies all four views as sections rather than floor plans, which is important. However, several elements in the central section appear to be incorrectly classified as doors. These do not appear to be doors when compared with the source drawing. Since FireAI already knows these views are sections, downstream element classification should use section-appropriate interpretation rather than floor-plan assumptions. Major stair and wall geometry appears to align reasonably well with the source. Room-related questions are not applicable to this drawing. FireAI also does not yet represent much of the section-specific information shown in the source, such as construction assemblies, materials, elevations, and detailed annotations."
+  "note": "M1.8 corrects the primary issue identified in the previous review. The two doors shown in the central section are now represented as non-plan door depictions rather than being incorrectly promoted to plan doors/openings. This is the appropriate interpretation for a section view. Major section and stair geometry appears consistent with the source. However, FireAI does not yet model important section-specific construction information such as materials, assemblies, member descriptions, roof construction and other construction callouts. This does not necessarily block the narrowly scoped floor-plan sprinkler-design milestone, but remains an important Drawing Understanding limitation for the long-term system."
 }

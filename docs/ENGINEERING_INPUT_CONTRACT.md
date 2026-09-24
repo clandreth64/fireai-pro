@@ -95,3 +95,8 @@ Any blocker raises `ContractViolation` with every reason listed. There is no ove
 * LibreDWG cannot decode some objects (these are invisible to the conversion audit), and its memory
   use is pathological on some files (about 4.6 GB for a 5 MB DWG).
 * No Z / ceiling data comes from 2D plans.
+* Draft 2 carries no **openings** (doors/windows) and no **boundary-segment kinds**. A space's polygon
+  is closed across door openings with analysis lines that are not walls; the model records them
+  (`door_closures`), but the contract drops them. Distance-to-wall engineering needs both, so they
+  are the prerequisite `engineering_input/3` change in `MILESTONE_2_0_SPEC.md` §3a.
+* Selection is per view region: an unresolved open-plan area blocks every space on that floor.
