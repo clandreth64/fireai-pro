@@ -303,6 +303,26 @@ Coordination / BIM / Fabrication later) read these from the ONE authoritative mo
 re-interpret CAD: a physical region supplies geometry, a semantic space supplies use/name, and an
 unresolved space boundary is a blocker wherever a boundary is required.
 
+## 13d. Changes made in Milestone 1.9 (schema 0.5.0) and forward compatibility
+
+Every physical region carries a classified boundary; plan openings are `opening` elements (the void,
+like IFC `IfcOpeningElement`) filled by a door/window element (like `IfcDoor`/`IfcWindow`).
+Why this does not dead-end the 3D/BIM path:
+
+| Future need | How the 0.5.0 representation extends |
+|---|---|
+| wall faces in 3D | a boundary segment is the plan projection of a face; `vertical_extent` (bottom/top + datum, `unknown` today) is its home; `derived_from` links the wall linework / analysis pieces the face belongs to |
+| doors/openings with vertical extents | `opening.properties.vertical_extent` (sill/head) exists and is `unknown`; `depth_ft` already carries the wall depth where both faces are known |
+| windows | `window` segments (`encloses: true`) + window openings (`passable: false`), linked to the window element |
+| ceiling planes, room volumes | `RegionBoundary.representation` is `plan_projection` on a plane of `unknown` elevation; floor/ceiling planes and a volume are added as another representation of the same region uid, not a replacement |
+| levels | `placement.level_id` stays `unassigned`; a level assignment attaches to the region/opening uid |
+| project coordinates | geometry keeps its `frame` (LOCAL) and the model keeps SRC→SRC_FT→PROJECT frames; boundaries re-express through the same transforms |
+| clash detection | openings are explicit voids with footprints, so a pipe crossing a wall can later be tested against wall solids and opening voids; `unknown` segments/extents are reported as not evaluable, never as clear |
+| inner rings (columns, shafts inside a room) | `BoundaryRing.role = "inner"` is reserved |
+
+Nothing assumes a room is only a 2D polygon: the polygon is one (plan) representation, identified by
+uid, with explicit unknowns for everything vertical.
+
 ## 14. Changes that explicitly WAIT
 
 ProjectModel/Building/Level objects · 3D geometry representations and solids · relationship graph ·

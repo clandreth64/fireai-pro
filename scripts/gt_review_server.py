@@ -99,7 +99,7 @@ function poly(pts, attrs) {
 }
 for (const l of C.lines) poly(l, {fill: 'none', stroke: '#c8c8c8', 'stroke-width': sw});
 const COL = {room: '#2e8b57', wall: '#1f4e9c', door: '#d62728', window: '#00a0b0', stair: '#9467bd', column: '#2ca02c',
-             existing_fire_protection: '#ff7f0e', area: '#6a3d9a', depiction: '#b8860b'};
+             existing_fire_protection: '#ff7f0e', area: '#6a3d9a', depiction: '#b8860b', opening: '#ff1493'};
 const byUid = {};
 for (const it of C.items) {
   const col = COL[it.category] || '#8c564b', room = it.category === 'room' || it.category === 'area';
@@ -224,7 +224,7 @@ def create_review_app(gt_dir: Path = G.GT_DIR, public_dir: Path = G.PUBLIC_REVIE
         rows = []
         for gid in G.list_ids(gt_dir):
             rec, entry, _p, review, _ed, mp = ctx(gid)
-            eff = G.effective(rec, review, entry["sha256"], FV.model_sha(mp) if mp else None)
+            eff = G.effective(rec, review, entry["sha256"], **FV.currency(mp, review, outputs))
             done = len(G.QUESTIONS) - len(eff["not_reviewed"])
             stale = " (FireAI changed since your evaluation — please re-check)" if eff.get("stale_evaluations") else ""
             rows.append(f"<tr><td><a href='/review/{gid}'>{gid}</a></td><td>{H(entry['description'])}</td>"
@@ -259,8 +259,7 @@ def create_review_app(gt_dir: Path = G.GT_DIR, public_dir: Path = G.PUBLIC_REVIE
     def render(gid: str, errors: list[str] | None = None, posted: dict | None = None,
                posted_flags: list | None = None) -> HTMLResponse:
         rec, entry, _path, review, ed, mp = ctx(gid)
-        cur_sha = FV.model_sha(mp) if mp else None
-        eff = G.effective(rec, review, entry["sha256"], cur_sha)
+        eff = G.effective(rec, review, entry["sha256"], **FV.currency(mp, review, outputs))
         m = FV.load_model_dict(mp) if mp else None
         mv = FV.machine_facts(m) if m else {}
         cv = FV.canvas(m) if m else {"bounds": [0, 0, 1, 1], "lines": [], "texts": [], "items": [], "regions": []}
@@ -359,7 +358,9 @@ dashed = FireAI already flagged it as uncertain. Hover an item to see what FireA
             posted_em = json.loads(form.get("evaluated_model") or "null")
         except ValueError:
             posted_em = None
-        if em and posted_em and posted_em.get("model_sha256") != em["model_sha256"]:
+        if em and posted_em and ((posted_em.get("content_fingerprint") or posted_em.get("model_sha256"))
+                                  != (em["content_fingerprint"] if posted_em.get("content_fingerprint")
+                                      else em["model_sha256"])):
             errors.append("FireAI's output changed while you were reviewing — reload the page and check again")
         decisions = {}
         for q in G.QUESTIONS:

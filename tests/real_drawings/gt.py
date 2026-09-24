@@ -6,8 +6,10 @@ no CAD counting, no coordinates, no FireAI internals:
 * FACTS about the drawing (units, drawing type, number of views, view types). Answers are human
   GROUND TRUTH and persist until the drawing or Claude's draft changes.
 * EVALUATIONS of FireAI's interpretation ("the major rooms are recognized", "nothing important is
-  missing", ...). Answers judge ONE FireAI output: they are bound to that output
-  (``evaluated_model``) and become STALE when FireAI's output for the drawing changes.
+  missing", ...). Answers judge ONE FireAI interpretation: they are bound to that output
+  (``evaluated_model``) and become STALE when FireAI's interpretation CONTENT for the drawing
+  changes (content fingerprint, fireai/review/content.py). Reprocessing that only changes run
+  metadata (model id, timestamp, converter label, output path) does not make them stale.
 
 Every answer is CONFIRMED / CORRECTED / NOT_EVALUATED. Corrections are structured (choices,
 numbers, severity + description) and can be backed by VISUAL FLAGS: items the reviewer clicked on
@@ -253,7 +255,22 @@ def make_review(record: dict, source_sha: list[str], reviewer: str, decisions: d
     return rv
 
 
-def effective(record: dict, review: dict | None, source_sha: list[str], current_model_sha: str | None = None) -> dict:
+def evaluations_stale(em: dict, current_model_sha: str | None, current_content_fp: str | None,
+                      evaluated_content_fp: str | None = None) -> tuple[bool, str]:
+    """(stale?, basis). Content fingerprints decide when both sides are known: the one recorded in
+    the review, or ``evaluated_content_fp`` computed from the exact reviewed artifact (verified by
+    its sha256) for reviews recorded before content fingerprints existed. Otherwise (conservative)
+    the output file's bytes decide, as before."""
+    if not current_model_sha and not current_content_fp:
+        return False, "no_current_output"
+    reviewed_fp = em.get("content_fingerprint") or evaluated_content_fp
+    if reviewed_fp and current_content_fp:
+        return reviewed_fp != current_content_fp, "content_fingerprint"
+    return bool(current_model_sha) and em.get("model_sha256") != current_model_sha, "file_bytes"
+
+
+def effective(record: dict, review: dict | None, source_sha: list[str], current_model_sha: str | None = None,
+              current_content_fp: str | None = None, evaluated_content_fp: str | None = None) -> dict:
     """Human truth (facts), human evaluations of FireAI, and overall status.
 
     status: PENDING_HUMAN_VERIFICATION | PARTIALLY_HUMAN_REVIEWED | HUMAN_VERIFIED | INVALIDATED.
@@ -277,11 +294,11 @@ def effective(record: dict, review: dict | None, source_sha: list[str], current_
         elif q in EVALUATIONS:
             evals[q] = {"decision": st, "correction": it.get("human_corrected_value"), "reason": it.get("reason")}
     em = review.get("evaluated_model") or {}
-    stale = bool(current_model_sha) and em.get("model_sha256") != current_model_sha
+    stale, basis = evaluations_stale(em, current_model_sha, current_content_fp, evaluated_content_fp)
     reviewed = set(items)
     status = "HUMAN_VERIFIED" if reviewed >= set(QUESTIONS) and not stale else "PARTIALLY_HUMAN_REVIEWED"
     return {"status": status, "truth": truth, "evaluations": {} if stale else evals,
-            "stale_evaluations": evals if stale else {}, "evaluated_model": em,
+            "stale_evaluations": evals if stale else {}, "evaluated_model": em, "currency_basis": basis,
             "reviewer": review["reviewer"], "reviewer_identity": review.get("reviewer_identity"),
             "reviewed_at": review["review_timestamp"],
             "not_evaluated": sorted(q for q, it in items.items() if it["human_decision"] == "NOT_EVALUATED"),

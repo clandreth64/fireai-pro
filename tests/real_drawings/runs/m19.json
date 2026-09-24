@@ -1,0 +1,2564 @@
+{
+  "label": "m19",
+  "engine_commit": "m19 (a8450a2 + M1.9 working tree)",
+  "created": "2026-09-24T18:47:15Z",
+  "results": [
+    {
+      "id": "REAL_002",
+      "format": "dwg",
+      "size_bytes": 227008,
+      "processing_status": "completed",
+      "failure_code": null,
+      "requires_human_review": true,
+      "total_seconds": 8.034,
+      "stage_ms": {
+        "validate_upload": 4,
+        "dwg_conversion": 986,
+        "load_dxf": 531,
+        "conversion_audit": 21,
+        "resolve_units": 0,
+        "extract_geometry": 297,
+        "render_source": 1369,
+        "view_regions": 7,
+        "interpret": 115,
+        "wall_analysis": 126,
+        "room_analysis": 9,
+        "region_boundaries": 229,
+        "render_overlay": 2644,
+        "write_overlay_dxf": 649
+      },
+      "peak_rss_mb": 168.3,
+      "peak_rss_children_mb": 103.1,
+      "model_json_bytes": 2862959,
+      "converter": {
+        "name": "libredwg",
+        "version": "dwg2dxf 0.14.8597",
+        "command": [
+          "/opt/libredwg/bin/dwg2dxf",
+          "-y",
+          "-o",
+          "/app/tests/real_drawings_outputs_local/m19/REAL_002_dwg/_work/dwg_convert/REAL_002.dxf",
+          "/app/tests/real_drawings_local/drawings/REAL_002.dwg"
+        ]
+      },
+      "converter_log_lines": 51,
+      "units_override_hypothesis": null,
+      "work_dir_location": "bind_mount",
+      "dxf_version": "AC1021",
+      "units": {
+        "insunits": 1,
+        "resolved": "in",
+        "method": "drawing_header"
+      },
+      "bounds_ft": {
+        "width": 86.005,
+        "height": 53.667
+      },
+      "layer_count": 16,
+      "layers_with_role": 6,
+      "layer_roles": {
+        "UNRECOGNIZED": 9,
+        "window": 1,
+        "door": 1,
+        "stair": 1,
+        "text": 1,
+        "wall": 1
+      },
+      "block_count": 42,
+      "blocks_with_role": 24,
+      "xref_blocks": 0,
+      "entities_total": 2057,
+      "entities_top_level_model": 301,
+      "entities_paper": 104,
+      "entity_types_top_level": {
+        "INSERT": 168,
+        "LINE": 76,
+        "ARC": 32,
+        "MTEXT": 16,
+        "LWPOLYLINE": 9
+      },
+      "hidden_top_level": 0,
+      "unsupported": {},
+      "element_counts": {
+        "column": 5,
+        "window": 42,
+        "door": 16,
+        "wall": 4,
+        "stair": 2,
+        "room": 14,
+        "space": 15,
+        "text_annotation": 1,
+        "opening": 57
+      },
+      "text_entities": 185,
+      "unclassified_top_level": 186,
+      "unclassified_pct_of_visible_top": 61.8,
+      "rooms": [
+        {
+          "area_sf": 183.02,
+          "labeled": true,
+          "method": "polygonized_wall_linework",
+          "verify": true
+        },
+        {
+          "area_sf": 830.24,
+          "labeled": false,
+          "method": "polygonized_wall_linework",
+          "verify": true
+        },
+        {
+          "area_sf": 93.23,
+          "labeled": true,
+          "method": "polygonized_wall_linework",
+          "verify": true
+        },
+        {
+          "area_sf": 80.79,
+          "labeled": true,
+          "method": "polygonized_wall_linework",
+          "verify": true
+        },
+        {
+          "area_sf": 48.37,
+          "labeled": true,
+          "method": "polygonized_wall_linework",
+          "verify": true
+        },
+        {
+          "area_sf": 69.2,
+          "labeled": true,
+          "method": "polygonized_wall_linework",
+          "verify": true
+        },
+        {
+          "area_sf": 231.51,
+          "labeled": true,
+          "method": "polygonized_wall_linework",
+          "verify": true
+        },
+        {
+          "area_sf": 54.39,
+          "labeled": true,
+          "method": "polygonized_wall_linework",
+          "verify": true
+        },
+        {
+          "area_sf": 149.68,
+          "labeled": true,
+          "method": "polygonized_wall_linework",
+          "verify": true
+        },
+        {
+          "area_sf": 141.67,
+          "labeled": true,
+          "method": "polygonized_wall_linework",
+          "verify": true
+        },
+        {
+          "area_sf": 16.15,
+          "labeled": false,
+          "method": "polygonized_wall_linework",
+          "verify": true
+        },
+        {
+          "area_sf": 117.82,
+          "labeled": true,
+          "method": "polygonized_wall_linework",
+          "verify": true
+        },
+        {
+          "area_sf": 16.15,
+          "labeled": false,
+          "method": "polygonized_wall_linework",
+          "verify": true
+        },
+        {
+          "area_sf": 69.74,
+          "labeled": true,
+          "method": "polygonized_wall_linework",
+          "verify": true
+        }
+      ],
+      "dimension_checks": {
+        "total": 0,
+        "agree": 0
+      },
+      "review_triggers": [
+        "ROOM_BOUNDARY_SPANS_MULTIPLE_LABELS",
+        "ELEMENTS_REQUIRE_VERIFICATION",
+        "HIGH_UNCLASSIFIED_FRACTION",
+        "DWG_CONVERSION_LOSS_REVIEW",
+        "MULTIPLE_DRAWING_REGIONS",
+        "MULTIPLE_FLOOR_PLANS",
+        "REGION_BOUNDARY_UNCLASSIFIED"
+      ],
+      "view_regions": [
+        {
+          "id": "V1",
+          "entity_count": 174,
+          "significant": true,
+          "element_counts": {
+            "room": 5,
+            "space": 8,
+            "stair": 1,
+            "wall": 2,
+            "column": 5,
+            "window": 19,
+            "door": 8
+          }
+        },
+        {
+          "id": "V2",
+          "entity_count": 127,
+          "significant": true,
+          "element_counts": {
+            "room": 9,
+            "space": 7,
+            "stair": 1,
+            "wall": 2,
+            "window": 23,
+            "door": 8
+          }
+        }
+      ],
+      "conversion_audit_lost": {
+        "ACAD_TABLE": 2
+      },
+      "conversion_audit": {
+        "status": "ok",
+        "level": "handle",
+        "significance": "review",
+        "lost_by_significance": {
+          "review": {
+            "ACAD_TABLE": {
+              "count": 2,
+              "handles_sample": [
+                "25F1D",
+                "27254"
+              ]
+            }
+          }
+        },
+        "added_in_dxf": {},
+        "type_changed_count": 0,
+        "geometry_mismatch_count": 0,
+        "text_mismatch_count": 0
+      },
+      "view_types": [
+        {
+          "id": "V1",
+          "view_type": "FLOOR_PLAN",
+          "confidence": 0.85,
+          "review_state": "unreviewed",
+          "room_logic": "applied",
+          "rules": [
+            "V-GEOM-PLAN",
+            "V-TITLE-VIEWPORT"
+          ]
+        },
+        {
+          "id": "V2",
+          "view_type": "FLOOR_PLAN",
+          "confidence": 0.85,
+          "review_state": "unreviewed",
+          "room_logic": "applied",
+          "rules": [
+            "V-GEOM-PLAN",
+            "V-TITLE-VIEWPORT"
+          ]
+        }
+      ],
+      "wall_model": {
+        "wall_segments": 229,
+        "paired_segments": 163,
+        "wall_pieces": 95,
+        "curved_pieces": 0,
+        "junctions": 120,
+        "door_openings": 12,
+        "doorless_openings": 1,
+        "window_openings": 7,
+        "wall_elements_in_non_plan_views_skipped": 0,
+        "exterior_outline_by_region": {
+          "V1": "unknown",
+          "V2": "ok"
+        }
+      },
+      "xrefs": [],
+      "verification_status": "REVIEW_REQUIRED",
+      "unit_evidence_suggestion": null,
+      "warnings": [
+        "DXF_AUDIT_FIXES",
+        "DWG_CONVERTED"
+      ],
+      "errors": []
+    },
+    {
+      "id": "REAL_003",
+      "format": "dwg",
+      "size_bytes": 258848,
+      "processing_status": "completed",
+      "failure_code": null,
+      "requires_human_review": true,
+      "total_seconds": 12.278,
+      "stage_ms": {
+        "validate_upload": 4,
+        "dwg_conversion": 1179,
+        "load_dxf": 637,
+        "conversion_audit": 23,
+        "resolve_units": 0,
+        "extract_geometry": 306,
+        "render_source": 1400,
+        "view_regions": 10,
+        "interpret": 3980,
+        "wall_analysis": 122,
+        "room_analysis": 8,
+        "region_boundaries": 237,
+        "render_overlay": 2642,
+        "write_overlay_dxf": 737
+      },
+      "peak_rss_mb": 181.4,
+      "peak_rss_children_mb": 73.1,
+      "model_json_bytes": 3442555,
+      "converter": {
+        "name": "libredwg",
+        "version": "dwg2dxf 0.14.8597",
+        "command": [
+          "/opt/libredwg/bin/dwg2dxf",
+          "-y",
+          "-o",
+          "/app/tests/real_drawings_outputs_local/m19/REAL_003_dwg/_work/dwg_convert/REAL_003.dxf",
+          "/app/tests/real_drawings_local/drawings/REAL_003.dwg"
+        ]
+      },
+      "converter_log_lines": 51,
+      "units_override_hypothesis": null,
+      "work_dir_location": "bind_mount",
+      "dxf_version": "AC1021",
+      "units": {
+        "insunits": 6,
+        "resolved": "m",
+        "method": "drawing_header"
+      },
+      "bounds_ft": {
+        "width": 86.248,
+        "height": 54.062
+      },
+      "layer_count": 17,
+      "layers_with_role": 7,
+      "layer_roles": {
+        "UNRECOGNIZED": 8,
+        "window": 1,
+        "dimension": 1,
+        "door": 1,
+        "stair": 1,
+        "text": 1,
+        "wall": 1
+      },
+      "block_count": 45,
+      "blocks_with_role": 29,
+      "xref_blocks": 0,
+      "entities_total": 2353,
+      "entities_top_level_model": 497,
+      "entities_paper": 102,
+      "entity_types_top_level": {
+        "LINE": 282,
+        "INSERT": 161,
+        "ARC": 31,
+        "MTEXT": 16,
+        "LWPOLYLINE": 7
+      },
+      "hidden_top_level": 0,
+      "unsupported": {},
+      "element_counts": {
+        "window": 42,
+        "door": 16,
+        "text_annotation": 3,
+        "wall": 238,
+        "stair": 2,
+        "room": 12,
+        "space": 15,
+        "opening": 57
+      },
+      "text_entities": 137,
+      "unclassified_top_level": 189,
+      "unclassified_pct_of_visible_top": 38.0,
+      "rooms": [
+        {
+          "area_sf": 67.05,
+          "labeled": true,
+          "method": "polygonized_wall_linework",
+          "verify": true
+        },
+        {
+          "area_sf": 221.86,
+          "labeled": true,
+          "method": "polygonized_wall_linework",
+          "verify": true
+        },
+        {
+          "area_sf": 134.62,
+          "labeled": true,
+          "method": "polygonized_wall_linework",
+          "verify": true
+        },
+        {
+          "area_sf": 112.07,
+          "labeled": true,
+          "method": "polygonized_wall_linework",
+          "verify": true
+        },
+        {
+          "area_sf": 142.44,
+          "labeled": true,
+          "method": "polygonized_wall_linework",
+          "verify": true
+        },
+        {
+          "area_sf": 52.89,
+          "labeled": true,
+          "method": "polygonized_wall_linework",
+          "verify": true
+        },
+        {
+          "area_sf": 66.21,
+          "labeled": true,
+          "method": "polygonized_wall_linework",
+          "verify": true
+        },
+        {
+          "area_sf": 48.37,
+          "labeled": true,
+          "method": "polygonized_wall_linework",
+          "verify": true
+        },
+        {
+          "area_sf": 841.88,
+          "labeled": false,
+          "method": "polygonized_wall_linework",
+          "verify": true
+        },
+        {
+          "area_sf": 183.02,
+          "labeled": true,
+          "method": "polygonized_wall_linework",
+          "verify": true
+        },
+        {
+          "area_sf": 93.23,
+          "labeled": true,
+          "method": "polygonized_wall_linework",
+          "verify": true
+        },
+        {
+          "area_sf": 80.79,
+          "labeled": true,
+          "method": "polygonized_wall_linework",
+          "verify": true
+        }
+      ],
+      "dimension_checks": {
+        "total": 0,
+        "agree": 0
+      },
+      "review_triggers": [
+        "ROOM_BOUNDARY_SPANS_MULTIPLE_LABELS",
+        "ELEMENTS_REQUIRE_VERIFICATION",
+        "HIGH_UNCLASSIFIED_FRACTION",
+        "DWG_CONVERSION_LOSS_REVIEW",
+        "MULTIPLE_DRAWING_REGIONS",
+        "MULTIPLE_FLOOR_PLANS",
+        "REGION_BOUNDARY_UNCLASSIFIED"
+      ],
+      "view_regions": [
+        {
+          "id": "V1",
+          "entity_count": 264,
+          "significant": true,
+          "element_counts": {
+            "room": 5,
+            "space": 8,
+            "stair": 1,
+            "window": 19,
+            "wall": 104,
+            "door": 8
+          }
+        },
+        {
+          "id": "V2",
+          "entity_count": 233,
+          "significant": true,
+          "element_counts": {
+            "stair": 1,
+            "room": 7,
+            "space": 7,
+            "wall": 111,
+            "window": 23,
+            "door": 8
+          }
+        }
+      ],
+      "conversion_audit_lost": {
+        "ACAD_TABLE": 2
+      },
+      "conversion_audit": {
+        "status": "ok",
+        "level": "handle",
+        "significance": "review",
+        "lost_by_significance": {
+          "review": {
+            "ACAD_TABLE": {
+              "count": 2,
+              "handles_sample": [
+                "2856E",
+                "2A974"
+              ]
+            }
+          }
+        },
+        "added_in_dxf": {},
+        "type_changed_count": 0,
+        "geometry_mismatch_count": 0,
+        "text_mismatch_count": 0
+      },
+      "view_types": [
+        {
+          "id": "V1",
+          "view_type": "FLOOR_PLAN",
+          "confidence": 0.85,
+          "review_state": "unreviewed",
+          "room_logic": "applied",
+          "rules": [
+            "V-GEOM-PLAN",
+            "V-TITLE-VIEWPORT"
+          ]
+        },
+        {
+          "id": "V2",
+          "view_type": "FLOOR_PLAN",
+          "confidence": 0.85,
+          "review_state": "unreviewed",
+          "room_logic": "applied",
+          "rules": [
+            "V-GEOM-PLAN",
+            "V-TITLE-VIEWPORT"
+          ]
+        }
+      ],
+      "wall_model": {
+        "wall_segments": 248,
+        "paired_segments": 159,
+        "wall_pieces": 92,
+        "curved_pieces": 0,
+        "junctions": 115,
+        "door_openings": 13,
+        "doorless_openings": 1,
+        "window_openings": 5,
+        "wall_elements_in_non_plan_views_skipped": 0,
+        "exterior_outline_by_region": {
+          "V2": "ok",
+          "V1": "unknown"
+        }
+      },
+      "xrefs": [],
+      "verification_status": "REVIEW_REQUIRED",
+      "unit_evidence_suggestion": null,
+      "warnings": [
+        "DXF_AUDIT_FIXES",
+        "DWG_CONVERTED"
+      ],
+      "errors": []
+    },
+    {
+      "id": "REAL_004",
+      "format": "dwg",
+      "size_bytes": 188992,
+      "processing_status": "completed",
+      "failure_code": null,
+      "requires_human_review": true,
+      "total_seconds": 27.387,
+      "stage_ms": {
+        "validate_upload": 4,
+        "dwg_conversion": 738,
+        "load_dxf": 372,
+        "conversion_audit": 19,
+        "resolve_units": 0,
+        "extract_geometry": 121,
+        "render_source": 20608,
+        "view_regions": 39,
+        "interpret": 1234,
+        "wall_analysis": 0,
+        "room_analysis": 0,
+        "region_boundaries": 0,
+        "render_overlay": 3119,
+        "write_overlay_dxf": 398
+      },
+      "peak_rss_mb": 526.3,
+      "peak_rss_children_mb": 72.6,
+      "model_json_bytes": 1256140,
+      "converter": {
+        "name": "libredwg",
+        "version": "dwg2dxf 0.14.8597",
+        "command": [
+          "/opt/libredwg/bin/dwg2dxf",
+          "-y",
+          "-o",
+          "/app/tests/real_drawings_outputs_local/m19/REAL_004_dwg/_work/dwg_convert/REAL_004.dxf",
+          "/app/tests/real_drawings_local/drawings/REAL_004.dwg"
+        ]
+      },
+      "converter_log_lines": 73,
+      "units_override_hypothesis": null,
+      "work_dir_location": "bind_mount",
+      "dxf_version": "AC1021",
+      "units": {
+        "insunits": 1,
+        "resolved": "in",
+        "method": "drawing_header"
+      },
+      "bounds_ft": {
+        "width": 115.127,
+        "height": 47.339
+      },
+      "layer_count": 49,
+      "layers_with_role": 21,
+      "layer_roles": {
+        "UNRECOGNIZED": 27,
+        "door": 1,
+        "ceiling": 1,
+        "wall": 1,
+        "dimension": 5,
+        "stair": 2,
+        "title_block": 7,
+        "text": 2
+      },
+      "block_count": 10,
+      "blocks_with_role": 6,
+      "xref_blocks": 0,
+      "entities_total": 1681,
+      "entities_top_level_model": 1367,
+      "entities_paper": 92,
+      "entity_types_top_level": {
+        "LINE": 1178,
+        "ARC": 56,
+        "MULTILEADER": 36,
+        "LWPOLYLINE": 32,
+        "DIMENSION": 28,
+        "INSERT": 16,
+        "HATCH": 14,
+        "MTEXT": 5,
+        "CIRCLE": 2
+      },
+      "hidden_top_level": 0,
+      "unsupported": {
+        "MULTILEADER": 3
+      },
+      "element_counts": {
+        "stair": 5,
+        "text_annotation": 10,
+        "title_block": 1,
+        "dimension": 28,
+        "wall": 61,
+        "depiction": 2,
+        "ceiling": 17
+      },
+      "text_entities": 88,
+      "unclassified_top_level": 1154,
+      "unclassified_pct_of_visible_top": 84.4,
+      "rooms": [],
+      "dimension_checks": {
+        "total": 0,
+        "agree": 0
+      },
+      "review_triggers": [
+        "NON_PLAN_OPENING_DEPICTIONS",
+        "NO_ROOMS_DETECTED",
+        "ELEMENTS_REQUIRE_VERIFICATION",
+        "HIGH_UNCLASSIFIED_FRACTION",
+        "MULTIPLE_DRAWING_REGIONS",
+        "VIEW_TYPE_UNCERTAIN"
+      ],
+      "view_regions": [
+        {
+          "id": "V1",
+          "entity_count": 1,
+          "significant": false,
+          "element_counts": {}
+        },
+        {
+          "id": "V2",
+          "entity_count": 201,
+          "significant": true,
+          "element_counts": {
+            "dimension": 5,
+            "stair": 1
+          }
+        },
+        {
+          "id": "V3",
+          "entity_count": 429,
+          "significant": true,
+          "element_counts": {
+            "stair": 1,
+            "dimension": 16,
+            "ceiling": 17,
+            "wall": 35,
+            "depiction": 2,
+            "text_annotation": 4
+          }
+        },
+        {
+          "id": "V4",
+          "entity_count": 1,
+          "significant": false,
+          "element_counts": {}
+        },
+        {
+          "id": "V5",
+          "entity_count": 45,
+          "significant": false,
+          "element_counts": {}
+        },
+        {
+          "id": "V6",
+          "entity_count": 458,
+          "significant": true,
+          "element_counts": {
+            "stair": 1,
+            "dimension": 4,
+            "wall": 26,
+            "text_annotation": 1
+          }
+        },
+        {
+          "id": "V7",
+          "entity_count": 229,
+          "significant": true,
+          "element_counts": {
+            "stair": 2,
+            "dimension": 3
+          }
+        }
+      ],
+      "conversion_audit_lost": {},
+      "conversion_audit": {
+        "status": "ok",
+        "level": "handle",
+        "significance": "none",
+        "lost_by_significance": {},
+        "added_in_dxf": {},
+        "type_changed_count": 0,
+        "geometry_mismatch_count": 0,
+        "text_mismatch_count": 0
+      },
+      "view_types": [
+        {
+          "id": "V2",
+          "view_type": "SECTION",
+          "confidence": 0.6,
+          "review_state": "review_required",
+          "room_logic": "skipped",
+          "rules": [
+            "V-LAYER-TOKENS"
+          ]
+        },
+        {
+          "id": "V3",
+          "view_type": "SECTION",
+          "confidence": 0.7,
+          "review_state": "review_required",
+          "room_logic": "skipped",
+          "rules": [
+            "V-GEOM-PLAN",
+            "V-LAYER-TOKENS",
+            "V-TITLE-VIEWPORT"
+          ]
+        },
+        {
+          "id": "V6",
+          "view_type": "SECTION",
+          "confidence": 0.85,
+          "review_state": "unreviewed",
+          "room_logic": "skipped",
+          "rules": [
+            "V-LAYER-TOKENS",
+            "V-TITLE-VIEWPORT"
+          ]
+        },
+        {
+          "id": "V7",
+          "view_type": "SECTION",
+          "confidence": 0.6,
+          "review_state": "review_required",
+          "room_logic": "skipped",
+          "rules": [
+            "V-LAYER-TOKENS"
+          ]
+        }
+      ],
+      "wall_model": {
+        "wall_segments": 0,
+        "paired_segments": 0,
+        "wall_pieces": 0,
+        "curved_pieces": 0,
+        "junctions": 0,
+        "door_openings": 0,
+        "doorless_openings": 0,
+        "window_openings": 0,
+        "wall_elements_in_non_plan_views_skipped": 61,
+        "exterior_outline_by_region": {}
+      },
+      "xrefs": [],
+      "verification_status": "REVIEW_REQUIRED",
+      "unit_evidence_suggestion": null,
+      "warnings": [
+        "DXF_AUDIT_FIXES",
+        "UNSUPPORTED_ENTITIES",
+        "DWG_CONVERTED",
+        "ROOM_LOGIC_SKIPPED_FOR_NON_PLAN_VIEWS"
+      ],
+      "errors": []
+    },
+    {
+      "id": "REAL_005",
+      "format": "dwg",
+      "size_bytes": 169592,
+      "processing_status": "completed",
+      "failure_code": null,
+      "requires_human_review": true,
+      "total_seconds": 3.051,
+      "stage_ms": {
+        "validate_upload": 5,
+        "dwg_conversion": 378,
+        "load_dxf": 99,
+        "conversion_audit": 9,
+        "resolve_units": 0,
+        "extract_geometry": 7,
+        "render_source": 435,
+        "view_regions": 0,
+        "interpret": 0,
+        "wall_analysis": 0,
+        "room_analysis": 0,
+        "region_boundaries": 0,
+        "render_overlay": 1531,
+        "write_overlay_dxf": 83
+      },
+      "peak_rss_mb": 148.3,
+      "peak_rss_children_mb": 72.6,
+      "model_json_bytes": 161143,
+      "converter": {
+        "name": "libredwg",
+        "version": "dwg2dxf 0.14.8597",
+        "command": [
+          "/opt/libredwg/bin/dwg2dxf",
+          "-y",
+          "-o",
+          "/app/tests/real_drawings_outputs_local/m19/REAL_005_dwg/_work/dwg_convert/REAL_005.dxf",
+          "/app/tests/real_drawings_local/drawings/REAL_005.dwg"
+        ]
+      },
+      "converter_log_lines": 55,
+      "units_override_hypothesis": null,
+      "work_dir_location": "bind_mount",
+      "dxf_version": "AC1024",
+      "units": {
+        "insunits": 1,
+        "resolved": "in",
+        "method": "drawing_header"
+      },
+      "bounds_ft": {
+        "width": 66.486,
+        "height": 60.002
+      },
+      "layer_count": 12,
+      "layers_with_role": 1,
+      "layer_roles": {
+        "UNRECOGNIZED": 8
+      },
+      "block_count": 1,
+      "blocks_with_role": 0,
+      "xref_blocks": 0,
+      "entities_total": 27,
+      "entities_top_level_model": 26,
+      "entities_paper": 0,
+      "entity_types_top_level": {
+        "LINE": 18,
+        "LWPOLYLINE": 5,
+        "ARC": 2,
+        "INSERT": 1
+      },
+      "hidden_top_level": 0,
+      "unsupported": {},
+      "element_counts": {},
+      "text_entities": 0,
+      "unclassified_top_level": 26,
+      "unclassified_pct_of_visible_top": 100.0,
+      "rooms": [],
+      "dimension_checks": {
+        "total": 0,
+        "agree": 0
+      },
+      "review_triggers": [
+        "NO_WALLS_DETECTED",
+        "NO_ROOMS_DETECTED",
+        "HIGH_UNCLASSIFIED_FRACTION",
+        "DWG_CONVERSION_LOST_ENTITIES"
+      ],
+      "view_regions": [
+        {
+          "id": "V1",
+          "entity_count": 26,
+          "significant": true,
+          "element_counts": {}
+        }
+      ],
+      "conversion_audit_lost": {
+        "DIMENSION": 13
+      },
+      "conversion_audit": {
+        "status": "ok",
+        "level": "handle",
+        "significance": "material",
+        "lost_by_significance": {
+          "material": {
+            "DIMENSION": {
+              "count": 13,
+              "handles_sample": [
+                "C32",
+                "C48",
+                "C4E",
+                "C5D",
+                "C7F",
+                "C86",
+                "C8C",
+                "C99",
+                "CA0",
+                "CAD",
+                "CFE",
+                "D03",
+                "D3F"
+              ]
+            }
+          }
+        },
+        "added_in_dxf": {},
+        "type_changed_count": 0,
+        "geometry_mismatch_count": 0,
+        "text_mismatch_count": 0
+      },
+      "view_types": [
+        {
+          "id": "V1",
+          "view_type": "UNKNOWN",
+          "confidence": 0.0,
+          "review_state": "unreviewed",
+          "room_logic": "applied",
+          "rules": [
+            "V-VIEW-TYPE"
+          ]
+        }
+      ],
+      "wall_model": {
+        "wall_segments": 0,
+        "paired_segments": 0,
+        "wall_pieces": 0,
+        "curved_pieces": 0,
+        "junctions": 0,
+        "door_openings": 0,
+        "doorless_openings": 0,
+        "window_openings": 0,
+        "wall_elements_in_non_plan_views_skipped": 0,
+        "exterior_outline_by_region": {}
+      },
+      "xrefs": [],
+      "verification_status": "REVIEW_REQUIRED",
+      "unit_evidence_suggestion": null,
+      "warnings": [
+        "DXF_AUDIT_FIXES",
+        "DWG_CONVERTED"
+      ],
+      "errors": []
+    },
+    {
+      "id": "REAL_006",
+      "format": "dwg",
+      "size_bytes": 733036,
+      "processing_status": "failed",
+      "failure_code": "GEOMETRY_EXTRACTION_FAILED",
+      "requires_human_review": true,
+      "total_seconds": 0.949,
+      "stage_ms": {
+        "validate_upload": 5,
+        "dwg_conversion": 734,
+        "load_dxf": 165,
+        "conversion_audit": 0,
+        "resolve_units": 0,
+        "extract_geometry": 0
+      },
+      "peak_rss_mb": 73.4,
+      "peak_rss_children_mb": 73.0,
+      "model_json_bytes": null,
+      "converter": null,
+      "converter_log_lines": 0,
+      "units_override_hypothesis": null,
+      "work_dir_location": "bind_mount"
+    },
+    {
+      "id": "REAL_007",
+      "format": "dwg",
+      "size_bytes": 582572,
+      "processing_status": "completed",
+      "failure_code": null,
+      "requires_human_review": true,
+      "total_seconds": 5.669,
+      "stage_ms": {
+        "validate_upload": 4,
+        "dwg_conversion": 622,
+        "load_dxf": 241,
+        "conversion_audit": 20,
+        "resolve_units": 0,
+        "extract_geometry": 186,
+        "render_source": 1219,
+        "view_regions": 3,
+        "interpret": 1,
+        "wall_analysis": 0,
+        "room_analysis": 0,
+        "region_boundaries": 0,
+        "render_overlay": 1582,
+        "write_overlay_dxf": 1168
+      },
+      "peak_rss_mb": 147.8,
+      "peak_rss_children_mb": 72.5,
+      "model_json_bytes": 2426035,
+      "converter": {
+        "name": "libredwg",
+        "version": "dwg2dxf 0.14.8597",
+        "command": [
+          "/opt/libredwg/bin/dwg2dxf",
+          "-y",
+          "-o",
+          "/app/tests/real_drawings_outputs_local/m19/REAL_007_dwg/_work/dwg_convert/REAL_007.dxf",
+          "/app/tests/real_drawings_local/drawings/REAL_007.dwg"
+        ]
+      },
+      "converter_log_lines": 51,
+      "units_override_hypothesis": null,
+      "work_dir_location": "bind_mount",
+      "dxf_version": "AC1015",
+      "units": {
+        "insunits": 4,
+        "resolved": "mm",
+        "method": "drawing_header"
+      },
+      "bounds_ft": {
+        "width": 11193.756,
+        "height": 8678.422
+      },
+      "layer_count": 5,
+      "layers_with_role": 1,
+      "layer_roles": {
+        "UNRECOGNIZED": 4
+      },
+      "block_count": 2,
+      "blocks_with_role": 0,
+      "xref_blocks": 0,
+      "entities_total": 181,
+      "entities_top_level_model": 67,
+      "entities_paper": 0,
+      "entity_types_top_level": {
+        "LWPOLYLINE": 11,
+        "INSERT": 10,
+        "DIMENSION": 9,
+        "LINE": 8,
+        "ARC": 2,
+        "SPLINE": 2,
+        "REGION": 2,
+        "ATTDEF": 2,
+        "TEXT": 2,
+        "WIPEOUT": 2,
+        "3DFACE": 2,
+        "POLYLINE": 2,
+        "XLINE": 1,
+        "ELLIPSE": 1,
+        "POINT": 1,
+        "MTEXT": 1,
+        "RAY": 1,
+        "HATCH": 1,
+        "3DSOLID": 1,
+        "ARC_DIMENSION": 1,
+        "SOLID": 1,
+        "TOLERANCE": 1,
+        "MULTILEADER": 1,
+        "MLINE": 1,
+        "LIGHT": 1
+      },
+      "hidden_top_level": 1,
+      "unsupported": {
+        "REGION": 2,
+        "ATTDEF": 2,
+        "WIPEOUT": 2,
+        "3DFACE": 2,
+        "XLINE": 1,
+        "RAY": 1,
+        "3DSOLID": 1,
+        "ARC_DIMENSION": 1,
+        "POLYLINE": 1,
+        "TOLERANCE": 1,
+        "MLINE": 1,
+        "LIGHT": 1
+      },
+      "element_counts": {
+        "dimension": 9,
+        "text_annotation": 3
+      },
+      "text_entities": 6,
+      "unclassified_top_level": 54,
+      "unclassified_pct_of_visible_top": 81.8,
+      "rooms": [],
+      "dimension_checks": {
+        "total": 0,
+        "agree": 0
+      },
+      "review_triggers": [
+        "EXTENTS_IMPLAUSIBLE",
+        "NO_WALLS_DETECTED",
+        "NO_ROOMS_DETECTED",
+        "UNSUPPORTED_ENTITIES",
+        "HIGH_UNCLASSIFIED_FRACTION",
+        "DWG_CONVERSION_LOSS_REVIEW"
+      ],
+      "view_regions": [
+        {
+          "id": "V1",
+          "entity_count": 51,
+          "significant": true,
+          "element_counts": {
+            "text_annotation": 3,
+            "dimension": 9
+          }
+        }
+      ],
+      "conversion_audit_lost": {
+        "ACAD_TABLE": 1
+      },
+      "conversion_audit": {
+        "status": "ok",
+        "level": "handle",
+        "significance": "review",
+        "lost_by_significance": {
+          "review": {
+            "ACAD_TABLE": {
+              "count": 1,
+              "handles_sample": [
+                "4F2"
+              ]
+            }
+          }
+        },
+        "added_in_dxf": {},
+        "type_changed_count": 0,
+        "geometry_mismatch_count": 0,
+        "text_mismatch_count": 0
+      },
+      "view_types": [
+        {
+          "id": "V1",
+          "view_type": "UNKNOWN",
+          "confidence": 0.0,
+          "review_state": "unreviewed",
+          "room_logic": "applied",
+          "rules": [
+            "V-VIEW-TYPE"
+          ]
+        }
+      ],
+      "wall_model": {
+        "wall_segments": 0,
+        "paired_segments": 0,
+        "wall_pieces": 0,
+        "curved_pieces": 0,
+        "junctions": 0,
+        "door_openings": 0,
+        "doorless_openings": 0,
+        "window_openings": 0,
+        "wall_elements_in_non_plan_views_skipped": 0,
+        "exterior_outline_by_region": {}
+      },
+      "xrefs": [],
+      "verification_status": "REVIEW_REQUIRED",
+      "unit_evidence_suggestion": null,
+      "warnings": [
+        "DXF_AUDIT_FIXES",
+        "HIDDEN_GEOMETRY_EXCLUDED",
+        "DWG_CONVERTED"
+      ],
+      "errors": []
+    },
+    {
+      "id": "REAL_007",
+      "format": "dxf",
+      "size_bytes": 1387952,
+      "processing_status": "completed",
+      "failure_code": null,
+      "requires_human_review": true,
+      "total_seconds": 5.206,
+      "stage_ms": {
+        "validate_upload": 6,
+        "load_dxf": 274,
+        "resolve_units": 0,
+        "extract_geometry": 188,
+        "render_source": 1252,
+        "view_regions": 3,
+        "interpret": 0,
+        "wall_analysis": 0,
+        "room_analysis": 0,
+        "region_boundaries": 0,
+        "render_overlay": 1642,
+        "write_overlay_dxf": 1225
+      },
+      "peak_rss_mb": 149.1,
+      "peak_rss_children_mb": 0.0,
+      "model_json_bytes": 2425493,
+      "converter": null,
+      "converter_log_lines": null,
+      "units_override_hypothesis": null,
+      "work_dir_location": "bind_mount",
+      "dxf_version": "AC1015",
+      "units": {
+        "insunits": 4,
+        "resolved": "mm",
+        "method": "drawing_header"
+      },
+      "bounds_ft": {
+        "width": 11193.756,
+        "height": 8678.422
+      },
+      "layer_count": 5,
+      "layers_with_role": 1,
+      "layer_roles": {
+        "UNRECOGNIZED": 4
+      },
+      "block_count": 2,
+      "blocks_with_role": 0,
+      "xref_blocks": 0,
+      "entities_total": 182,
+      "entities_top_level_model": 68,
+      "entities_paper": 0,
+      "entity_types_top_level": {
+        "LWPOLYLINE": 11,
+        "INSERT": 10,
+        "DIMENSION": 9,
+        "LINE": 8,
+        "ARC": 2,
+        "SPLINE": 2,
+        "REGION": 2,
+        "ATTDEF": 2,
+        "TEXT": 2,
+        "WIPEOUT": 2,
+        "3DFACE": 2,
+        "POLYLINE": 2,
+        "XLINE": 1,
+        "ELLIPSE": 1,
+        "POINT": 1,
+        "MTEXT": 1,
+        "RAY": 1,
+        "HATCH": 1,
+        "3DSOLID": 1,
+        "ARC_DIMENSION": 1,
+        "SOLID": 1,
+        "TOLERANCE": 1,
+        "ACAD_TABLE": 1,
+        "MULTILEADER": 1,
+        "MLINE": 1,
+        "LIGHT": 1
+      },
+      "hidden_top_level": 1,
+      "unsupported": {
+        "REGION": 2,
+        "ATTDEF": 2,
+        "WIPEOUT": 2,
+        "3DFACE": 2,
+        "XLINE": 1,
+        "RAY": 1,
+        "3DSOLID": 1,
+        "ARC_DIMENSION": 1,
+        "POLYLINE": 1,
+        "TOLERANCE": 1,
+        "ACAD_TABLE": 1,
+        "MLINE": 1,
+        "LIGHT": 1
+      },
+      "element_counts": {
+        "dimension": 9,
+        "text_annotation": 3
+      },
+      "text_entities": 6,
+      "unclassified_top_level": 55,
+      "unclassified_pct_of_visible_top": 82.1,
+      "rooms": [],
+      "dimension_checks": {
+        "total": 0,
+        "agree": 0
+      },
+      "review_triggers": [
+        "EXTENTS_IMPLAUSIBLE",
+        "NO_WALLS_DETECTED",
+        "NO_ROOMS_DETECTED",
+        "UNSUPPORTED_ENTITIES",
+        "HIGH_UNCLASSIFIED_FRACTION"
+      ],
+      "view_regions": [
+        {
+          "id": "V1",
+          "entity_count": 51,
+          "significant": true,
+          "element_counts": {
+            "text_annotation": 3,
+            "dimension": 9
+          }
+        }
+      ],
+      "conversion_audit_lost": null,
+      "conversion_audit": null,
+      "view_types": [
+        {
+          "id": "V1",
+          "view_type": "UNKNOWN",
+          "confidence": 0.0,
+          "review_state": "unreviewed",
+          "room_logic": "applied",
+          "rules": [
+            "V-VIEW-TYPE"
+          ]
+        }
+      ],
+      "wall_model": {
+        "wall_segments": 0,
+        "paired_segments": 0,
+        "wall_pieces": 0,
+        "curved_pieces": 0,
+        "junctions": 0,
+        "door_openings": 0,
+        "doorless_openings": 0,
+        "window_openings": 0,
+        "wall_elements_in_non_plan_views_skipped": 0,
+        "exterior_outline_by_region": {}
+      },
+      "xrefs": [],
+      "verification_status": "REVIEW_REQUIRED",
+      "unit_evidence_suggestion": null,
+      "warnings": [
+        "HIDDEN_GEOMETRY_EXCLUDED"
+      ],
+      "errors": []
+    },
+    {
+      "id": "REAL_008",
+      "format": "dwg",
+      "size_bytes": 439875,
+      "processing_status": "needs_human_input",
+      "failure_code": "UNIT_DETECTION_FAILED",
+      "requires_human_review": true,
+      "total_seconds": 2.613,
+      "stage_ms": {
+        "validate_upload": 4,
+        "dwg_conversion": 482,
+        "load_dxf": 199,
+        "conversion_audit": 21,
+        "resolve_units": 0,
+        "extract_geometry": 193,
+        "render_source": 1208
+      },
+      "peak_rss_mb": 138.5,
+      "peak_rss_children_mb": 72.5,
+      "model_json_bytes": 1260379,
+      "converter": {
+        "name": "libredwg",
+        "version": "dwg2dxf 0.14.8597",
+        "command": [
+          "/opt/libredwg/bin/dwg2dxf",
+          "-y",
+          "-o",
+          "/app/tests/real_drawings_outputs_local/m19/REAL_008_dwg/_work/dwg_convert/REAL_008.dxf",
+          "/app/tests/real_drawings_local/drawings/REAL_008.dwg"
+        ]
+      },
+      "converter_log_lines": 108,
+      "units_override_hypothesis": null,
+      "work_dir_location": "bind_mount",
+      "dxf_version": "AC1015",
+      "units": {
+        "insunits": null,
+        "resolved": null,
+        "method": "unresolved"
+      },
+      "bounds_ft": null,
+      "layer_count": 5,
+      "layers_with_role": 1,
+      "layer_roles": {
+        "UNRECOGNIZED": 3
+      },
+      "block_count": 2,
+      "blocks_with_role": 0,
+      "xref_blocks": 0,
+      "entities_total": 176,
+      "entities_top_level_model": 62,
+      "entities_paper": 0,
+      "entity_types_top_level": {
+        "LWPOLYLINE": 11,
+        "INSERT": 10,
+        "DIMENSION": 9,
+        "LINE": 8,
+        "ARC": 2,
+        "SPLINE": 2,
+        "REGION": 2,
+        "ATTDEF": 2,
+        "TEXT": 2,
+        "3DFACE": 2,
+        "POLYLINE": 2,
+        "XLINE": 1,
+        "ELLIPSE": 1,
+        "POINT": 1,
+        "MTEXT": 1,
+        "RAY": 1,
+        "HATCH": 1,
+        "3DSOLID": 1,
+        "SOLID": 1,
+        "TOLERANCE": 1,
+        "MLINE": 1
+      },
+      "hidden_top_level": 0,
+      "unsupported": {
+        "REGION": 2,
+        "ATTDEF": 2,
+        "3DFACE": 2,
+        "XLINE": 1,
+        "RAY": 1,
+        "3DSOLID": 1,
+        "POLYLINE": 1,
+        "TOLERANCE": 1,
+        "MLINE": 1
+      },
+      "element_counts": {},
+      "text_entities": 5,
+      "unclassified_top_level": 0,
+      "unclassified_pct_of_visible_top": 0.0,
+      "rooms": [],
+      "dimension_checks": {
+        "total": 0,
+        "agree": 0
+      },
+      "review_triggers": [
+        "UNIT_DETECTION_FAILED"
+      ],
+      "view_regions": [],
+      "conversion_audit_lost": {
+        "ACAD_TABLE": 1,
+        "ARC_DIMENSION": 1,
+        "LIGHT": 1,
+        "MULTILEADER": 1,
+        "WIPEOUT": 2
+      },
+      "conversion_audit": {
+        "status": "ok",
+        "level": "handle",
+        "significance": "material",
+        "lost_by_significance": {
+          "minor": {
+            "WIPEOUT": {
+              "count": 2,
+              "handles_sample": [
+                "258",
+                "75A"
+              ]
+            }
+          },
+          "review": {
+            "ACAD_TABLE": {
+              "count": 1,
+              "handles_sample": [
+                "4F2"
+              ]
+            },
+            "ARC_DIMENSION": {
+              "count": 1,
+              "handles_sample": [
+                "399"
+              ]
+            },
+            "LIGHT": {
+              "count": 1,
+              "handles_sample": [
+                "75E"
+              ]
+            }
+          },
+          "material": {
+            "MULTILEADER": {
+              "count": 1,
+              "handles_sample": [
+                "640"
+              ]
+            }
+          }
+        },
+        "added_in_dxf": {
+          "SOLID": 3,
+          "LWPOLYLINE": 10,
+          "LINE": 11,
+          "ARC": 2,
+          "CIRCLE": 5
+        },
+        "type_changed_count": 0,
+        "geometry_mismatch_count": 0,
+        "text_mismatch_count": 0
+      },
+      "view_types": [],
+      "wall_model": null,
+      "xrefs": [],
+      "verification_status": null,
+      "unit_evidence_suggestion": null,
+      "warnings": [
+        "DXF_AUDIT_FIXES"
+      ],
+      "errors": []
+    },
+    {
+      "id": "REAL_008",
+      "format": "dxf",
+      "size_bytes": 575437,
+      "processing_status": "needs_human_input",
+      "failure_code": "UNIT_DETECTION_FAILED",
+      "requires_human_review": true,
+      "total_seconds": 2.08,
+      "stage_ms": {
+        "validate_upload": 4,
+        "load_dxf": 141,
+        "resolve_units": 0,
+        "extract_geometry": 165,
+        "render_source": 1264
+      },
+      "peak_rss_mb": 139.1,
+      "peak_rss_children_mb": 0.0,
+      "model_json_bytes": 1275008,
+      "converter": null,
+      "converter_log_lines": null,
+      "units_override_hypothesis": null,
+      "work_dir_location": "bind_mount",
+      "dxf_version": "AC1015",
+      "units": {
+        "insunits": null,
+        "resolved": null,
+        "method": "unresolved"
+      },
+      "bounds_ft": null,
+      "layer_count": 5,
+      "layers_with_role": 1,
+      "layer_roles": {
+        "UNRECOGNIZED": 3,
+        "ignore": 1
+      },
+      "block_count": 4,
+      "blocks_with_role": 0,
+      "xref_blocks": 0,
+      "entities_total": 231,
+      "entities_top_level_model": 67,
+      "entities_paper": 0,
+      "entity_types_top_level": {
+        "INSERT": 12,
+        "LWPOLYLINE": 11,
+        "DIMENSION": 9,
+        "LINE": 8,
+        "ARC": 2,
+        "SPLINE": 2,
+        "REGION": 2,
+        "ATTDEF": 2,
+        "TEXT": 2,
+        "WIPEOUT": 2,
+        "3DFACE": 2,
+        "POLYLINE": 2,
+        "XLINE": 1,
+        "ELLIPSE": 1,
+        "POINT": 1,
+        "MTEXT": 1,
+        "RAY": 1,
+        "HATCH": 1,
+        "3DSOLID": 1,
+        "SOLID": 1,
+        "TOLERANCE": 1,
+        "ACAD_PROXY_ENTITY": 1,
+        "MLINE": 1
+      },
+      "hidden_top_level": 0,
+      "unsupported": {
+        "REGION": 2,
+        "ATTDEF": 2,
+        "WIPEOUT": 2,
+        "3DFACE": 2,
+        "XLINE": 1,
+        "RAY": 1,
+        "3DSOLID": 1,
+        "POLYLINE": 1,
+        "TOLERANCE": 1,
+        "ACAD_PROXY_ENTITY": 1,
+        "MLINE": 1
+      },
+      "element_counts": {},
+      "text_entities": 13,
+      "unclassified_top_level": 0,
+      "unclassified_pct_of_visible_top": 0.0,
+      "rooms": [],
+      "dimension_checks": {
+        "total": 0,
+        "agree": 0
+      },
+      "review_triggers": [
+        "UNIT_DETECTION_FAILED"
+      ],
+      "view_regions": [],
+      "conversion_audit_lost": null,
+      "conversion_audit": null,
+      "view_types": [],
+      "wall_model": null,
+      "xrefs": [],
+      "verification_status": null,
+      "unit_evidence_suggestion": null,
+      "warnings": [
+        "DXF_AUDIT_FIXES"
+      ],
+      "errors": []
+    },
+    {
+      "id": "REAL_009",
+      "format": "dwg",
+      "size_bytes": 149218,
+      "processing_status": "completed",
+      "failure_code": null,
+      "requires_human_review": true,
+      "total_seconds": 5.302,
+      "stage_ms": {
+        "validate_upload": 4,
+        "dwg_conversion": 375,
+        "load_dxf": 148,
+        "conversion_audit": 19,
+        "resolve_units": 0,
+        "extract_geometry": 189,
+        "render_source": 1243,
+        "view_regions": 3,
+        "interpret": 1,
+        "wall_analysis": 0,
+        "room_analysis": 0,
+        "region_boundaries": 0,
+        "render_overlay": 1589,
+        "write_overlay_dxf": 1117
+      },
+      "peak_rss_mb": 150.5,
+      "peak_rss_children_mb": 72.1,
+      "model_json_bytes": 2426136,
+      "converter": {
+        "name": "libredwg",
+        "version": "dwg2dxf 0.14.8597",
+        "command": [
+          "/opt/libredwg/bin/dwg2dxf",
+          "-y",
+          "-o",
+          "/app/tests/real_drawings_outputs_local/m19/REAL_009_dwg/_work/dwg_convert/REAL_009.dxf",
+          "/app/tests/real_drawings_local/drawings/REAL_009.dwg"
+        ]
+      },
+      "converter_log_lines": 63,
+      "units_override_hypothesis": null,
+      "work_dir_location": "bind_mount",
+      "dxf_version": "AC1032",
+      "units": {
+        "insunits": 4,
+        "resolved": "mm",
+        "method": "drawing_header"
+      },
+      "bounds_ft": {
+        "width": 11193.756,
+        "height": 8678.422
+      },
+      "layer_count": 5,
+      "layers_with_role": 1,
+      "layer_roles": {
+        "UNRECOGNIZED": 4
+      },
+      "block_count": 2,
+      "blocks_with_role": 0,
+      "xref_blocks": 0,
+      "entities_total": 181,
+      "entities_top_level_model": 67,
+      "entities_paper": 0,
+      "entity_types_top_level": {
+        "LWPOLYLINE": 11,
+        "INSERT": 10,
+        "DIMENSION": 9,
+        "LINE": 8,
+        "ARC": 2,
+        "SPLINE": 2,
+        "REGION": 2,
+        "ATTDEF": 2,
+        "TEXT": 2,
+        "WIPEOUT": 2,
+        "3DFACE": 2,
+        "POLYLINE": 2,
+        "XLINE": 1,
+        "ELLIPSE": 1,
+        "POINT": 1,
+        "MTEXT": 1,
+        "RAY": 1,
+        "HATCH": 1,
+        "3DSOLID": 1,
+        "ARC_DIMENSION": 1,
+        "SOLID": 1,
+        "TOLERANCE": 1,
+        "MULTILEADER": 1,
+        "MLINE": 1,
+        "LIGHT": 1
+      },
+      "hidden_top_level": 0,
+      "unsupported": {
+        "REGION": 2,
+        "ATTDEF": 2,
+        "WIPEOUT": 2,
+        "3DFACE": 2,
+        "XLINE": 1,
+        "RAY": 1,
+        "3DSOLID": 1,
+        "ARC_DIMENSION": 1,
+        "POLYLINE": 1,
+        "TOLERANCE": 1,
+        "MLINE": 1,
+        "LIGHT": 1
+      },
+      "element_counts": {
+        "dimension": 9,
+        "text_annotation": 3
+      },
+      "text_entities": 6,
+      "unclassified_top_level": 55,
+      "unclassified_pct_of_visible_top": 82.1,
+      "rooms": [],
+      "dimension_checks": {
+        "total": 0,
+        "agree": 0
+      },
+      "review_triggers": [
+        "EXTENTS_IMPLAUSIBLE",
+        "NO_WALLS_DETECTED",
+        "NO_ROOMS_DETECTED",
+        "UNSUPPORTED_ENTITIES",
+        "HIGH_UNCLASSIFIED_FRACTION",
+        "DWG_CONVERSION_LOSS_REVIEW"
+      ],
+      "view_regions": [
+        {
+          "id": "V1",
+          "entity_count": 51,
+          "significant": true,
+          "element_counts": {
+            "text_annotation": 3,
+            "dimension": 9
+          }
+        }
+      ],
+      "conversion_audit_lost": {
+        "ACAD_TABLE": 1
+      },
+      "conversion_audit": {
+        "status": "ok",
+        "level": "handle",
+        "significance": "review",
+        "lost_by_significance": {
+          "review": {
+            "ACAD_TABLE": {
+              "count": 1,
+              "handles_sample": [
+                "4F2"
+              ]
+            }
+          }
+        },
+        "added_in_dxf": {},
+        "type_changed_count": 0,
+        "geometry_mismatch_count": 0,
+        "text_mismatch_count": 0
+      },
+      "view_types": [
+        {
+          "id": "V1",
+          "view_type": "UNKNOWN",
+          "confidence": 0.0,
+          "review_state": "unreviewed",
+          "room_logic": "applied",
+          "rules": [
+            "V-VIEW-TYPE"
+          ]
+        }
+      ],
+      "wall_model": {
+        "wall_segments": 0,
+        "paired_segments": 0,
+        "wall_pieces": 0,
+        "curved_pieces": 0,
+        "junctions": 0,
+        "door_openings": 0,
+        "doorless_openings": 0,
+        "window_openings": 0,
+        "wall_elements_in_non_plan_views_skipped": 0,
+        "exterior_outline_by_region": {}
+      },
+      "xrefs": [],
+      "verification_status": "REVIEW_REQUIRED",
+      "unit_evidence_suggestion": null,
+      "warnings": [
+        "DXF_AUDIT_FIXES",
+        "DWG_CONVERTED"
+      ],
+      "errors": []
+    },
+    {
+      "id": "REAL_009",
+      "format": "dxf",
+      "size_bytes": 845818,
+      "processing_status": "completed",
+      "failure_code": null,
+      "requires_human_review": true,
+      "total_seconds": 5.236,
+      "stage_ms": {
+        "validate_upload": 4,
+        "load_dxf": 192,
+        "resolve_units": 0,
+        "extract_geometry": 190,
+        "render_source": 1274,
+        "view_regions": 3,
+        "interpret": 1,
+        "wall_analysis": 0,
+        "room_analysis": 0,
+        "region_boundaries": 0,
+        "render_overlay": 1727,
+        "write_overlay_dxf": 1235
+      },
+      "peak_rss_mb": 148.6,
+      "peak_rss_children_mb": 0.0,
+      "model_json_bytes": 2425301,
+      "converter": null,
+      "converter_log_lines": null,
+      "units_override_hypothesis": null,
+      "work_dir_location": "bind_mount",
+      "dxf_version": "AC1032",
+      "units": {
+        "insunits": 4,
+        "resolved": "mm",
+        "method": "drawing_header"
+      },
+      "bounds_ft": {
+        "width": 11193.756,
+        "height": 8678.422
+      },
+      "layer_count": 5,
+      "layers_with_role": 1,
+      "layer_roles": {
+        "UNRECOGNIZED": 4
+      },
+      "block_count": 2,
+      "blocks_with_role": 0,
+      "xref_blocks": 0,
+      "entities_total": 182,
+      "entities_top_level_model": 68,
+      "entities_paper": 0,
+      "entity_types_top_level": {
+        "LWPOLYLINE": 11,
+        "INSERT": 10,
+        "DIMENSION": 9,
+        "LINE": 8,
+        "ARC": 2,
+        "SPLINE": 2,
+        "REGION": 2,
+        "ATTDEF": 2,
+        "TEXT": 2,
+        "WIPEOUT": 2,
+        "3DFACE": 2,
+        "POLYLINE": 2,
+        "XLINE": 1,
+        "ELLIPSE": 1,
+        "POINT": 1,
+        "MTEXT": 1,
+        "RAY": 1,
+        "HATCH": 1,
+        "3DSOLID": 1,
+        "ARC_DIMENSION": 1,
+        "SOLID": 1,
+        "TOLERANCE": 1,
+        "ACAD_TABLE": 1,
+        "MULTILEADER": 1,
+        "MLINE": 1,
+        "LIGHT": 1
+      },
+      "hidden_top_level": 0,
+      "unsupported": {
+        "REGION": 2,
+        "ATTDEF": 2,
+        "WIPEOUT": 2,
+        "3DFACE": 2,
+        "XLINE": 1,
+        "RAY": 1,
+        "3DSOLID": 1,
+        "ARC_DIMENSION": 1,
+        "POLYLINE": 1,
+        "TOLERANCE": 1,
+        "ACAD_TABLE": 1,
+        "MLINE": 1,
+        "LIGHT": 1
+      },
+      "element_counts": {
+        "dimension": 9,
+        "text_annotation": 3
+      },
+      "text_entities": 6,
+      "unclassified_top_level": 56,
+      "unclassified_pct_of_visible_top": 82.4,
+      "rooms": [],
+      "dimension_checks": {
+        "total": 0,
+        "agree": 0
+      },
+      "review_triggers": [
+        "EXTENTS_IMPLAUSIBLE",
+        "NO_WALLS_DETECTED",
+        "NO_ROOMS_DETECTED",
+        "UNSUPPORTED_ENTITIES",
+        "HIGH_UNCLASSIFIED_FRACTION"
+      ],
+      "view_regions": [
+        {
+          "id": "V1",
+          "entity_count": 51,
+          "significant": true,
+          "element_counts": {
+            "text_annotation": 3,
+            "dimension": 9
+          }
+        }
+      ],
+      "conversion_audit_lost": null,
+      "conversion_audit": null,
+      "view_types": [
+        {
+          "id": "V1",
+          "view_type": "UNKNOWN",
+          "confidence": 0.0,
+          "review_state": "unreviewed",
+          "room_logic": "applied",
+          "rules": [
+            "V-VIEW-TYPE"
+          ]
+        }
+      ],
+      "wall_model": {
+        "wall_segments": 0,
+        "paired_segments": 0,
+        "wall_pieces": 0,
+        "curved_pieces": 0,
+        "junctions": 0,
+        "door_openings": 0,
+        "doorless_openings": 0,
+        "window_openings": 0,
+        "wall_elements_in_non_plan_views_skipped": 0,
+        "exterior_outline_by_region": {}
+      },
+      "xrefs": [],
+      "verification_status": "REVIEW_REQUIRED",
+      "unit_evidence_suggestion": null,
+      "warnings": [],
+      "errors": []
+    },
+    {
+      "id": "REAL_010",
+      "format": "dwg",
+      "size_bytes": 2179277,
+      "processing_status": "completed",
+      "failure_code": null,
+      "requires_human_review": true,
+      "total_seconds": 90.098,
+      "stage_ms": {
+        "validate_upload": 4,
+        "dwg_conversion": 11634,
+        "load_dxf": 5220,
+        "conversion_audit": 665,
+        "resolve_units": 0,
+        "extract_geometry": 5009,
+        "render_source": 15504,
+        "view_regions": 96,
+        "interpret": 2887,
+        "wall_analysis": 22,
+        "room_analysis": 20,
+        "region_boundaries": 28,
+        "render_overlay": 28512,
+        "write_overlay_dxf": 11102
+      },
+      "peak_rss_mb": 1086.2,
+      "peak_rss_children_mb": 73.1,
+      "model_json_bytes": 42761558,
+      "converter": {
+        "name": "libredwg",
+        "version": "dwg2dxf 0.14.8597",
+        "command": [
+          "/opt/libredwg/bin/dwg2dxf",
+          "-y",
+          "-o",
+          "/app/tests/real_drawings_outputs_local/m19/REAL_010_dwg/_work/dwg_convert/REAL_010.dxf",
+          "/app/tests/real_drawings_local/drawings/REAL_010.dwg"
+        ]
+      },
+      "converter_log_lines": 55,
+      "units_override_hypothesis": null,
+      "work_dir_location": "bind_mount",
+      "dxf_version": "AC1032",
+      "units": {
+        "insunits": 1,
+        "resolved": "in",
+        "method": "drawing_header"
+      },
+      "bounds_ft": {
+        "width": 148.95,
+        "height": 96.399
+      },
+      "layer_count": 69,
+      "layers_with_role": 18,
+      "layer_roles": {
+        "UNRECOGNIZED": 23,
+        "dimension": 2,
+        "door": 1,
+        "grid": 1,
+        "text": 1,
+        "title_block": 1,
+        "wall": 6
+      },
+      "block_count": 49,
+      "blocks_with_role": 3,
+      "xref_blocks": 0,
+      "entities_total": 76674,
+      "entities_top_level_model": 117,
+      "entities_paper": 0,
+      "entity_types_top_level": {
+        "LINE": 55,
+        "INSERT": 43,
+        "DIMENSION": 12,
+        "LWPOLYLINE": 3,
+        "CIRCLE": 3,
+        "MTEXT": 1
+      },
+      "hidden_top_level": 0,
+      "unsupported": {},
+      "element_counts": {
+        "door": 2,
+        "window": 1,
+        "title_block": 1,
+        "dimension": 12,
+        "wall": 12,
+        "grid_line": 1,
+        "text_annotation": 1
+      },
+      "text_entities": 1,
+      "unclassified_top_level": 87,
+      "unclassified_pct_of_visible_top": 74.4,
+      "rooms": [],
+      "dimension_checks": {
+        "total": 0,
+        "agree": 0
+      },
+      "review_triggers": [
+        "DIMENSION_SCALE_FACTOR",
+        "DIMENSION_SCALE_FACTOR",
+        "DIMENSION_SCALE_FACTOR",
+        "DIMENSION_SCALE_FACTOR",
+        "NO_ROOMS_DETECTED",
+        "GEOMETRY_OUTSIDE_BUILDING",
+        "ELEMENTS_REQUIRE_VERIFICATION",
+        "HIGH_UNCLASSIFIED_FRACTION",
+        "MULTIPLE_DRAWING_REGIONS"
+      ],
+      "view_regions": [
+        {
+          "id": "V1",
+          "entity_count": 14,
+          "significant": true,
+          "element_counts": {
+            "grid_line": 1
+          }
+        },
+        {
+          "id": "V2",
+          "entity_count": 1,
+          "significant": false,
+          "element_counts": {}
+        },
+        {
+          "id": "V3",
+          "entity_count": 10,
+          "significant": true,
+          "element_counts": {}
+        },
+        {
+          "id": "V4",
+          "entity_count": 7,
+          "significant": true,
+          "element_counts": {
+            "wall": 6
+          }
+        },
+        {
+          "id": "V5",
+          "entity_count": 53,
+          "significant": true,
+          "element_counts": {
+            "door": 2,
+            "window": 1,
+            "text_annotation": 1,
+            "wall": 6
+          }
+        },
+        {
+          "id": "V6",
+          "entity_count": 30,
+          "significant": true,
+          "element_counts": {
+            "dimension": 12
+          }
+        },
+        {
+          "id": "V7",
+          "entity_count": 2,
+          "significant": false,
+          "element_counts": {}
+        }
+      ],
+      "conversion_audit_lost": {},
+      "conversion_audit": {
+        "status": "ok",
+        "level": "handle",
+        "significance": "none",
+        "lost_by_significance": {},
+        "added_in_dxf": {},
+        "type_changed_count": 0,
+        "geometry_mismatch_count": 0,
+        "text_mismatch_count": 0
+      },
+      "view_types": [
+        {
+          "id": "V1",
+          "view_type": "UNKNOWN",
+          "confidence": 0.0,
+          "review_state": "unreviewed",
+          "room_logic": "applied",
+          "rules": [
+            "V-VIEW-TYPE"
+          ]
+        },
+        {
+          "id": "V3",
+          "view_type": "UNKNOWN",
+          "confidence": 0.0,
+          "review_state": "unreviewed",
+          "room_logic": "applied",
+          "rules": [
+            "V-VIEW-TYPE"
+          ]
+        },
+        {
+          "id": "V4",
+          "view_type": "UNKNOWN",
+          "confidence": 0.0,
+          "review_state": "unreviewed",
+          "room_logic": "applied",
+          "rules": [
+            "V-VIEW-TYPE"
+          ]
+        },
+        {
+          "id": "V5",
+          "view_type": "UNKNOWN",
+          "confidence": 0.0,
+          "review_state": "unreviewed",
+          "room_logic": "applied",
+          "rules": [
+            "V-GEOM-PLAN"
+          ]
+        },
+        {
+          "id": "V6",
+          "view_type": "UNKNOWN",
+          "confidence": 0.0,
+          "review_state": "unreviewed",
+          "room_logic": "applied",
+          "rules": [
+            "V-VIEW-TYPE"
+          ]
+        }
+      ],
+      "wall_model": {
+        "wall_segments": 8,
+        "paired_segments": 0,
+        "wall_pieces": 0,
+        "curved_pieces": 0,
+        "junctions": 0,
+        "door_openings": 0,
+        "doorless_openings": 0,
+        "window_openings": 0,
+        "wall_elements_in_non_plan_views_skipped": 0,
+        "exterior_outline_by_region": {
+          "V4": "unknown",
+          "V5": "unknown"
+        }
+      },
+      "xrefs": [],
+      "verification_status": "REVIEW_REQUIRED",
+      "unit_evidence_suggestion": null,
+      "warnings": [
+        "DXF_AUDIT_FIXES",
+        "DWG_CONVERTED"
+      ],
+      "errors": []
+    },
+    {
+      "id": "REAL_010",
+      "format": "dxf",
+      "size_bytes": 10308881,
+      "processing_status": "completed",
+      "failure_code": null,
+      "requires_human_review": true,
+      "total_seconds": 79.887,
+      "stage_ms": {
+        "validate_upload": 6,
+        "load_dxf": 5348,
+        "resolve_units": 0,
+        "extract_geometry": 5420,
+        "render_source": 15664,
+        "view_regions": 93,
+        "interpret": 1310,
+        "wall_analysis": 25,
+        "room_analysis": 23,
+        "region_boundaries": 31,
+        "render_overlay": 29919,
+        "write_overlay_dxf": 11175
+      },
+      "peak_rss_mb": 1152.3,
+      "peak_rss_children_mb": 0.0,
+      "model_json_bytes": 42756812,
+      "converter": null,
+      "converter_log_lines": null,
+      "units_override_hypothesis": null,
+      "work_dir_location": "bind_mount",
+      "dxf_version": "AC1032",
+      "units": {
+        "insunits": 1,
+        "resolved": "in",
+        "method": "drawing_header"
+      },
+      "bounds_ft": {
+        "width": 148.95,
+        "height": 96.399
+      },
+      "layer_count": 69,
+      "layers_with_role": 18,
+      "layer_roles": {
+        "UNRECOGNIZED": 23,
+        "dimension": 2,
+        "door": 1,
+        "grid": 1,
+        "text": 1,
+        "title_block": 1,
+        "wall": 6
+      },
+      "block_count": 49,
+      "blocks_with_role": 3,
+      "xref_blocks": 0,
+      "entities_total": 76674,
+      "entities_top_level_model": 117,
+      "entities_paper": 0,
+      "entity_types_top_level": {
+        "LINE": 55,
+        "INSERT": 43,
+        "DIMENSION": 12,
+        "LWPOLYLINE": 3,
+        "CIRCLE": 3,
+        "MTEXT": 1
+      },
+      "hidden_top_level": 0,
+      "unsupported": {},
+      "element_counts": {
+        "door": 2,
+        "window": 1,
+        "title_block": 1,
+        "dimension": 12,
+        "wall": 12,
+        "grid_line": 1,
+        "text_annotation": 1
+      },
+      "text_entities": 1,
+      "unclassified_top_level": 87,
+      "unclassified_pct_of_visible_top": 74.4,
+      "rooms": [],
+      "dimension_checks": {
+        "total": 0,
+        "agree": 0
+      },
+      "review_triggers": [
+        "DIMENSION_SCALE_FACTOR",
+        "DIMENSION_SCALE_FACTOR",
+        "DIMENSION_SCALE_FACTOR",
+        "DIMENSION_SCALE_FACTOR",
+        "NO_ROOMS_DETECTED",
+        "GEOMETRY_OUTSIDE_BUILDING",
+        "ELEMENTS_REQUIRE_VERIFICATION",
+        "HIGH_UNCLASSIFIED_FRACTION",
+        "MULTIPLE_DRAWING_REGIONS"
+      ],
+      "view_regions": [
+        {
+          "id": "V1",
+          "entity_count": 14,
+          "significant": true,
+          "element_counts": {
+            "grid_line": 1
+          }
+        },
+        {
+          "id": "V2",
+          "entity_count": 1,
+          "significant": false,
+          "element_counts": {}
+        },
+        {
+          "id": "V3",
+          "entity_count": 10,
+          "significant": true,
+          "element_counts": {}
+        },
+        {
+          "id": "V4",
+          "entity_count": 7,
+          "significant": true,
+          "element_counts": {
+            "wall": 6
+          }
+        },
+        {
+          "id": "V5",
+          "entity_count": 53,
+          "significant": true,
+          "element_counts": {
+            "door": 2,
+            "window": 1,
+            "text_annotation": 1,
+            "wall": 6
+          }
+        },
+        {
+          "id": "V6",
+          "entity_count": 30,
+          "significant": true,
+          "element_counts": {
+            "dimension": 12
+          }
+        },
+        {
+          "id": "V7",
+          "entity_count": 2,
+          "significant": false,
+          "element_counts": {}
+        }
+      ],
+      "conversion_audit_lost": null,
+      "conversion_audit": null,
+      "view_types": [
+        {
+          "id": "V1",
+          "view_type": "UNKNOWN",
+          "confidence": 0.0,
+          "review_state": "unreviewed",
+          "room_logic": "applied",
+          "rules": [
+            "V-VIEW-TYPE"
+          ]
+        },
+        {
+          "id": "V3",
+          "view_type": "UNKNOWN",
+          "confidence": 0.0,
+          "review_state": "unreviewed",
+          "room_logic": "applied",
+          "rules": [
+            "V-VIEW-TYPE"
+          ]
+        },
+        {
+          "id": "V4",
+          "view_type": "UNKNOWN",
+          "confidence": 0.0,
+          "review_state": "unreviewed",
+          "room_logic": "applied",
+          "rules": [
+            "V-VIEW-TYPE"
+          ]
+        },
+        {
+          "id": "V5",
+          "view_type": "UNKNOWN",
+          "confidence": 0.0,
+          "review_state": "unreviewed",
+          "room_logic": "applied",
+          "rules": [
+            "V-GEOM-PLAN"
+          ]
+        },
+        {
+          "id": "V6",
+          "view_type": "UNKNOWN",
+          "confidence": 0.0,
+          "review_state": "unreviewed",
+          "room_logic": "applied",
+          "rules": [
+            "V-VIEW-TYPE"
+          ]
+        }
+      ],
+      "wall_model": {
+        "wall_segments": 8,
+        "paired_segments": 0,
+        "wall_pieces": 0,
+        "curved_pieces": 0,
+        "junctions": 0,
+        "door_openings": 0,
+        "doorless_openings": 0,
+        "window_openings": 0,
+        "wall_elements_in_non_plan_views_skipped": 0,
+        "exterior_outline_by_region": {
+          "V4": "unknown",
+          "V5": "unknown"
+        }
+      },
+      "xrefs": [],
+      "verification_status": "REVIEW_REQUIRED",
+      "unit_evidence_suggestion": null,
+      "warnings": [],
+      "errors": []
+    },
+    {
+      "id": "REAL_011",
+      "format": "dxf",
+      "size_bytes": 91914,
+      "processing_status": "completed",
+      "failure_code": null,
+      "requires_human_review": true,
+      "total_seconds": 3.638,
+      "stage_ms": {
+        "validate_upload": 5,
+        "load_dxf": 47,
+        "resolve_units": 0,
+        "extract_geometry": 36,
+        "render_source": 1327,
+        "view_regions": 1,
+        "interpret": 1,
+        "wall_analysis": 0,
+        "room_analysis": 0,
+        "region_boundaries": 0,
+        "render_overlay": 1677,
+        "write_overlay_dxf": 60
+      },
+      "peak_rss_mb": 133.6,
+      "peak_rss_children_mb": 0.0,
+      "model_json_bytes": 291953,
+      "converter": null,
+      "converter_log_lines": null,
+      "units_override_hypothesis": null,
+      "work_dir_location": "bind_mount",
+      "dxf_version": "AC1027",
+      "units": {
+        "insunits": 6,
+        "resolved": "m",
+        "method": "drawing_header"
+      },
+      "bounds_ft": {
+        "width": 57.638,
+        "height": 39.359
+      },
+      "layer_count": 2,
+      "layers_with_role": 1,
+      "layer_roles": {
+        "UNRECOGNIZED": 1
+      },
+      "block_count": 2,
+      "blocks_with_role": 0,
+      "xref_blocks": 0,
+      "entities_total": 510,
+      "entities_top_level_model": 24,
+      "entities_paper": 0,
+      "entity_types_top_level": {
+        "TEXT": 12,
+        "INSERT": 6,
+        "LWPOLYLINE": 6
+      },
+      "hidden_top_level": 0,
+      "unsupported": {},
+      "element_counts": {
+        "text_annotation": 12
+      },
+      "text_entities": 120,
+      "unclassified_top_level": 12,
+      "unclassified_pct_of_visible_top": 50.0,
+      "rooms": [],
+      "dimension_checks": {
+        "total": 0,
+        "agree": 0
+      },
+      "review_triggers": [
+        "NO_WALLS_DETECTED",
+        "NO_ROOMS_DETECTED",
+        "HIGH_UNCLASSIFIED_FRACTION"
+      ],
+      "view_regions": [
+        {
+          "id": "V1",
+          "entity_count": 24,
+          "significant": true,
+          "element_counts": {
+            "text_annotation": 12
+          }
+        }
+      ],
+      "conversion_audit_lost": null,
+      "conversion_audit": null,
+      "view_types": [
+        {
+          "id": "V1",
+          "view_type": "UNKNOWN",
+          "confidence": 0.0,
+          "review_state": "unreviewed",
+          "room_logic": "applied",
+          "rules": [
+            "V-VIEW-TYPE"
+          ]
+        }
+      ],
+      "wall_model": {
+        "wall_segments": 0,
+        "paired_segments": 0,
+        "wall_pieces": 0,
+        "curved_pieces": 0,
+        "junctions": 0,
+        "door_openings": 0,
+        "doorless_openings": 0,
+        "window_openings": 0,
+        "wall_elements_in_non_plan_views_skipped": 0,
+        "exterior_outline_by_region": {}
+      },
+      "xrefs": [],
+      "verification_status": "REVIEW_REQUIRED",
+      "unit_evidence_suggestion": null,
+      "warnings": [],
+      "errors": []
+    }
+  ]
+}

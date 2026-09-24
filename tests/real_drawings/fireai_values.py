@@ -17,6 +17,36 @@ OUTPUTS = REPO / "tests" / "real_drawings_outputs_local"
 MAX_CANVAS_POINTS = 60_000
 
 
+_CONTENT_FP: dict[str, str] = {}
+
+
+def content_fp(path: Path) -> str:
+    """Content fingerprint of a persisted model (cached by file sha256)."""
+    sha = model_sha(path)
+    if sha not in _CONTENT_FP:
+        sys.path.insert(0, str(REPO))
+        import json
+
+        from fireai.review.content import content_fingerprint
+        _CONTENT_FP[sha] = content_fingerprint(json.loads(Path(path).read_text(encoding="utf-8")))
+    return _CONTENT_FP[sha]
+
+
+def currency(mp: Path | None, review: dict | None, outputs: Path = OUTPUTS) -> dict:
+    """kwargs for gt.effective: the current output's file sha + content fingerprint, and, for a review
+    recorded before content fingerprints existed, the content fingerprint of the EXACT artifact it
+    evaluated (found under ``outputs`` and verified by its sha256; otherwise None -> byte comparison)."""
+    if mp is None:
+        return {}
+    out = {"current_model_sha": model_sha(mp), "current_content_fp": content_fp(mp)}
+    em = (review or {}).get("evaluated_model") or {}
+    if em and not em.get("content_fingerprint") and em.get("output"):
+        p = (Path(outputs) / em["output"]).resolve()
+        if p.is_file() and p.is_relative_to(Path(outputs).resolve()) and model_sha(p) == em.get("model_sha256"):
+            out["evaluated_content_fp"] = content_fp(p)
+    return out
+
+
 def load_model_dict(path: Path) -> dict:
     sys.path.insert(0, str(REPO))
     from fireai.schema import read_model_dict      # restores defaults of persisted entities
@@ -47,7 +77,7 @@ def evaluated_model_ref(path: Path, outputs: Path = OUTPUTS) -> dict:
     path, outputs = Path(path).resolve(), Path(outputs).resolve()
     m = load_model_dict(path)
     rel = str(path.relative_to(outputs)) if path.is_relative_to(outputs) else path.name
-    return {"output": rel, "model_sha256": model_sha(path),
+    return {"output": rel, "model_sha256": model_sha(path), "content_fingerprint": content_fp(path),
             "engine_version": (m.get("verification") or {}).get("engine_version"),
             "model_id": m.get("model_id")}
 

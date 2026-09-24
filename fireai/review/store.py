@@ -7,7 +7,8 @@ Layout: <root>/<sha[:2]>/<sha>/corrections.json, verification.json
   context it was made in (XREF shas, engine version). A correction whose
   context no longer matches is NOT applied and is reported.
 * A verification is bound to the model's verification fingerprint (source,
-  XREFs, units, engine version, applied corrections). Any change -> INVALIDATED.
+  XREFs, units, engine version, applied corrections and — schema 0.5.0 — the
+  interpretation content fingerprint). Any change -> INVALIDATED.
 * Only a person writes here (API / review tool). The pipeline only reads.
 """
 
@@ -229,6 +230,8 @@ def verification_state(model, store: ReviewStore | None) -> dict:
             reasons.append(f"interpretation engine changed ({old.get('engine_version')} -> {v.engine_version})")
         if old.get("corrections_digest") != v.corrections_digest:
             reasons.append("human corrections changed since verification")
+        if old.get("content_fingerprint") != v.content_fingerprint:
+            reasons.append("interpretation content changed since verification (content fingerprint)")
         return {"status": "INVALIDATED", "reasons": reasons or ["verification fingerprint differs"],
                 "verified_at": rec.get("at"), "reviewer": rec.get("reviewer")}
     if rec["status"] == "HUMAN_VERIFIED":

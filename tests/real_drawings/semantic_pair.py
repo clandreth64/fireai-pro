@@ -2,7 +2,9 @@
 
 Compares ENGINEERING MEANING, not raw CAD: view types, physical-region topology, semantic spaces
 (known vs unresolved), openings / stairs / columns per view, room connectivity through openings,
-engineering blockers, and normalized geometry (feet) within a tolerance. Geometry that legitimately
+classified region boundaries (the cyclic order of wall / window / door / open / unknown along each
+uniquely named region, and which regions are incomplete), plan openings by kind, engineering
+blockers, and normalized geometry (feet) within a tolerance. Geometry that legitimately
 differs between two drafts (wall thickness, drafting technique) is compared with tolerances or not
 at all; entity counts, layers, handles and block names are never compared.
 
@@ -79,8 +81,22 @@ def semantic_signature(model) -> dict:
             "area_sf": {k: round(r.properties["area_sf"], 2) for r in rooms_v
                         if keys[(k := key_of[r.id])] == 1 and k != UNNAMED},
             "wall_length_ft": round(sum(w.get("length_ft") or 0.0 for w in walls_v), 2),
+            # M1.9: classified boundaries and plan openings
+            "boundary_kinds": sorted(f"{key_of[r.id]}: {' > '.join(_cyclic(r))}" for r in rooms_v
+                                     if r.boundary and keys[key_of[r.id]] == 1 and key_of[r.id] != UNNAMED),
+            "incomplete_boundaries": sorted(key_of[r.id] for r in rooms_v if r.boundary and not r.boundary.complete),
+            "unclassified_regions": sorted(key_of[r.id] for r in rooms_v if r.boundary is None),
+            "openings": sorted(f"{o.subtype}" for o in model.elements_of("opening")
+                               if o.properties.get("view_region") == vid),
         })
     return {"units_resolved": bool(model.units.resolved), "view_count": len(views), "views": views}
+
+
+def _cyclic(room) -> list[str]:
+    seq = [s.kind for ring in room.boundary.rings if ring.role == "outer" for s in ring.segments]
+    col = [k for i, k in enumerate(seq) if i == 0 or k != seq[i - 1]]
+    col = col[:-1] if len(col) > 1 and col[0] == col[-1] else col
+    return min((col[i:] + col[:i] for i in range(len(col))), default=[])
 
 
 def engineering_blockers_by_view(model) -> list[list[str]]:
@@ -118,7 +134,8 @@ def compare(sig_a: dict, sig_b: dict, tol: dict | None = None) -> list[dict]:
         for f in ("view_type",):
             if va[f] != vb[f]:
                 diffs.append({"view": i, "field": f, "a": va[f], "b": vb[f]})
-        for f in ("regions", "merged_regions", "known_spaces", "unresolved_spaces", "connections", "blockers"):
+        for f in ("regions", "merged_regions", "known_spaces", "unresolved_spaces", "connections", "blockers",
+                  "boundary_kinds", "incomplete_boundaries", "unclassified_regions", "openings"):
             if f not in va:
                 continue
             a_only, b_only = _multiset_diff(va[f], vb[f])

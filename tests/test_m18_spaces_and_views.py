@@ -236,7 +236,7 @@ def test_migrate_real_0_3_0_model_derives_nothing():
     data = json.loads((FIXTURES / "model_v0_3_0_open_plan.json").read_text())
     assert data["schema_version"] == "0.3.0"
     model, applied = load_model(data)
-    assert applied == ["0.3.0->0.4.0"] and model.schema_version == "0.4.0"
+    assert applied == ["0.3.0->0.4.0", "0.4.0->0.5.0"] and model.schema_version == "0.5.0"
     assert model.elements_of("space") == [] and model.elements_of("depiction") == []   # not retro-derived
     assert [e.uid for e in model.elements] == [e["uid"] for e in data["elements"]]
     assert model.elements_of("room")[0].subtype == "suspected_merged_region"

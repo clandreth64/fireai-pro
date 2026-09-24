@@ -64,6 +64,173 @@
       "title": "BlockInfo",
       "type": "object"
     },
+    "BoundaryRing": {
+      "properties": {
+        "role": {
+          "default": "outer",
+          "enum": [
+            "outer",
+            "inner"
+          ],
+          "title": "Role",
+          "type": "string"
+        },
+        "orientation": {
+          "default": "ccw",
+          "enum": [
+            "ccw",
+            "cw"
+          ],
+          "title": "Orientation",
+          "type": "string"
+        },
+        "segments": {
+          "items": {
+            "$ref": "#/$defs/BoundarySegment"
+          },
+          "title": "Segments",
+          "type": "array"
+        }
+      },
+      "title": "BoundaryRing",
+      "type": "object"
+    },
+    "BoundarySegment": {
+      "description": "One straight piece of a region boundary, classified by what bounds the region there (0.5.0).\n\n``encloses``: True = physically closes the region (wall, glazed wall); False = a passage\n(door opening, doorless opening); None = not established (``unknown``). The segment line is\nthe region polygon's edge (LOCAL frame); it is the plan projection of a future 3D face.",
+      "properties": {
+        "uid": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Uid"
+        },
+        "index": {
+          "title": "Index",
+          "type": "integer"
+        },
+        "kind": {
+          "enum": [
+            "wall",
+            "window",
+            "door_opening",
+            "open_opening",
+            "unknown"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "encloses": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Encloses"
+        },
+        "start": {
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Start",
+          "type": "array"
+        },
+        "end": {
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "End",
+          "type": "array"
+        },
+        "length_ft": {
+          "title": "Length Ft",
+          "type": "number"
+        },
+        "opening_uid": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Opening Uid"
+        },
+        "fill_element_uid": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Fill Element Uid"
+        },
+        "derived_from": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Derived From",
+          "type": "array"
+        },
+        "confidence": {
+          "title": "Confidence",
+          "type": "number"
+        },
+        "requires_verification": {
+          "title": "Requires Verification",
+          "type": "boolean"
+        },
+        "rules": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Rules",
+          "type": "array"
+        },
+        "vertical_extent": {
+          "$ref": "#/$defs/VerticalExtent"
+        }
+      },
+      "required": [
+        "index",
+        "kind",
+        "start",
+        "end",
+        "length_ft",
+        "confidence",
+        "requires_verification"
+      ],
+      "title": "BoundarySegment",
+      "type": "object"
+    },
     "Bounds": {
       "properties": {
         "min": {
@@ -139,7 +306,8 @@
             "existing_fire_protection",
             "existing_mep",
             "space",
-            "depiction"
+            "depiction",
+            "opening"
           ],
           "title": "Category",
           "type": "string"
@@ -218,6 +386,17 @@
         },
         "provenance": {
           "$ref": "#/$defs/Provenance"
+        },
+        "boundary": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RegionBoundary"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       },
       "required": [
@@ -864,6 +1043,90 @@
       "title": "Provenance",
       "type": "object"
     },
+    "RegionBoundary": {
+      "description": "Classified boundary of a physical region (0.5.0).\n\n``representation`` \"plan_projection\": the boundary is a closed curve on a horizontal plane whose\nelevation is UNKNOWN (SPATIAL_BIM_ARCHITECTURE \u00a73 ``curve2d_on_plane``). A future 3D\nrepresentation (bounding faces with vertical extents, floor/ceiling planes, a volume) is added\nas another representation; this one stays valid as its plan projection.",
+      "properties": {
+        "boundary_schema": {
+          "const": "region_boundary/1",
+          "default": "region_boundary/1",
+          "title": "Boundary Schema",
+          "type": "string"
+        },
+        "representation": {
+          "const": "plan_projection",
+          "default": "plan_projection",
+          "title": "Representation",
+          "type": "string"
+        },
+        "frame": {
+          "default": "LOCAL",
+          "enum": [
+            "SRC",
+            "SRC_FT",
+            "LOCAL",
+            "PROJECT"
+          ],
+          "title": "Frame",
+          "type": "string"
+        },
+        "units": {
+          "const": "ft",
+          "default": "ft",
+          "title": "Units",
+          "type": "string"
+        },
+        "plane_z_status": {
+          "default": "unknown",
+          "enum": [
+            "unknown",
+            "from_source",
+            "user"
+          ],
+          "title": "Plane Z Status",
+          "type": "string"
+        },
+        "rings": {
+          "items": {
+            "$ref": "#/$defs/BoundaryRing"
+          },
+          "title": "Rings",
+          "type": "array"
+        },
+        "complete": {
+          "default": false,
+          "title": "Complete",
+          "type": "boolean"
+        },
+        "length_by_kind_ft": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "title": "Length By Kind Ft",
+          "type": "object"
+        },
+        "rules": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Rules",
+          "type": "array"
+        },
+        "engine_version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Engine Version"
+        }
+      },
+      "title": "RegionBoundary",
+      "type": "object"
+    },
     "ReviewState": {
       "properties": {
         "status": {
@@ -1461,7 +1724,7 @@
       "type": "object"
     },
     "VerificationBinding": {
-      "description": "What a human verification of this model is bound to (0.3.0).\n\n``fingerprint`` changes whenever the source drawing, any loaded XREF, the\nunit resolution or the interpretation engine version changes. A human\nverification recorded against another fingerprint is INVALIDATED.",
+      "description": "What a human verification of this model is bound to (0.3.0).\n\n``fingerprint`` changes whenever the source drawing, any loaded XREF, the\nunit resolution, the interpretation engine version, the applied corrections or\n(0.5.0) the interpretation content changes. A human verification recorded\nagainst another fingerprint is INVALIDATED.",
       "properties": {
         "fingerprint": {
           "title": "Fingerprint",
@@ -1506,6 +1769,18 @@
           "default": null,
           "title": "Corrections Digest"
         },
+        "content_fingerprint": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Content Fingerprint"
+        },
         "status": {
           "default": "UNREVIEWED",
           "enum": [
@@ -1536,6 +1811,59 @@
         "engine_version"
       ],
       "title": "VerificationBinding",
+      "type": "object"
+    },
+    "VerticalExtent": {
+      "description": "Vertical extent of a boundary face or opening (0.5.0). 2D plans do not establish it:\nit stays UNKNOWN until a source (section, BIM, survey) or a person supplies it. Values are\nrelative to ``datum`` (e.g. the region's floor) and never defaulted.",
+      "properties": {
+        "status": {
+          "default": "unknown",
+          "enum": [
+            "unknown",
+            "from_source",
+            "user"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "datum": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Datum"
+        },
+        "bottom_ft": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Bottom Ft"
+        },
+        "top_ft": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Top Ft"
+        }
+      },
+      "title": "VerticalExtent",
       "type": "object"
     },
     "XrefRecord": {
@@ -1741,7 +2069,7 @@
   },
   "properties": {
     "schema_version": {
-      "default": "0.4.0",
+      "default": "0.5.0",
       "title": "Schema Version",
       "type": "string"
     },

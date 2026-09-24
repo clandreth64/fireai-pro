@@ -43,20 +43,14 @@ constraints, with every placed sprinkler explainable.
    * `obstructions`: an explicit statement "none" for the space (otherwise out of scope → refuse).
 3. Anything missing → refuse with the list of missing inputs. No defaults.
 
-## 3a. Contract prerequisite (before any placement code)
+## 3a. Contract prerequisite — DONE in M1.9 (`engineering_input/3`)
 
-The draft-2 contract gives a space only its polygon. Distance-to-wall checks (§5) need to know
-**which boundary segments are walls**. FireAI's polygon is closed across door openings with analysis
-lines, which are not walls (the model already records these as `door_closures`). The contract must
-first gain, as a versioned change (`engineering_input/3`):
-
-* per space: boundary **segments** with a kind (`wall_face` | `door_opening_closure` | `closing_line`
-  | `human_boundary`) and the uids they derive from;
-* **openings** (doors/windows in the selected region) as normalized objects: uid, kind, width,
-  location, and the spaces they connect;
-* tests proving that no CAD concept crosses the boundary.
-
-How engineering treats each segment kind is owner decision 8. It is not decided here.
+Each space now carries an ordered, classified boundary (`wall | window | door_opening | open_opening
+| unknown`, with `encloses`, geometry, provenance, confidence) and the package lists the openings
+crossing it (`ENGINEERING_INPUT_CONTRACT.md` §1a–§1b). M2.0 must additionally REFUSE a selected space
+whose boundary is not `complete` (any `unknown` segment): distances to walls are undefined there.
+How engineering treats each segment kind (e.g. whether a door opening counts as part of the
+enclosure for a given check) is owner decision 8. It is not decided here.
 
 ## 4. The only engineering task
 
@@ -161,9 +155,10 @@ Expected values will come from the selected ruleset **after** §6 is decided. No
 * Merged rooms and open-plan semantic spaces (unresolved boundaries) need human boundaries.
   Selection is per view region, so one open-plan area blocks every room on that floor until it is
   resolved.
-* The draft-2 contract carries no openings or boundary-segment kinds (§3a).
-* Wall-gap analysis can report several overlapping openings for one door, and misses some openings
-  (see `REAL_DRAWING_VALIDATION.md` §M2.0-readiness).
+* Door-closure pairing can cut diagonal analysis lines across wall corners; such boundary portions
+  are `unknown` (the space is then incomplete and refused by M2.0), never doorways.
+* Wall-gap analysis can report several overlapping openings for one door, and misses some openings;
+  the contract's openings come from region boundaries and door/window elements instead.
 * Wrong-but-declared units may go undetected.
 * Fire alarm and fire protection content is not separated.
 * Reviewer identity is not authenticated.

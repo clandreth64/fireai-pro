@@ -124,16 +124,69 @@ def test_facts_and_evaluations_roundtrip_with_visual_flags(env):
     assert json.loads((gt_dir / "REAL_004.json").read_text()) == rec                   # draft untouched
 
 
-def test_evaluations_go_stale_when_fireai_output_changes_but_facts_persist(env):
-    c, gt_dir, pub, _priv, _o, d = env
+def _rewrite_model(d, fn):
+    m = json.loads((d / "building_model.json").read_text())
+    fn(m)
+    (d / "building_model.json").write_text(json.dumps(m, indent=1))
+
+
+def test_evaluations_go_stale_when_fireai_interpretation_changes_but_facts_persist(env):
+    c, gt_dir, pub, _priv, outputs, d = env
     c.post("/review/REAL_004", data=_form({"units": ("CONFIRMED", {"basis": "cad_file_inspection"}),
                                            "walls": ("CONFIRMED", {})}))
     rv = json.loads((pub / "REAL_004.json").read_text())
-    (d / "building_model.json").write_text((d / "building_model.json").read_text().replace('"model_id":', '"model_id" :', 1))
+    assert rv["evaluated_model"]["content_fingerprint"] == FV.content_fp(d / "building_model.json")
+    room = lambda m: next(e for e in m["elements"] if e["category"] == "room")   # noqa: E731
+    _rewrite_model(d, lambda m: room(m)["geometry"]["points"].__setitem__(0, [0.0, 0.0]))   # a boundary moved
     rec = G.load_record("REAL_004", gt_dir)
-    eff = G.effective(rec, rv, rec["source_sha256s"], FV.model_sha(d / "building_model.json"))
+    eff = G.effective(rec, rv, rec["source_sha256s"], **FV.currency(d / "building_model.json", rv, outputs))
+    assert eff["currency_basis"] == "content_fingerprint"
     assert "units" in eff["truth"] and eff["evaluations"] == {} and "walls" in eff["stale_evaluations"]
     assert "re-check" in c.get("/").text
+
+
+def test_run_metadata_alone_does_not_make_evaluations_stale(env):
+    """Same interpretation, new run: new model id and timestamp, re-serialized file (other bytes)."""
+    c, gt_dir, pub, _priv, outputs, d = env
+    c.post("/review/REAL_004", data=_form({"units": ("CONFIRMED", {"basis": "cad_file_inspection"}),
+                                           "walls": ("CONFIRMED", {})}))
+    rv = json.loads((pub / "REAL_004.json").read_text())
+    before = FV.model_sha(d / "building_model.json")
+    _rewrite_model(d, lambda m: m.update(model_id="f" * 32, created_at="2030-01-01T00:00:00+00:00"))
+    assert FV.model_sha(d / "building_model.json") != before
+    rec = G.load_record("REAL_004", gt_dir)
+    eff = G.effective(rec, rv, rec["source_sha256s"], **FV.currency(d / "building_model.json", rv, outputs))
+    assert eff["evaluations"] and not eff["stale_evaluations"] and eff["currency_basis"] == "content_fingerprint"
+    assert "re-check" not in c.get("/").text
+    # the byte-level comparison remains the conservative fallback when no content fingerprint is known
+    legacy = G.effective(rec, rv, rec["source_sha256s"], FV.model_sha(d / "building_model.json"))
+    assert legacy["stale_evaluations"] and legacy["currency_basis"] == "file_bytes"
+
+
+def test_legacy_review_is_judged_by_the_content_of_the_exact_artifact_it_evaluated(env, tmp_path):
+    """A review recorded before content fingerprints: the reviewed artifact is located, verified by its
+    sha256 and fingerprinted; a re-run with identical content stays current, other content goes stale."""
+    c, gt_dir, pub, _priv, outputs, d = env
+    c.post("/review/REAL_004", data=_form({"units": ("CONFIRMED", {"basis": "cad_file_inspection"}),
+                                           "walls": ("CONFIRMED", {})}))
+    rv = json.loads((pub / "REAL_004.json").read_text())
+    rv["evaluated_model"].pop("content_fingerprint")                                      # an older record
+    rec = G.load_record("REAL_004", gt_dir)
+    rerun = outputs / "run_y" / "REAL_004_dwg"
+    rerun.mkdir(parents=True)
+    m = json.loads((d / "building_model.json").read_text())
+    m.update(model_id="e" * 32, created_at="2031-01-01T00:00:00+00:00")
+    (rerun / "building_model.json").write_text(json.dumps(m))
+    eff = G.effective(rec, rv, rec["source_sha256s"], **FV.currency(rerun / "building_model.json", rv, outputs))
+    assert not eff["stale_evaluations"] and eff["currency_basis"] == "content_fingerprint"
+    m["elements"][0]["label"] = "SOMETHING ELSE"
+    (rerun / "building_model.json").write_text(json.dumps(m))
+    eff = G.effective(rec, rv, rec["source_sha256s"], **FV.currency(rerun / "building_model.json", rv, outputs))
+    assert eff["stale_evaluations"]
+    # the reviewed artifact changed on disk -> it can no longer be trusted as the reference -> bytes decide
+    (d / "building_model.json").write_text((d / "building_model.json").read_text() + " ")
+    eff = G.effective(rec, rv, rec["source_sha256s"], **FV.currency(rerun / "building_model.json", rv, outputs))
+    assert eff["stale_evaluations"] and eff["currency_basis"] == "file_bytes"
 
 
 def test_private_drawing_review_stays_local(env):

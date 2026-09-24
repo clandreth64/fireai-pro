@@ -46,7 +46,7 @@ Governing rule: **never guess, never silently default, never report success when
 |---|---|
 | `fireai/errors.py` | `FailureCode` enum, `PipelineFailure` |
 | `fireai/config.py` | env settings with restrictive defaults |
-| `fireai/model.py` | canonical building model (Pydantic, schema `0.3.0`; JSON schema in `docs/building_model.schema.json`; migrations in `fireai/schema.py`) |
+| `fireai/model.py` | canonical building model (Pydantic, schema `0.5.0`; JSON schema in `docs/building_model.schema.json`; migrations in `fireai/schema.py`) |
 | `fireai/ingest/filetype.py` | extension + content sniffing, filename sanitising |
 | `fireai/ingest/dwg.py` | `DwgConverter` interface, `OdaFileConverter`, `LibreDwgConverter`, `select_converter` |
 | `fireai/ingest/units.py` | `$INSUNITS` resolution, exact factors, unit-resolution requirement |
@@ -110,6 +110,7 @@ A completed model that still needs a person carries `requires_human_review = tru
 | `MULTIPLE_DRAWING_REGIONS` | ≥ 2 significant separate regions in model space (several plans, sections, details) — added 1.5 |
 | `ROOM_BOUNDARY_SPANS_MULTIPLE_LABELS` | one physical region contains several named spaces — an open area shared by several spaces, or rooms not separated; since 1.8 the spaces are recorded with UNRESOLVED boundaries and listed in the trigger — added 1.5 |
 | `NON_PLAN_OPENING_DEPICTIONS` | door/window content found in a SECTION / ELEVATION / DETAIL / … view, kept as a `depiction` (not a plan door/window) — added 1.8 |
+| `REGION_BOUNDARY_UNCLASSIFIED` | a physical region's boundary has portions with no evidence of a wall or an opening; they are `unknown`, never assumed to be walls — added 1.9 |
 | `DWG_CONVERSION_LOST_ENTITIES` | independent DWG entity census shows types missing from the converted DXF — added 1.5 |
 | `DWG_CONVERSION_AUDIT_UNAVAILABLE` | a DWG was converted but its entity census could not be verified — added 1.5 |
 
@@ -233,3 +234,26 @@ Rules:
 * Schema **0.4.0** adds the `space` and `depiction` categories; the 0.3.0→0.4.0 migration derives
   nothing (reprocessing does). Engine `interp.m18.1`: verifications made on earlier engines are
   INVALIDATED; FireAI-output-specific human evaluations become stale automatically.
+
+## 5d. Milestone 1.9: classified region boundaries, plan openings, content fingerprint
+
+* **Boundaries** (`fireai/interpret/boundaries.py`, stage `region_boundaries`, after corrections): every
+  physical region gets `boundary` (`region_boundary/1`, plan projection, LOCAL ft, CCW outer ring,
+  deterministic start): ordered segments `wall | window | door_opening | open_opening | unknown` with
+  `encloses`, geometry, evidence uids, confidence, rules and an unknown `vertical_extent`. Rules:
+  B-WALL-FACE, B-WALL-BAND, B-WINDOW, B-DOOR-CLOSURE, B-DOOR-GAP, B-OPEN-OPENING,
+  B-OPENING-IN-WALL-LINE, B-UNKNOWN (details: `ENGINEERING_INPUT_CONTRACT.md` §1c).
+* **Openings** (rule O-OPENING): one `opening` element (category added in schema 0.5.0; subtype
+  `door | open | window`) per physical opening crossed by region boundaries, keyed by its fill element
+  (or the wall pieces around a doorless gap); overlapping wall-analysis gaps for one door collapse
+  into it (`analysis_gap_ids`). `provenance.derived_from` = the fill element's source
+  entities; the upstream elements are in `properties.derived_from_elements`.
+* **Content fingerprint** (`fireai/review/content.py`): deterministic digest of the interpretation
+  content, excluding run metadata (model id, timestamp, converter labels, local paths, engine-version
+  strings). It is part of the verification binding (the gate additionally binds the engine version)
+  and decides whether a corpus review's evaluations are current.
+* **One engine-version story:** `ENGINE_VERSION` (`fireai/pipeline.py`, `interp.m19.1`) is the only
+  source; the pipeline passes it to the interpreter, boundaries, openings and wall analysis, so every
+  derived object carries the model's engine version. Migrated models keep the versions they had.
+* Schema **0.5.0**; the 0.4.0→0.5.0 migration derives nothing (no boundaries, no openings, no content
+  fingerprint): the engineering contract refuses such a model until it is reprocessed.

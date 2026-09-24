@@ -1,4 +1,4 @@
-"""Drawing Understanding -> Verified Normalized Model -> Engineering boundary (contract draft 1)."""
+"""Drawing Understanding -> Verified Normalized Model -> Engineering boundary (contract version 3)."""
 
 from __future__ import annotations
 
@@ -70,7 +70,7 @@ def test_verified_model_yields_format_independent_input(tmp_path):
     m = run_pipeline(B.make_walls_only(tmp_path / "w.dxf"), tmp_path, review_store=store).model
     _verify(store, m)
     ei = build_engineering_input(m, store)
-    assert ei.contract_version == "engineering_input/2-draft" and ei.frame == "LOCAL" and ei.units == "ft"
+    assert ei.contract_version == "engineering_input/3" and ei.frame == "LOCAL" and ei.units == "ft"
     assert ei.verification_fingerprint == m.verification.fingerprint and ei.z_status == "unknown"
     assert "ceiling_height_and_ceiling_geometry" in ei.not_provided
     assert len(ei.spaces) == 2 and {s.label for s in ei.spaces} == {"OFFICE", "SALES FLOOR"}

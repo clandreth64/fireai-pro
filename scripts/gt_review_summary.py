@@ -82,8 +82,7 @@ def build_summary(gt_dir: Path = G.GT_DIR, public_dir: Path = G.PUBLIC_REVIEWS, 
         path = G.review_path(gid, entry["private"], public_dir, private_dir)
         review = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else None
         ed, mp = FV.preferred_model(gid, outputs)
-        cur_sha = FV.model_sha(mp) if mp else None
-        eff = G.effective(rec, review, entry["sha256"], cur_sha)
+        eff = G.effective(rec, review, entry["sha256"], **FV.currency(mp, review, outputs))
         items = (review or {}).get("items", {}) if eff["status"] != "INVALIDATED" else {}
         for q in G.QUESTIONS:
             decisions[q][items[q]["human_decision"] if q in items else "NOT_REVIEWED"] += 1

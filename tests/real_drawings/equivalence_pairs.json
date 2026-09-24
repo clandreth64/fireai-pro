@@ -7,29 +7,112 @@
       "relation": "same two-storey plan; a = imperial (in), b = metric (m); human reviews confirm both (units, 2 x FLOOR_PLAN)",
       "declared_differences": [
         {
-          "view": 0, "field": "regions", "a_only": ["DINING ROOM"], "b_only": ["DINNING ROOM"],
+          "view": 0,
+          "field": "regions",
+          "a_only": [
+            "DINING ROOM"
+          ],
+          "b_only": [
+            "DINNING ROOM"
+          ],
           "class": "source_difference",
           "evidence": "the metric source text reads 'DINNING ROOM' (spelling in the CAD file); FireAI reads each label verbatim"
         },
         {
-          "view": 0, "field": "known_spaces", "a_only": ["DINING ROOM"], "b_only": ["DINNING ROOM"],
+          "view": 0,
+          "field": "known_spaces",
+          "a_only": [
+            "DINING ROOM"
+          ],
+          "b_only": [
+            "DINNING ROOM"
+          ],
           "class": "source_difference",
           "evidence": "same label spelling difference as above"
         },
         {
-          "view": 0, "field": "counts.column", "a": 5, "b": 0,
+          "view": 0,
+          "field": "counts.column",
+          "a": 5,
+          "b": 0,
           "class": "source_difference",
           "evidence": "the imperial file inserts a 'Column' block at five deck positions; the metric file has no column block definition and only plain lines on the deck layer at those positions"
         },
         {
-          "view": 1, "field": "regions", "a_only": ["<unnamed>", "<unnamed>"], "b_only": [],
+          "view": 1,
+          "field": "regions",
+          "a_only": [
+            "<unnamed>",
+            "<unnamed>"
+          ],
+          "b_only": [],
           "class": "fireai_limitation",
           "evidence": "two closets behind bifold doors exist in both drafts. Their enclosed faces are 16.15 sf (imperial) and 14.17 sf (metric, thicker walls); the fixed MIN_POLYGONIZED_ROOM_SF = 16.0 keeps one pair and drops the other. Threshold brittleness, not unit handling. Recorded M2.0 readiness checkpoint, 2026-09-24"
         },
         {
-          "view": 1, "field": "connections", "a_only": ["door:<unnamed>~BEDROOM"], "b_only": ["door:BEDROOM~<outside>", "door:HALL~<outside>"],
+          "view": 1,
+          "field": "connections",
+          "a_only": [
+            "door:<unnamed>~BEDROOM"
+          ],
+          "b_only": [
+            "door:BEDROOM~<outside>",
+            "door:HALL~<outside>"
+          ],
           "class": "fireai_limitation",
           "evidence": "consequence of the closet difference above: without the closet regions, the closet doors connect a room to 'outside'"
+        },
+        {
+          "view": 0,
+          "field": "boundary_kinds",
+          "a_only": [
+            "DINING ROOM: door_opening > wall > window > wall > window > wall > window > wall > window > wall",
+            "FORUM|HALL|KITCHEN|LIVING ROOM: door_opening > unknown > door_opening > wall > window > wall > window > wall > door_opening > wall > door_opening > wall > window > door_opening > wall > window > wall > door_opening > wall > window > wall > window > wall > window > wall > door_opening > wall > door_opening > wall"
+          ],
+          "b_only": [
+            "DINNING ROOM: door_opening > wall > window > wall > window > wall > window > wall > window > wall",
+            "FORUM|HALL|KITCHEN|LIVING ROOM: door_opening > wall > door_opening > wall > door_opening > wall > door_opening > wall > window > wall > window > wall > door_opening > wall > door_opening > wall > window > wall > door_opening > wall > window > wall > door_opening > wall > window > wall > window > wall > window > wall"
+          ],
+          "class": "source_difference+fireai_limitation",
+          "evidence": "DINING/DINNING: the metric label spelling (same boundary kinds). Open-plan region: REAL_002's double-door vestibule on floor 1 yields a door-closure analysis line that cuts diagonally between the two door leaves (M1.7 rule G-DOOR-OPENING-CLOSURE pairs wall vertices shortest-first); it is not along a wall line, so M1.9 classifies it UNKNOWN instead of calling it a doorway (B-OPENING-IN-WALL-LINE). REAL_003's leaves pair along the wall line. Closure pairing is FireAI debt, not unit handling",
+          "recorded": "M1.9 pre-M2 contract checkpoint, 2026-09-24"
+        },
+        {
+          "view": 0,
+          "field": "incomplete_boundaries",
+          "a_only": [
+            "FORUM|HALL|KITCHEN|LIVING ROOM"
+          ],
+          "b_only": [],
+          "class": "fireai_limitation",
+          "evidence": "REAL_002's double-door vestibule on floor 1 yields a door-closure analysis line that cuts diagonally between the two door leaves (M1.7 rule G-DOOR-OPENING-CLOSURE pairs wall vertices shortest-first); it is not along a wall line, so M1.9 classifies it UNKNOWN instead of calling it a doorway (B-OPENING-IN-WALL-LINE). REAL_003's leaves pair along the wall line. Closure pairing is FireAI debt, not unit handling",
+          "recorded": "M1.9 pre-M2 contract checkpoint, 2026-09-24"
+        },
+        {
+          "view": 1,
+          "field": "boundary_kinds",
+          "a_only": [
+            "WALK-IN CLOSET: door_opening > wall > unknown > wall"
+          ],
+          "b_only": [
+            "WALK-IN CLOSET: door_opening > wall"
+          ],
+          "class": "fireai_limitation",
+          "evidence": "door-closure pairing near closet doors cuts diagonal analysis lines across wall corners (REAL_002: one bedroom and the walk-in closet; REAL_003: both bedrooms, whose closets are not separate regions, see the closet declaration); each diagonal is classified UNKNOWN, never a doorway",
+          "recorded": "M1.9 pre-M2 contract checkpoint, 2026-09-24"
+        },
+        {
+          "view": 1,
+          "field": "incomplete_boundaries",
+          "a_only": [
+            "WALK-IN CLOSET"
+          ],
+          "b_only": [
+            "BEDROOM"
+          ],
+          "class": "fireai_limitation",
+          "evidence": "door-closure pairing near closet doors cuts diagonal analysis lines across wall corners (REAL_002: one bedroom and the walk-in closet; REAL_003: both bedrooms, whose closets are not separate regions, see the closet declaration); each diagonal is classified UNKNOWN, never a doorway",
+          "recorded": "M1.9 pre-M2 contract checkpoint, 2026-09-24"
         }
       ]
     }

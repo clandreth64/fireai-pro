@@ -443,3 +443,91 @@ elements. Connectivity is therefore compared as a set.
 5. Element provenance records `engine_version` "0.1.0" while the model binding records
    "0.1.0+interp.m18.1".
 6. Selection is per view region, so an open-plan area on one floor blocks every room on that floor.
+
+## §M1.9 — Pre-M2 contract checkpoint: classified boundaries, openings, content fingerprint
+
+Engine `interp.m19.1`, schema 0.5.0, contract `engineering_input/3` (design:
+`ENGINEERING_INPUT_CONTRACT.md` §1a–§1c, §3; `ARCHITECTURE_V2.md` §5d). Tests:
+`tests/test_m19_boundaries_contract.py` (28), updated `tests/test_gt_workflow.py`, extended pair
+signature in `tests/real_drawings/semantic_pair.py`.
+
+### REAL_002 floor-2 bathroom (SP00098 / R00097) and its metric twin (SP00314 / R00313)
+
+Built through the real gate and contract with a **throw-away simulated verification** (never
+persisted; debug output in the git-ignored `tests/real_drawings_outputs_local/contract_v3_debug/`):
+
+| # | REAL_002 (in) | ft | REAL_003 (m) | ft |
+|---|---|---|---|---|
+| 0 | wall | 7.895 | wall | 7.597 |
+| 1 | wall | 0.625 | wall | 0.986 |
+| 2 | **window** (encloses) | 2.333 | **window** | 2.297 |
+| 3 | wall | 2.167 | wall | 1.969 |
+| 4 | **window** | 2.333 | **window** | 2.297 |
+| 5 | wall | 1.375 | wall | 1.168 |
+| 6 | wall | 7.895 | wall | 7.597 |
+| 7 | wall | 0.250 | wall | 0.090 |
+| 8 | **door_opening** (`encloses: false`, rule B-DOOR-CLOSURE) | 2.833 | **door_opening** | 2.625 |
+| 9 | wall | 5.750 | wall | 6.001 |
+
+Both boundaries are `complete`, with the same cyclic order of kinds (door → wall → window → wall →
+window → wall). The doorway is ONE door opening shared with the adjacent space, filled by the door
+element. Its width differs because the source doors differ (34 in vs 800 mm). Walls agree within
+2.1 % and windows within 1.6 %. The CAD leak scan found no entity ids, handles, layers, block names
+or DXF types. Z, plane elevation and vertical extents are `unknown`.
+
+### Imperial/metric pair after M1.9
+
+The pair signature now also compares:
+* the cyclic boundary kinds of every uniquely named region;
+* incomplete and unclassified regions;
+* openings by kind.
+
+The first run found two genuine FireAI defects, both fixed generally:
+
+1. **False windows at bay-window returns.** A window in the perpendicular wall of a bay was attributed
+   to the short return edge; drafting differences decided whether it happened. Fix: B-WINDOW requires
+   the window's centre to lie in the edge's outward strip.
+2. **False doorways from diagonal closure lines.** M1.7's door-closure pairing sometimes cuts a
+   diagonal analysis line across a wall corner (closets) or between two door leaves (the floor-1
+   vestibule). The first classifier called these doorways. Fix: B-OPENING-IN-WALL-LINE — an opening
+   is recognised only along a wall line; a diagonal stays `unknown`.
+
+Remaining differences are declared with evidence in `equivalence_pairs.json`:
+* the DINING/DINNING label spelling;
+* the diagonal closure lines, which fall in different rooms in the two drafts (closure pairing debt);
+* the pre-existing column and closet differences.
+
+Door openings per floor are equal (7 on floor 1, 8 on floor 2 in both drafts). No
+unit-handling difference was found.
+
+### Review validity after reprocessing (content fingerprint)
+
+| Proof | Result |
+|---|---|
+| Same engine, two corpus runs (`m18` vs `readiness`), 13 files | bytes differ for all 13; content fingerprint equal for all 13 (after excluding the DXF document GUID, which the loader invents per load when a file has none: REAL_008) |
+| Owner's unchanged review records vs the same-engine re-run | old byte rule: PARTIALLY_HUMAN_REVIEWED, 12 stale each; content rule: **HUMAN_VERIFIED, 0 stale** (REAL_002, 003, 004) |
+| Current engine, two independent runs | identical content fingerprints (REAL_002, 003, 004), and equal to the committed-run artifacts |
+| Owner's reviews vs the M1.9 output (`m19`) | REAL_004 stays **HUMAN_VERIFIED** (its interpreted content did not change); REAL_002 and REAL_003 evaluations are **stale** (12 each; facts persist) because their content gained boundaries and openings the reviewer has not seen |
+
+### Corpus (`m18` → `m19`)
+
+Physical regions are identical in every file. Only REAL_002/003 changed:
+* 57 `opening` elements each (15 doors, 42 windows);
+* trigger `REGION_BOUNDARY_UNCLASSIFIED` (REAL_002: 3 regions with 1.8–3.8 ft of `unknown`; REAL_003:
+  2 regions);
+* no other trigger or category changes.
+
+All other files are unchanged apart from engine-version stamps. REAL_006 still fails and REAL_008
+still needs units (pre-existing). The boundary stage costs ≤ 0.3 s per drawing, and models grow by
+≤ 8.6 % (REAL_002/003).
+
+### Debt recorded
+
+1. Door-closure pairing (G-DOOR-OPENING-CLOSURE) can create diagonal analysis lines that shape room
+   polygons. They are now visible (`unknown`), but the pairing itself must be fixed, with its own topology
+   regression, before any M2.0 space affected by it can be used.
+2. The wall-analysis layer still reports overlapping gaps for one door and misses openings. The
+   contract no longer depends on it for openings.
+3. The DXF document GUID is recorded even when the loader invented it (it is then random per run).
+   It no longer affects content, but the revision index should record only file-supplied GUIDs.
+4. Human-drawn room boundaries do not yet create semantic spaces.

@@ -55,6 +55,7 @@ STYLE = {
     "title_block":              ("#000000", "FAI-TITLE", 7, "Title block"),
     "space":                    ("#006400", "FAI-SPACE", 94, "Named space (marker; boundary = room or unresolved)"),
     "depiction":                ("#8b4513", "FAI-DEPICTION", 32, "Door/window seen in a non-plan view (not a plan door)"),
+    "opening":                  ("#ff1493", "FAI-OPENING", 6, "Plan opening in a region boundary (door / doorless / window)"),
 }
 UNCLASSIFIED = ("#ff7f00", "FAI-UNCLASSIFIED", 30, "UNCLASSIFIED geometry")
 VERIFY_NOTE = "Dashed outline = requires human verification"
@@ -143,6 +144,8 @@ def _source_paths(ent: SourceEntity, model: BuildingModel, by_parent) -> list[tu
 def _element_paths(el: BuildingElement, model: BuildingModel, inv: Inverse, by_parent, by_id):
     if el.category in ("room", "area") and el.geometry is not None:
         return [([inv(p) for p in el.geometry.points], True)]
+    if el.category == "opening" and el.geometry is not None:      # the void itself, not its door/window
+        return [([inv(p) for p in el.geometry.points], el.geometry.closed)]
     paths = []
     for sid in el.source_entity_ids:
         ent = by_id[sid]

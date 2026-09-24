@@ -1,4 +1,4 @@
-"""Canonical normalized building model (schema 0.4.0).
+"""Canonical normalized building model (schema 0.5.0).
 
 Schema history (see fireai/schema.py for migrations):
 * 0.1.0 — Milestone 1: 2D drawing understanding.
@@ -11,6 +11,11 @@ Schema history (see fireai/schema.py for migrations):
 * 0.4.0 — Milestone 1.8: `room` elements are PHYSICAL regions; named spaces are separate
   `space` elements (boundary_state known | unresolved) linked to their region; door/window
   content found in non-plan views is a `depiction`, never a plan-network opening.
+* 0.5.0 — Milestone 1.9 (pre-M2 contract): every physical region (`room`) carries a classified,
+  ordered `boundary` (wall / window / door_opening / open_opening / unknown segments, with
+  provenance); plan openings on region boundaries are `opening` elements (one per physical
+  opening, filled by a door/window element where one exists); the verification binding includes
+  a deterministic `content_fingerprint` of the interpretation.
 
 Two layers are kept strictly separate:
 
@@ -41,7 +46,7 @@ from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field
 
-SCHEMA_VERSION = "0.4.0"
+SCHEMA_VERSION = "0.5.0"
 
 Point = tuple[float, float]
 FrameId = Literal["SRC", "SRC_FT", "LOCAL", "PROJECT"]
@@ -252,6 +257,7 @@ class BuildingElement(BaseModel):
         "ceiling", "existing_fire_protection", "existing_mep",
         "space",       # 0.4.0: named/use-defined semantic space inside a physical region (room)
         "depiction",   # 0.4.0: plan-type content drawn in a non-plan view (e.g. a door seen in section)
+        "opening",     # 0.5.0: a plan opening in a region boundary (the void), filled by a door/window or not
     ]
     subtype: Optional[str] = None
     label: Optional[str] = None
@@ -264,6 +270,68 @@ class BuildingElement(BaseModel):
     properties: dict[str, Any] = Field(default_factory=dict)
     placement: Placement = Field(default_factory=Placement)          # 0.2.0: UNKNOWN unless source-established
     provenance: Provenance = Field(default_factory=lambda: Provenance(origin="deterministic_inference"))
+    boundary: Optional["RegionBoundary"] = None  # 0.5.0: physical regions (`room`) only
+
+
+class VerticalExtent(BaseModel):
+    """Vertical extent of a boundary face or opening (0.5.0). 2D plans do not establish it:
+    it stays UNKNOWN until a source (section, BIM, survey) or a person supplies it. Values are
+    relative to ``datum`` (e.g. the region's floor) and never defaulted."""
+    status: Literal["unknown", "from_source", "user"] = "unknown"
+    datum: Optional[str] = None
+    bottom_ft: Optional[float] = None
+    top_ft: Optional[float] = None
+
+
+SegmentKind = Literal["wall", "window", "door_opening", "open_opening", "unknown"]
+
+
+class BoundarySegment(BaseModel):
+    """One straight piece of a region boundary, classified by what bounds the region there (0.5.0).
+
+    ``encloses``: True = physically closes the region (wall, glazed wall); False = a passage
+    (door opening, doorless opening); None = not established (``unknown``). The segment line is
+    the region polygon's edge (LOCAL frame); it is the plan projection of a future 3D face."""
+    uid: Optional[str] = None
+    index: int                                   # order along the ring
+    kind: SegmentKind
+    encloses: Optional[bool] = None
+    start: Point
+    end: Point
+    length_ft: float
+    opening_uid: Optional[str] = None            # the `opening` element this segment belongs to
+    fill_element_uid: Optional[str] = None       # the door/window element filling that opening
+    derived_from: list[str] = Field(default_factory=list)   # uids: wall linework, wall-analysis pieces, doors, windows
+    confidence: float
+    requires_verification: bool
+    rules: list[str] = Field(default_factory=list)
+    vertical_extent: VerticalExtent = Field(default_factory=VerticalExtent)
+
+
+class BoundaryRing(BaseModel):
+    role: Literal["outer", "inner"] = "outer"    # inner rings (holes) reserved; not produced yet
+    orientation: Literal["ccw", "cw"] = "ccw"    # outer rings are counter-clockwise: the region is on the LEFT
+    segments: list[BoundarySegment] = Field(default_factory=list)
+
+
+class RegionBoundary(BaseModel):
+    """Classified boundary of a physical region (0.5.0).
+
+    ``representation`` "plan_projection": the boundary is a closed curve on a horizontal plane whose
+    elevation is UNKNOWN (SPATIAL_BIM_ARCHITECTURE §3 ``curve2d_on_plane``). A future 3D
+    representation (bounding faces with vertical extents, floor/ceiling planes, a volume) is added
+    as another representation; this one stays valid as its plan projection."""
+    boundary_schema: Literal["region_boundary/1"] = "region_boundary/1"
+    representation: Literal["plan_projection"] = "plan_projection"
+    frame: FrameId = "LOCAL"
+    units: Literal["ft"] = "ft"
+    plane_z_status: Literal["unknown", "from_source", "user"] = "unknown"
+    rings: list[BoundaryRing] = Field(default_factory=list)
+    complete: bool = False                       # True when no segment is `unknown`
+    length_by_kind_ft: dict[str, float] = Field(default_factory=dict)
+    rules: list[str] = Field(default_factory=list)
+    engine_version: Optional[str] = None
+
 
 
 class XrefRecord(BaseModel):
@@ -299,14 +367,18 @@ class VerificationBinding(BaseModel):
     """What a human verification of this model is bound to (0.3.0).
 
     ``fingerprint`` changes whenever the source drawing, any loaded XREF, the
-    unit resolution or the interpretation engine version changes. A human
-    verification recorded against another fingerprint is INVALIDATED."""
+    unit resolution, the interpretation engine version, the applied corrections or
+    (0.5.0) the interpretation content changes. A human verification recorded
+    against another fingerprint is INVALIDATED."""
     fingerprint: str
     source_sha256: str
     xref_sha256: list[str] = Field(default_factory=list)
     resolved_units: Optional[str] = None
     engine_version: str
     corrections_digest: Optional[str] = None     # sha256 of applied human correction ids
+    # 0.5.0: deterministic digest of the interpretation CONTENT (fireai/review/content.py). Run
+    # metadata (model id, timestamps, output paths, converter labels) is excluded.
+    content_fingerprint: Optional[str] = None
     status: Literal["UNREVIEWED", "REVIEW_REQUIRED", "HUMAN_VERIFIED", "INVALIDATED"] = "UNREVIEWED"
     status_reasons: list[str] = Field(default_factory=list)
     note: str = ("Status is computed from the human-review store at processing time; the pipeline never writes "
@@ -361,3 +433,6 @@ class BuildingModel(BaseModel):
 
     def elements_of(self, category: str) -> list[BuildingElement]:
         return [e for e in self.elements if e.category == category]
+
+
+BuildingElement.model_rebuild()

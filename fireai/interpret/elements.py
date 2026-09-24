@@ -74,8 +74,11 @@ def _conf_flag(c: float) -> bool:
 class Interpreter:
     def __init__(self, entities: list[SourceEntity], layer_roles: dict[str, R.RoleMatch | None],
                  block_roles: dict[str, R.RoleMatch | None], source_uid: str | None = None,
-                 region_of: dict[str, dict] | None = None):
+                 region_of: dict[str, dict] | None = None, engine_version: str | None = None):
         self.source_uid = source_uid
+        # the pipeline passes THE engine version (fireai.pipeline.ENGINE_VERSION); the bare package
+        # version is only a fallback for direct use of the interpreter
+        self.engine_version = engine_version or __version__
         self.region_of = region_of or {}
         self.all = entities
         self.by_id = {e.id: e for e in entities}
@@ -175,7 +178,7 @@ class Interpreter:
             uid=uid,
             placement=placement or Placement(),
             provenance=Provenance(origin="deterministic_inference", engine="fireai.interpret",
-                                  engine_version=__version__, rule_ids=rule_ids, derived_from=src_uids),
+                                  engine_version=self.engine_version, rule_ids=rule_ids, derived_from=src_uids),
             id=self._id({"wall": "W", "door": "D", "window": "WN", "room": "R", "area": "A", "column": "C",
                          "stair": "ST", "shaft": "SH", "structural": "S", "grid_line": "G",
                          "text_annotation": "T", "dimension": "DM", "title_block": "TB", "ceiling": "CL",

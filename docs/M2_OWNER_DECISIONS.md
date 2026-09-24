@@ -98,9 +98,10 @@ basis**. FireAI will record each one as a versioned input, never as a default.
 * **Options:** the inner wall face as drawn (current polygon); a human-drawn boundary; a
   finish-face offset (not derivable from these drawings). Also decide how door-opening segments are
   treated (as open, or as part of the enclosure).
-* **Consequences:** this must match the ruleset's own definition (decision 3). It also sets a
-  prerequisite: the engineering contract must expose **per-segment boundary kinds and openings**
-  (see the M2.0 spec, §3a). Today it exposes only the polygon.
+* **Consequences:** this must match the ruleset's own definition (decision 3). Since M1.9 the
+  engineering contract (`engineering_input/3`) gives every boundary segment a kind — `wall`, `window`
+  (glazing in a wall), `door_opening`, `open_opening` or `unknown` — so the convention you choose can
+  be applied per segment. Spaces with `unknown` segments are refused.
 
 ### 9. Placement objective
 
@@ -178,7 +179,7 @@ FireAI proposes these candidates. You choose, or reject both.
 | Candidate | Where | Physical region | Why simple | Caveats |
 |---|---|---|---|---|
 | **B/R (bathroom) — REAL_002 SP00098** (metric twin: REAL_003 SP00314) | floor 2 (V2) | 69.7 sf, rectangular (7.9 × 8.8 ft), 6 vertices, known boundary | simplest valid geometry; the same result in the metric twin | a bathroom. Whether bathroom-specific provisions apply depends on the standard (decision 1), and FireAI will not decide that. One boundary segment is a door-opening analysis line (decision 8) |
-| **BEDROOM — REAL_002 SP00095** | floor 2 (V2) | 117.8 sf, not rectangular (rectangularity 0.89, 11 vertices), known boundary | a habitable room with no special-case use | an irregular outline (recess) and a closet door on its boundary |
+| **BEDROOM — REAL_002 SP00095** | floor 2 (V2) | 117.8 sf, not rectangular (rectangularity 0.89, 11 vertices), known boundary | a habitable room with no special-case use | an irregular outline (recess) and a closet door on its boundary; since M1.9 its boundary is **incomplete** (a 1.8 ft diagonal analysis line at the closet corner is `unknown`), so M2.0 would refuse it |
 
 Before either can be used:
 
@@ -190,3 +191,8 @@ Before either can be used:
    has no other blocker. Floor 1 (V1) is blocked by its open-plan region until you reject it or draw
    human boundaries.
 2. Decisions 1–14 above.
+
+M1.9 contract check of the bathroom (throw-away simulated verification, not persisted): its boundary is
+complete — 1 door opening (2.83 ft, shared with the adjacent space), 2 windows (2.33 ft each) and
+wall segments; the metric twin has the same order of kinds. Step-by-step product verification:
+`HUMAN_REVIEW.md` §4 (and the M1.9 report).

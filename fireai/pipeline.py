@@ -30,6 +30,7 @@ from fireai.ingest.filetype import sanitize_filename, validate_upload
 from fireai.ingest.units import resolve_units, unit_evidence, unit_requirement
 from fireai.ingest.xref import XrefResolver
 from fireai.interpret import rules as R
+from fireai.interpret.boundaries import classify_region_boundaries
 from fireai.interpret.checks import dimension_checks, review_checks
 from fireai.interpret.elements import Interpreter
 from fireai.interpret.rooms import annotate_rooms
@@ -41,15 +42,18 @@ from fireai.model import (BlockInfo, Bounds, BuildingModel, Issue, LayerInfo, Sc
 from fireai.report import build_report, build_summary_md
 from fireai.review.apply import (apply_element_corrections, apply_view_type_corrections, correction_issues,
                                  corrections_digest)
+from fireai.review.content import content_fingerprint
 from fireai.review.store import ReviewStore, verification_state
 from fireai.schema import dump_model
 from fireai.spatial import build_frames
 
 _USE_CONFIGURED = object()
 
-# Bump whenever interpretation output can change for the same input: a human
-# verification recorded under another engine version is invalidated.
-ENGINE_VERSION = f"{__version__}+interp.m18.1"
+# THE interpretation engine version (single source). Bump whenever interpretation output can change
+# for the same input: a human verification recorded under another engine version is invalidated.
+# The pipeline stamps it on the verification binding, on every element FireAI derives
+# (provenance.engine_version), on region boundaries and on the wall analysis layer.
+ENGINE_VERSION = f"{__version__}+interp.m19.1"
 
 ASSUMPTIONS = [
     "Model-space geometry is drawn at full scale (1 drawing unit = 1 unit of the declared units); "
@@ -143,16 +147,18 @@ def resolved_xref_shas(model: BuildingModel) -> list[str]:
 
 def verification_binding(model: BuildingModel) -> VerificationBinding:
     """Fingerprint of everything a human verification depends on: source bytes,
-    loaded XREF bytes, unit resolution, engine version and applied corrections.
-    Any byte change of the source is treated as material (conservative)."""
+    loaded XREF bytes, unit resolution, engine version, applied corrections and (0.5.0) the
+    interpretation CONTENT itself. Any byte change of the source is treated as material
+    (conservative). Must run after the model's content (incl. diagnostics) is final."""
     xshas = resolved_xref_shas(model)
     digest = corrections_digest(model.human_corrections_applied)
+    content = content_fingerprint(model)
     basis = {"source": model.source.sha256, "xrefs": xshas, "units": model.units.resolved_units,
-             "engine": ENGINE_VERSION, "corrections": digest}
+             "engine": ENGINE_VERSION, "corrections": digest, "content": content}
     fp = hashlib.sha256(json.dumps(basis, sort_keys=True).encode()).hexdigest()
     return VerificationBinding(fingerprint=fp, source_sha256=model.source.sha256, xref_sha256=xshas,
                                resolved_units=model.units.resolved_units, engine_version=ENGINE_VERSION,
-                               corrections_digest=digest)
+                               corrections_digest=digest, content_fingerprint=content)
 
 
 def understand_drawing(upload_path: Path, original_filename: str | None, work_dir: Path, out_dir: Path,
@@ -327,7 +333,7 @@ def understand_drawing(upload_path: Path, original_filename: str | None, work_di
         corrections = store.corrections(sha) if store else []
         applied = apply_view_type_corrections(regions, corrections, resolved_xref_shas(model))
         res = stages.run("interpret", Interpreter(model.entities, layer_roles, block_roles, source_uid,
-                                                  region_index(model, regions)).run)
+                                                  region_index(model, regions), engine_version=ENGINE_VERSION).run)
         model.elements = res.elements
         model.unclassified_entity_ids = res.unclassified_entity_ids
         model.title_block = res.title_block
@@ -338,10 +344,14 @@ def understand_drawing(upload_path: Path, original_filename: str | None, work_di
         region_issues = summarize_regions(model, regions)
         model.view_regions = regions
         model.wall_model = stages.run("wall_analysis", build_wall_model, model, source_uid)
+        if model.wall_model is not None:
+            model.wall_model["engine_version"] = ENGINE_VERSION
         room_issues = stages.run("room_analysis", annotate_rooms, model)
         applied += apply_element_corrections(model, corrections, resolved_xref_shas(model))
         model.human_corrections_applied = applied
         room_issues += correction_issues(applied)
+        # after corrections: human room boundaries are classified too; openings need all regions
+        room_issues += stages.run("region_boundaries", classify_region_boundaries, model, source_uid, ENGINE_VERSION)
         stale = [x for x in (store.other_revisions(model) if store else []) if store.corrections(x)]
         if stale:
             room_issues.append(Issue(code="HUMAN_CORRECTIONS_FROM_OTHER_REVISION", severity="error",
