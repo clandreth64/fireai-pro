@@ -1,8 +1,12 @@
 # Milestone 2.0 — Deterministic Single-Space Sprinkler Placement (SPECIFICATION ONLY)
 
-**Status: not approved, not started.** Nothing in this document is implemented. It contains **no
-NFPA requirements**: every numeric engineering value is a placeholder until the ruleset decision in
-§6 is made. No value here may be copied into code as a requirement.
+**Status (2026-09-24): foundation IMPLEMENTED; no real NFPA 13 design possible yet.** The owner approved
+the M2.0 architectural decisions (recorded in `M2_OWNER_DECISIONS.md`). The NFPA 13-centred rules
+architecture and the deterministic single-space placement engine exist
+(`docs/NFPA13_RULES_ARCHITECTURE.md`, `fireai/rules/`, `fireai/engineering/`) and are proven with TEST
+ONLY synthetic rule values. Real engineering REFUSES until an approved, authoritative NFPA 13 rule set
+(explicit edition), real listing data and the explicit design inputs exist. This document contains **no
+NFPA requirements**; no value here may be copied into code as a requirement.
 
 Readiness checkpoint (2026-09-24): see `REAL_DRAWING_VALIDATION.md` §M2.0-readiness for the real
 candidate room, the real gate result and the input gap. Open owner decisions: `M2_OWNER_DECISIONS.md`.

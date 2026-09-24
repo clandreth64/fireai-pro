@@ -337,3 +337,73 @@ def make_unitless_with_scale_evidence(path: Path, viewport_ratio: float = 1 / 96
     layout.add_text(scale_text, height=0.1).set_placement((1, 0.5))
     doc.saveas(path)
     return path
+
+
+def make_room(path: Path, unit: str = "ft", w: float = 10.0, h: float = 10.0, *, t: float = 0.5,
+              door: tuple[str, float, float] | None = None, window: tuple[str, float, float] | None = None,
+              notch: tuple[float, float] | None = None, label: str = "SYN ROOM") -> Path:
+    """One room drawn with double-line walls (thickness ``t``), interior w x h ft. The interior's
+    lower-left corner is at (t, t) in the drawing's LOCAL frame, so room coordinates = LOCAL - t.
+
+    door / window: (side, a, b) with side in right|left|top|bottom and the opening from a to b
+    measured along that side (room coordinates). A door is a gap in both wall faces with jamb lines
+    and a door block; a window is a block drawn INSIDE a continuous wall.
+    notch: (nw, nh) removes the top-right nw x nh corner (an L-shaped room; no openings then)."""
+    k = PER_FT[unit]
+    doc = _new(unit)
+    for n in ("A-WALL", "A-DOOR", "A-GLAZ", "A-AREA-IDEN"):
+        doc.layers.add(n)
+    msp = doc.modelspace()
+
+    def P(x, y):
+        return (x * k, y * k)
+
+    if notch:
+        nw, nh = notch
+        inner = [(0, 0), (w, 0), (w, h - nh), (w - nw, h - nh), (w - nw, h), (0, h)]
+        outer = [(-t, -t), (w + t, -t), (w + t, h - nh + t), (w - nw + t, h - nh + t), (w - nw + t, h + t), (-t, h + t)]
+        for ring in (inner, outer):
+            msp.add_lwpolyline([P(x + t, y + t) for x, y in ring], close=True, dxfattribs={"layer": "A-WALL"})
+    else:
+        sides = {"bottom": ((0, 0), (w, 0), (0, -t)), "right": ((w, 0), (w, h), (t, 0)),
+                 "top": ((0, h), (w, h), (0, t)), "left": ((0, 0), (0, h), (-t, 0))}
+        corners_in = {"bottom": ((0, 0), (w, 0)), "right": ((w, 0), (w, h)), "top": ((w, h), (0, h)),
+                      "left": ((0, h), (0, 0))}
+        for side, (a, b, off) in sides.items():
+            gap = door[1:] if door and door[0] == side else None
+            ext = {"bottom": ((-t, -t), (w + t, -t)), "right": ((w + t, -t), (w + t, h + t)),
+                   "top": ((-t, h + t), (w + t, h + t)), "left": ((-t, -t), (-t, h + t))}[side]
+            for (p0, p1) in ((corners_in[side][0], corners_in[side][1]), ext):
+                horiz = p0[1] == p1[1]
+                lo, hi = sorted((p0[0], p1[0]) if horiz else (p0[1], p1[1]))
+                pieces = [(lo, gap[0]), (gap[1], hi)] if gap else [(lo, hi)]
+                for s0, s1 in pieces:
+                    q0 = (s0, p0[1]) if horiz else (p0[0], s0)
+                    q1 = (s1, p0[1]) if horiz else (p0[0], s1)
+                    msp.add_line(P(q0[0] + t, q0[1] + t), P(q1[0] + t, q1[1] + t), dxfattribs={"layer": "A-WALL"})
+            if gap:                                       # jamb lines across the wall at both gap ends
+                for g in gap:
+                    ip = (g, a[1]) if a[1] == b[1] else (a[0], g)
+                    op = (ip[0] + off[0], ip[1] + off[1])
+                    msp.add_line(P(ip[0] + t, ip[1] + t), P(op[0] + t, op[1] + t), dxfattribs={"layer": "A-WALL"})
+        if door:
+            side, a0, a1 = door
+            dw = a1 - a0
+            blk = doc.blocks.new("DOOR")
+            blk.add_line((0, 0), (dw * k, 0))
+            blk.add_arc((0, 0), dw * k, 0, 90)
+            ins, rot = {"right": ((w, a0), 90), "left": ((0, a1), 270), "top": ((a1, h), 180),
+                        "bottom": ((a0, 0), 0)}[side]
+            msp.add_blockref("DOOR", P(ins[0] + t, ins[1] + t), dxfattribs={"layer": "A-DOOR", "rotation": rot})
+        if window:
+            side, a0, a1 = window
+            L = a1 - a0
+            blk = doc.blocks.new("WINDOW")
+            blk.add_lwpolyline([(0, 0), (L * k, 0), (L * k, t * k), (0, t * k)], close=True)
+            blk.add_line((0, t * k / 2), (L * k, t * k / 2))
+            ins, rot = {"left": ((0, a0), 90), "right": ((w + t, a0), 90), "bottom": ((a0, -t), 0),
+                        "top": ((a0, h), 0)}[side]
+            msp.add_blockref("WINDOW", P(ins[0] + t, ins[1] + t), dxfattribs={"layer": "A-GLAZ", "rotation": rot})
+    msp.add_text(label, height=0.5 * k, dxfattribs={"layer": "A-AREA-IDEN"}).set_placement(P(t + 1.0, t + 1.0))
+    doc.saveas(path)
+    return path

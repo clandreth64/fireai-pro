@@ -560,3 +560,49 @@ still needs units (pre-existing). The boundary stage costs ≤ 0.3 s per drawing
 * **Durability risk found:** the server container stores its data in an unmounted directory and is
   auto-removed on stop. Stopping it would delete the job and the verification. A read-only copy was
   taken outside the repository; the owner must preserve the data directory before stopping the server.
+
+## §M2.0-engine — NFPA 13 rules architecture + deterministic placement: REAL_002 integration
+
+Design: `docs/NFPA13_RULES_ARCHITECTURE.md`. Tests: `tests/test_m20_rules.py` (9),
+`tests/test_m20_placement.py` (31, hand-derived known answers). No NFPA 13 values exist in the code.
+
+**REAL path** (read-only, the owner's product store; `scripts/m2_design_check.py`):
+
+REAL_002 job `f4cd139f…` → REAL gate (HUMAN_VERIFIED by clandreth, V2) → `engineering_input/3` →
+space `SP00098` / region `R00097` (69.74 sf; boundary complete: wall 25.96, window 4.67,
+door opening 2.83 ft) → design request in `engineering` mode with only the inputs that exist →
+**REFUSED** (the expected, correct outcome), with seven structured reasons:
+
+* `NO_APPROVED_NFPA13_RULESET`;
+* `JURISDICTION_NOT_SPECIFIED`;
+* `MISSING_SPRINKLER_LISTING`;
+* `MISSING_CEILING_CONDITION`;
+* `MISSING_DESIGN_CLASSIFICATION`;
+* `MISSING_TOLERANCES`;
+* `MISSING_SEARCH_SPACE`.
+
+No layout and no design object was produced.
+
+**TEST ONLY synthetic integration** on the same verified geometry (synthetic values; NOT NFPA 13):
+* basis `synthetic_test_only`, `engineering_use: NOT_FOR_ENGINEERING_USE`, and the four disclaimers
+  in structured fields;
+* lattice 0.5 ft (17 × 15), up to 4 sprinklers: 21,263 candidates, 10,629 valid, in 30.7 s;
+* every placement is in frame LOCAL with Z `unknown` (referencing the ceiling region), with
+  provenance pinning the package fingerprints, rule-set digest and listing.
+
+**Scale measurements** (generated rooms, synthetic rules, single thread, full explanations of every
+valid layout):
+
+| Room (ft) | Step | Max n | Lattice | Candidates | Valid | Time | Peak MB |
+|---|---|---|---|---|---|---|---|
+| 10 × 10 | 1.0 | 4 | 9 × 9 | 2,475 | 823 | 9.9 s | 52 |
+| 20 × 10 | 1.0 | 4 | 19 × 9 | 10,213 | 185 | 8.8 s | 12 |
+| 20 × 10 | 0.5 | 4 | 39 × 19 | 164,653 | 2,779 | 138 s | 181 |
+| 30 × 20 | 1.0 | 6 | 29 × 19 | 155,125 | 1 | 120 s | 80 |
+| 30 × 20 | 1.0 | 9 | 29 × 19 | 171,001 | 68 | 218 s | 93 |
+
+Generation is cheap (≤ 1.7 s). Evaluation dominates (about 0.8 ms per candidate), especially the
+full explanation of every valid layout. A 40 × 30 ft room with up to 12 sprinklers did not finish in
+10 minutes. The `room_axis_array/1` family is therefore for single rooms. The commercial-scale strategy
+(partitioning, per-axis pruning, monotone-constraint pruning, compact valid sets, parallel evaluation,
+incremental recomputation) is in the architecture document §4.

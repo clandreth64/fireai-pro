@@ -173,12 +173,13 @@ they are flagged (`complete: false`, trigger `REGION_BOUNDARY_UNCLASSIFIED`).
   and `verification_fingerprint`. The same source, XREFs, units, corrections and engine produce the
   same content fingerprint; engineering results must cite it and become stale when it changes.
 
-## 4. Rules for future engineering code
+## 4. Rules for engineering code
 
-* Engineering code lives in `fireai/engineering/` (not yet created). It may import
-  `fireai.contract` only. It may not import `ezdxf`, `fireai.ingest`, `fireai.interpret`,
-  `fireai.render`, `fireai.pipeline`, `fireai.jobs`, `fireai.api` or the raw `fireai.model`. This is
-  enforced by `tests/test_engineering_boundary.py`, which applies automatically once the package exists.
+* Engineering code lives in `fireai/engineering/` (M2.0: single-space placement) and the rules engine in
+  `fireai/rules/` (docs/NFPA13_RULES_ARCHITECTURE.md). Engineering may import `fireai.contract` and
+  `fireai.rules`; the rules engine may import neither the engineering engines nor CAD code. Neither may
+  import `ezdxf`, `fireai.ingest`, `fireai.interpret`, `fireai.render`, `fireai.pipeline`, `fireai.jobs`,
+  `fireai.api` or the raw `fireai.model`. Enforced by `tests/test_engineering_boundary.py`.
 * Engineering results reference contract uids and the `verification_fingerprint` / `content_fingerprint`
   they were computed from. If a fingerprint changes, results are stale.
 * Engineering must treat every `not_provided` item as missing until supplied explicitly. It must

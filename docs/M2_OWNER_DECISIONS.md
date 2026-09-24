@@ -1,7 +1,34 @@
 # Milestone 2.0 — Owner Decision Sheet
 
-**Status: decisions open. Nothing here is decided by FireAI, and nothing here is an engineering or
-code requirement.** This sheet lists what you (the owner, with qualified fire-protection engineering
+**Status (2026-09-24): the M2.0 ARCHITECTURAL decisions were approved by the owner (see "Approved
+M2.0 architecture decisions" below). The engineering CONTENT decisions — edition, rule content, hazard
+classification, sprinkler selection, ceiling data, tolerances, known answers — remain open, and real
+NFPA 13 design refuses until they are made. Nothing here is decided by FireAI, and nothing here is an
+engineering or code requirement.**
+
+### Approved M2.0 architecture decisions (owner, 2026-09-24)
+
+| # | Decision | Implemented as |
+|---|---|---|
+| 1 | NFPA 13 is the foundation of the commercial rules architecture; geometry stays decoupled from edition-specific values | `fireai/rules/` (layers, provenance, applicability, precedence) → `EngineeringConstraint`s → `fireai/engineering/` |
+| 2 | No edition is chosen silently; real engineering refuses without an owner-approved edition; synthetic tests use `TEST_ONLY/NOT_APPLICABLE` | `NFPA13_EDITION_NOT_SPECIFIED`, `NO_APPROVED_NFPA13_RULESET` refusals |
+| 3 | Production rules come from lawfully accessed sources, human-reviewed; LLMs are not sources | `RuleSource.kind`, review fields; policy refuses unapproved / synthetic content |
+| 4 | Rule provenance fields (id, set, version, standard, edition, reference, category, parameters, units, applicability, exceptions/dependencies, source, author/reviewer/dates, status, change reason) | `Rule`, `RuleSet`, `RuleSource` |
+| 5 | Base edition + jurisdiction amendment layer + project criteria; unevaluated amendments are a stated limitation | layers; `JURISDICTION_NOT_SPECIFIED` refusal or `amendments_not_evaluated` limitation |
+| 6 | Listing data is its own authoritative, versioned input; synthetic only in M2.0 | `SprinklerListing` with listing-layer rules |
+| 7 | Hazard / design classification is an explicit engineering input; unknown = blocker | `DesignClassification`; `MISSING_DESIGN_CLASSIFICATION` |
+| 8 | Ceiling is a first-class input with a durable schema; M2.0 implements the flat subset; sprinklers 3D-capable with unknown Z | `CeilingCondition`; `ZState` |
+| 9 | engineering_input/3 boundary semantics; rules choose the reference kinds, geometry measures | `ConstraintTemplate.reference_kinds` |
+| 10 | Enumerate ALL valid layouts in a bounded space; no premature optimisation | valid layout set; generation and evaluation separate |
+| 11 | Deterministic ordering: long axis → left-to-right → bottom-to-top, recorded | `ROOM-FRAME-LONG-AXIS/1`, `ORDER-LONGAXIS-LR-BT/1` |
+| 12 | Unrounded calculations; explicit tolerances | `EngineeringTolerances`; no hidden tolerance |
+| 13 | Named reviewers for development only; authenticated identity before commercial use | `verified_by_identity: unauthenticated_name`, limitation on every result |
+| 14 | FireAI output is never ground truth; synthetic fixtures derive answers analytically | `tests/test_m20_placement.py` (derivations in docstrings) |
+| 15 | First integration space: REAL_002 V2 bathroom, resolved from the current model | `scripts/m2_design_check.py`; `REAL_DRAWING_VALIDATION.md` §M2.0-engine |
+
+---
+
+**Earlier decision sheet (content decisions; still the owner's):** This sheet lists what you (the owner, with qualified fire-protection engineering
 authority where needed) must decide before any M2.0 code is written. The M2.0 specification is
 `MILESTONE_2_0_SPEC.md`; its §6 points here.
 

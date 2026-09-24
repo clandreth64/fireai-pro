@@ -44,16 +44,21 @@ def _imports(path: Path) -> set[str]:
     return out
 
 
-@pytest.mark.parametrize("pkg", ["fireai/contract", "fireai/engineering"])
+@pytest.mark.parametrize("pkg", ["fireai/contract", "fireai/engineering", "fireai/rules"])
 def test_contract_and_future_engineering_code_cannot_reach_cad_internals(pkg):
-    """Engineering may depend only on the contract. fireai/engineering does not exist yet; this
-    guard applies automatically when it is created."""
-    for f in (ROOT / pkg).rglob("*.py") if (ROOT / pkg).is_dir() else []:
+    """Engineering (M2.0) and the rules engine may depend only on the contract and each other: never on
+    CAD parsing, interpretation, rendering, the pipeline, jobs, the API or the raw BuildingModel."""
+    files = list((ROOT / pkg).rglob("*.py"))
+    assert files, f"{pkg} is expected to exist"
+    for f in files:
         bad = [m for m in _imports(f) if any(m == x or m.startswith(x + ".") for x in FORBIDDEN)]
         assert not bad, f"{f.relative_to(ROOT)} imports {bad}"
-        if pkg == "fireai/engineering":
-            assert not [m for m in _imports(f) if m.startswith("fireai.model")], \
+        if pkg in ("fireai/engineering", "fireai/rules"):
+            assert not [m for m in _imports(f) if m == "fireai.model" or m.startswith("fireai.model.")], \
                 f"{f} must consume fireai.contract.EngineeringInput, not the raw BuildingModel"
+        if pkg == "fireai/rules":
+            assert not [m for m in _imports(f) if m.startswith("fireai.engineering")], \
+                f"{f}: the rules engine must not depend on the engineering engines"
 
 
 def test_unverified_model_is_blocked_by_the_unchanged_gate(tmp_path):
