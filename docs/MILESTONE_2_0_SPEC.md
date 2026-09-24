@@ -49,6 +49,8 @@ Each space now carries an ordered, classified boundary (`wall | window | door_op
 | unknown`, with `encloses`, geometry, provenance, confidence) and the package lists the openings
 crossing it (`ENGINEERING_INPUT_CONTRACT.md` §1a–§1b). M2.0 must additionally REFUSE a selected space
 whose boundary is not `complete` (any `unknown` segment): distances to walls are undefined there.
+This refusal is implemented as `space_engineering_blockers(package, space_uid)`; M2.0 calls it
+before any placement and returns REFUSED with its reasons.
 How engineering treats each segment kind (e.g. whether a door opening counts as part of the
 enclosure for a given check) is owner decision 8. It is not decided here.
 

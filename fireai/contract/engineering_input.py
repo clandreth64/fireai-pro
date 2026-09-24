@@ -353,6 +353,41 @@ def engineering_input_blockers(model: BuildingModel, store) -> list[str]:
     return blockers
 
 
+def space_engineering_blockers(package: EngineeringInput, space_uid: str,
+                               require_semantic_space: bool = True) -> list[str]:
+    """Reasons why engineering may not run on ONE space of a (valid, verified) package.
+
+    Package-level blockers (``engineering_input_blockers``) decide whether a verified REGION may be
+    engineered at all; this decides whether a single SPACE in it may be, using only the package (no
+    model, no CAD). ``space_uid`` is a semantic-space uid or a physical-region (``spaces[]``) uid.
+    A boundary portion that is not established (``unknown``) blocks: distances to walls are
+    undefined there, and FireAI never assumes it is a wall."""
+    semantic = {s.uid: s for s in package.semantic_spaces}
+    regions = {s.uid: s for s in package.spaces}
+    if space_uid in semantic:
+        region = regions.get(semantic[space_uid].region_uid)
+    else:
+        region = regions.get(space_uid)
+    if region is None:
+        return [f"space {space_uid} is not a physical region or known semantic space of this package"]
+    blockers: list[str] = []
+    named = [s for s in package.semantic_spaces if s.region_uid == region.uid]
+    if require_semantic_space and len(named) != 1:
+        blockers.append(f"physical region {region.id} has {len(named)} known named spaces (exactly one is required)")
+    unknown = [s for r in region.boundary.rings for s in r.segments if s.kind == "unknown"]
+    if unknown or not region.boundary.complete:
+        blockers.append(
+            f"physical region {region.id}: boundary not established over {sum(s.length_ft for s in unknown):.2f} ft "
+            f"(segments {[s.index for s in unknown]}): what bounds the space there is unknown; distances to walls "
+            "are undefined. A person must resolve it (e.g. a human room boundary) before engineering")
+    openings = {o.uid for o in package.openings}
+    dangling = [s.index for r in region.boundary.rings for s in r.segments if s.opening_uid and s.opening_uid not in openings]
+    if dangling:
+        blockers.append(f"physical region {region.id}: boundary segments {dangling} reference openings missing from "
+                        "the package")
+    return blockers
+
+
 def _contract_boundary(b) -> ContractBoundary:
     return ContractBoundary(
         plane_z_status=b.plane_z_status, complete=b.complete, length_by_kind_ft=dict(b.length_by_kind_ft),

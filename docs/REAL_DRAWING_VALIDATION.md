@@ -531,3 +531,32 @@ still needs units (pre-existing). The boundary stage costs ≤ 0.3 s per drawing
 3. The DXF document GUID is recorded even when the loader invented it (it is then random per run).
    It no longer affects content, but the revision index should record only file-supplied GUIDs.
 4. Human-drawn room boundaries do not yet create semantic spaces.
+
+## §M2.0-gate — REAL_002 through the REAL product gate (owner verification, 2026-09-24)
+
+* **Human verification:** recorded by the owner through the product API (not by FireAI):
+  * job `f4cd139f75ad4dd398d2cc0d86b42335`, reviewer `clandreth`, 2026-09-24T19:42Z;
+  * all required checklist categories CONFIRMED (plus doors, windows, stairs and columns), with notes;
+  * all 7 review triggers acknowledged ("not asserted to be resolved");
+  * selected region V2 (SECOND FLOOR PLAN, uid `243e9754-90b8-5134-b091-4421931176c3`).
+* **Validity against the current model:** the job model is schema 0.5.0, engine `interp.m19.1`
+  (= the current code), with no migrations applied. The stored content fingerprint equals a
+  recomputation. `verification_state` = HUMAN_VERIFIED (no reasons), `require_verified_model`
+  ready, and there are no contract blockers.
+* **Real `engineering_input/3`** (read-only, the owner's store; no simulation):
+  * 1 region (V2, FLOOR_PLAN), frame LOCAL ft, source units in, `z_status` unknown, spatial
+    context unassigned;
+  * 9 physical regions and 7 known semantic spaces;
+  * 136 boundary segments: 95 wall, 16 door_opening, 23 window, 2 unknown;
+  * 31 openings (8 doors, 23 windows) and 45 derived wall pieces;
+  * no CAD concepts in the package.
+* **Single-space gate** (`space_engineering_blockers`, new):
+  * SP00098 (B/R, R00097, 69.74 sf) and SP00084 (B/R, R00083, 69.20 sf) pass, as do the master
+    bedroom, one bedroom and the hall;
+  * the walk-in closet (2.82 ft unknown) and the other bedroom (1.76 ft unknown) are REFUSED.
+* **SP00098 perimeter** (unchanged from §M1.9): wall 7.895 · wall 0.625 · window 2.333 · wall 2.167 ·
+  window 2.333 · wall 1.375 · wall 7.895 · wall 0.250 · **door opening 2.833** (does not enclose;
+  shared with the adjacent space) · wall 5.750 ft.
+* **Durability risk found:** the server container stores its data in an unmounted directory and is
+  auto-removed on stop. Stopping it would delete the job and the verification. A read-only copy was
+  taken outside the repository; the owner must preserve the data directory before stopping the server.

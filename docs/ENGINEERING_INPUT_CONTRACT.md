@@ -19,9 +19,10 @@ uids for traceability. It **never** reaches back into CAD parsing.
 
 Implemented as executable code: `fireai/contract/engineering_input.py`
 (`build_engineering_input`, `engineering_input_blockers`, `parse_engineering_input`,
-`read_legacy_engineering_input`, `EngineeringInput`) and `fireai/contract/debug.py`
+`read_legacy_engineering_input`, `space_engineering_blockers`, `EngineeringInput`) and `fireai/contract/debug.py`
 (`perimeter_rows`, `cyclic_kinds`). Tests: `tests/test_engineering_boundary.py`,
-`tests/test_m19_boundaries_contract.py`. It performs no engineering and produces no design results.
+`tests/test_m19_boundaries_contract.py`, `tests/test_contract_space_gate.py`. It performs no engineering and
+produces no design results.
 
 ## 1. Contents
 
@@ -138,9 +139,18 @@ Then the contract adds:
 
 Any blocker raises `ContractViolation` with every reason listed. There is no override flag.
 
-`unknown` boundary segments are **not** a contract blocker (the region is still a known enclosure);
-they are flagged (`complete: false`, trigger `REGION_BOUNDARY_UNCLASSIFIED`). Engineering that needs
-distances to walls must refuse a space whose boundary is not complete (`MILESTONE_2_0_SPEC.md` §3a).
+`unknown` boundary segments are **not** a package blocker (the region is still a known enclosure);
+they are flagged (`complete: false`, trigger `REGION_BOUNDARY_UNCLASSIFIED`).
+
+**Single-space gate.** Engineering on ONE space calls `space_engineering_blockers(package, space_uid)`
+(semantic-space or physical-region uid). It uses only the package (no model, no CAD) and refuses:
+
+* a space whose boundary is not established everywhere (any `unknown` segment): distances to walls
+  are undefined there;
+* a physical region without exactly one known named space (unless the caller explicitly does not
+  need a named space);
+* an id that is not in the package;
+* a boundary segment that references an opening missing from the package.
 
 ## 3. Versions, compatibility and reproducibility
 

@@ -192,6 +192,12 @@ Before either can be used:
    human boundaries.
 2. Decisions 1–14 above.
 
+**Update (2026-09-24):** you verified REAL_002 in the product (job `f4cd139f…`, reviewer clandreth,
+region V2). The REAL gate and contract pass with no blockers, and the single-space gate accepts the
+bathroom SP00098 / R00097 (69.74 sf). See `REAL_DRAWING_VALIDATION.md` §M2.0-gate. That verification
+currently lives only inside the running server container (unmounted data directory, auto-remove):
+preserve it before stopping the container (see the M2.0-gate report).
+
 M1.9 contract check of the bathroom (throw-away simulated verification, not persisted): its boundary is
 complete — 1 door opening (2.83 ft, shared with the adjacent space), 2 windows (2.33 ft each) and
 wall segments; the metric twin has the same order of kinds. Step-by-step product verification:

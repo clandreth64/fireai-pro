@@ -9,8 +9,9 @@ fireai.pipeline (enforced by tests/test_engineering_boundary.py).
 from fireai.contract.engineering_input import (CONTRACT_VERSION, ContractVersionError, ContractViolation,
                                                EngineeringInput, EngineeringInputV2Draft, build_engineering_input,
                                                engineering_input_blockers, parse_engineering_input,
-                                               read_legacy_engineering_input)
+                                               read_legacy_engineering_input,
+                                               space_engineering_blockers)
 
 __all__ = ["CONTRACT_VERSION", "ContractVersionError", "ContractViolation", "EngineeringInput",
            "EngineeringInputV2Draft", "build_engineering_input", "engineering_input_blockers",
-           "parse_engineering_input", "read_legacy_engineering_input"]
+           "parse_engineering_input", "read_legacy_engineering_input", "space_engineering_blockers"]
