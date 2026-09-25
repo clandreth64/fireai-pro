@@ -39,6 +39,10 @@ class Settings:
     dwg_max_memory_mb: int = field(default_factory=lambda: _int("FIREAI_DWG_MAX_MEMORY_MB", 8192))
     max_entities: int = field(default_factory=lambda: _int("FIREAI_MAX_ENTITIES", 500_000))
     max_concurrent_jobs: int = field(default_factory=lambda: _int("FIREAI_MAX_CONCURRENT_JOBS", 2))
+    # M2.2A.1: which product context rule content is activated in (development | beta | production).
+    # FAIL-CLOSED default: production. Choosing "development" alone unlocks nothing: R&D-only content
+    # additionally needs an explicit DevelopmentOverride object (fireai/rules/release.py).
+    deployment_mode: str = field(default_factory=lambda: os.getenv("FIREAI_DEPLOYMENT_MODE", "production").lower())
 
     @property
     def review_dir(self) -> Path:
@@ -55,6 +59,10 @@ class Settings:
     @property
     def projects_dir(self) -> Path:       # M2.1: persistent project engineering model
         return self.data_dir / "projects"
+
+    @property
+    def authorizations_dir(self) -> Path:  # M2.2A.1: owner-supplied source authorization records
+        return self.data_dir / "source_authorizations"
 
     @property
     def jobs_dir(self) -> Path:

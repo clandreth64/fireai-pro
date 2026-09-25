@@ -30,6 +30,7 @@ from dataclasses import dataclass, field
 from itertools import combinations
 
 from fireai.engineering.geometry import dist_point_segment, nearest_cells, worst_boundary_point, worst_space_point
+from fireai.rules.constraints import WALL_RAY_MEASUREMENTS
 
 PIPELINE = ("global", "axis", "count", "points", "pair", "cover", "full")
 GLOBAL_MEAS = {"ceiling_to_deflector_vertical_distance"}
@@ -237,7 +238,7 @@ def search(st) -> SearchOutcome:
 def full_measure(st, c, pts, arr) -> float | None:
     """Exact measurement for constraints decided in the FULL stage (a vacuous measurement passes; None =
     not evaluable, which is never a pass). ``arr`` = (u index set, v index set)."""
-    if c.measurement in GLOBAL_MEAS or c.measurement in ("array_sxl_protection_area", "perpendicular_wall_distance"):
+    if c.measurement in GLOBAL_MEAS or c.measurement in WALL_RAY_MEASUREMENTS:
         from fireai.engineering.placement import measure_special
         grid = ([i * st.step for i in arr[0]], [j * st.step for j in arr[1]]) if arr else None
         m = measure_special(st, c, grid)

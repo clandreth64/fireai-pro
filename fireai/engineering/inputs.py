@@ -16,7 +16,7 @@ from fireai.rules.model import SYNTHETIC_MARK, Quantity, RuleParameter, RuleSet,
 from fireai.rules.resolve import JurisdictionStatement, Mode
 
 InputKind = Literal["human_decision", "project_document", "survey", "bim_model", "manufacturer_document",
-                    "synthetic_test_only"]
+                    "design_strategy", "synthetic_test_only"]
 
 
 class InputSource(BaseModel):
@@ -190,6 +190,39 @@ class EligibilityDecision(BaseModel):
         return self
 
 
+class LayoutOrientation(BaseModel):
+    """M2.2A.1: the sprinkler layout's BRANCH-LINE direction (a first-class design fact).
+
+    S is measured along the branch lines, L across them (between branch lines). The room's long axis
+    does NOT define S: an orientation is chosen by a person, a routing engine, an optimiser, or — before
+    routing exists — an explicitly named, versioned DEFAULT STRATEGY (``strategy``), and it is recorded,
+    fingerprinted and provenance-bearing like any other input. A direction is a line: its sign does not
+    matter and is canonicalised (x > 0, or x == 0 and y > 0)."""
+    frame: Literal["LOCAL", "PROJECT"] = "LOCAL"
+    branch_line_direction: tuple[float, float]         # plan direction of the branch lines, in ``frame``
+    strategy: str                                      # "explicit_design_input" | "ROOM-LONG-AXIS-DEFAULT/1" | "routing:<id>" ...
+    version: str = "1"
+    source: InputSource
+    note: str = ""
+
+    @model_validator(mode="after")
+    def _unit_and_canonical(self):
+        x, y = self.branch_line_direction
+        n = (x * x + y * y) ** 0.5
+        if n == 0.0:
+            raise ValueError("a branch-line direction must be a non-zero vector")
+        x, y = x / n, y / n
+        if x < 0 or (x == 0 and y < 0):
+            x, y = -x, -y
+        self.branch_line_direction = (x, y)
+        return self
+
+    @property
+    def cross_line_direction(self) -> tuple[float, float]:
+        x, y = self.branch_line_direction
+        return (-y, x)
+
+
 class DeflectorPosition(BaseModel):
     """M2.2A: the sprinkler deflector elevation, as an explicit design input on an explicit datum.
     With it, placements carry a known Z; without it Z stays UNKNOWN and vertical rules refuse."""
@@ -235,4 +268,5 @@ class DesignRequest(BaseModel):
     search: Optional[PlacementSearchSpace] = None
     eligibility: dict[str, EligibilityDecision] = Field(default_factory=dict)   # M2.2A, e.g. {"small_room": ...}
     deflector: Optional[DeflectorPosition] = None                               # M2.2A
+    orientation: Optional[LayoutOrientation] = None                             # M2.2A.1: branch-line direction
     requested_by: Optional[str] = None

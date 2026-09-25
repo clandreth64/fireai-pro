@@ -279,3 +279,21 @@ These are recorded as SOFTWARE requirements, not rule content.
 5. Whether to register a 2019 development envelope. Until one is registered, real design under 2019
    refuses with `NO_SUPPORTED_ENVELOPE`.
 6. Whether `system.design_method` should become an envelope condition.
+
+---
+
+## M2.2A.1: owner decisions (2026-09-24)
+
+| # | Decision | Implemented as |
+|---|---|---|
+| 29 | S follows the BRANCH-LINE direction and L the perpendicular direction. The room's long axis is at most a versioned default candidate strategy | `LayoutOrientation`; SXL-ARRAY/2; `ROOM-LONG-AXIS-DEFAULT/1` |
+| 30 | Register NFPA13-2019-DEV-ENVELOPE-1. It is not an approved rule set, and small-room, angled-wall, storage and complex obstruction conditions are not included | `NFPA13_2019_FIRST_ENVELOPE`; `envelope_blockers` |
+| 31 | NFPA-derived content is released externally only with recorded commercial authorization covering the use | `fireai/rules/release.py` |
+| 32 | NFPA 13-2019 source status is INTERNAL_R_AND_D_ONLY; NFPA 13-2025 is NOT_AVAILABLE / NOT_AUTHORIZED. Neither is commercially authorized | `OWNER_DECLARED_INITIAL_STATUS` |
+| 33 | FireAI never interprets a license. It records and enforces owner-supplied state and stores no license text or identifiers | `SourceAuthorization`; screening of free text and the reference |
+
+**Open decisions:**
+- Whether non-NFPA sources (listings, amendments) also need release authorization.
+- When owner and admin identity become authenticated.
+- Whether the 2025 development envelope from M2.1 should remain registered. It currently is, from the
+  M2.1 decision.

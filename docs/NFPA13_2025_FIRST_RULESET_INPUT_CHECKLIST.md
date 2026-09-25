@@ -1,5 +1,7 @@
 # NFPA 13-2025 — First Rule Set: Input Checklist (Milestone 2.1)
 
+**Source status: NFPA 13-2025 is `NOT_AVAILABLE` (M2.2A.1) — no rule may be entered from it until the owner has lawful access and records it.**
+
 **This document contains no NFPA 13 requirement, value, section number or paraphrase.** It lists the
 *kinds* of information a qualified person must extract from a lawfully accessed copy of NFPA 13
 (2025 edition) and enter through the rule-authoring workflow, and it says, for each kind, whether
@@ -69,7 +71,7 @@ For each row: *does the 2025 edition impose something in this category for the e
 
 | # | Category (neutral name) | Measurement consumed today | Unit dim. | Typical facts in applicability | Supported now? | Engineering work needed first |
 |---|---|---|---|---|---|---|
-| 1 | Maximum protection area per sprinkler | **M2.2A:** `array_sxl_protection_area` (SXL-ARRAY/1: S along u, L along v; each = larger side; a side = adjacent sprinkler distance, or twice the perpendicular distance to the participating wall reference). `nearest_sprinkler_cell_area` (Voronoi) is a DIFFERENT measurement | area | hazard, sprinkler type, ceiling | Yes, for rectangular arrays in frame-aligned rooms, if the author confirms the standard's definition matches SXL-ARRAY/1 | Obstruction-governed S/L and angled walls refuse; non-array layouts are NOT_EVALUABLE |
+| 1 | Maximum protection area per sprinkler | **M2.2A.1:** `array_sxl_protection_area` (SXL-ARRAY/2: S along the explicit BRANCH-LINE direction, L perpendicular — never simply the room's long axis; also `array_sxl_s_dimension` / `array_sxl_l_dimension`; each = larger side; a side = adjacent sprinkler distance, or twice the perpendicular distance to the participating wall reference). `nearest_sprinkler_cell_area` (Voronoi) is a DIFFERENT measurement | area | hazard, sprinkler type, ceiling | Yes, for rectangular arrays in frame-aligned rooms, if the author confirms the standard's definition matches SXL-ARRAY/1 | Obstruction-governed S/L and angled walls refuse; non-array layouts are NOT_EVALUABLE |
 | 2 | Maximum spacing between sprinklers | `array_axis_spacing` (adjacent, along array axes) | length | hazard, sprinkler type | Yes for rectangular arrays | Non-array layouts evaluate as `NOT_EVALUABLE` (UNKNOWN), never PASS |
 | 3 | Minimum spacing between sprinklers | `pairwise_min_distance` | length | sprinkler type | Yes | — |
 | 4 | Maximum distance from walls | **M2.2A:** `perpendicular_wall_distance` (PERP-WALL/1), with the limit either a fixed quantity or DERIVED (`derived`: factor x the effective limit of another constraint, e.g. the spacing constraint) | length | hazard, sprinkler type | Yes, frame-aligned walls; the RULE lists the participating kinds (wall / window / door_opening / open_opening) | Angled / irregular walls REFUSE (`IRREGULAR_BOUNDARY_UNSUPPORTED`; declared contracts `angled_wall_perpendicular_distance`, `angled_wall_protected_floor_worst_distance`) |

@@ -32,17 +32,18 @@ from fireai.engineering.envelope import envelope_blockers
 from fireai.engineering.search import layout_key, search
 from fireai.engineering.geometry import (RoomFrame, dist_point_segment, nearest_cells, room_frame,
                                          worst_boundary_point, worst_space_point)
-from fireai.engineering.inputs import CeilingCondition, DesignRequest, InputSource
+from fireai.engineering.inputs import CeilingCondition, DesignRequest, InputSource, LayoutOrientation
 from fireai.engineering.measure import (array_sxl, boundary_uv, ceiling_to_deflector, misaligned_segments,
                                         perpendicular_walls)
-from fireai.rules.constraints import VERTICAL_MEASUREMENTS, WALL_RAY_MEASUREMENTS, EngineeringConstraint
+from fireai.rules.constraints import (ORIENTATION_MEASUREMENTS, SXL_MEASUREMENTS, VERTICAL_MEASUREMENTS,
+                                      WALL_RAY_MEASUREMENTS, EngineeringConstraint)
 from fireai.rules.resolve import RuleResolution, resolve
 
 # evaluation order (cheap first); rejected layouts record the FIRST failure in this order
 MEASUREMENT_ORDER = ("ceiling_to_deflector_vertical_distance", "point_to_boundary_min", "pairwise_min_distance",
                      "array_axis_spacing", "perpendicular_wall_distance", "boundary_point_to_nearest_sprinkler_max",
                      "space_point_to_nearest_sprinkler_max", "nearest_sprinkler_cell_area",
-                     "array_sxl_protection_area")
+                     "array_sxl_s_dimension", "array_sxl_l_dimension", "array_sxl_protection_area")
 Z_LIMITATION = ("Sprinkler elevation (Z) is not established: no deflector position was supplied, so placements "
                 "carry Z UNKNOWN and no vertical rule was evaluated")
 M2_LIMITATIONS = (
@@ -77,7 +78,8 @@ def request_fingerprint(req: DesignRequest) -> str:
                  # M2.2A: every input that can change a result is fingerprinted
                  "system": req.system.model_dump(mode="json") if req.system else None,
                  "eligibility": {k: v.model_dump(mode="json") for k, v in sorted(req.eligibility.items())},
-                 "deflector": req.deflector.model_dump(mode="json") if req.deflector else None})
+                 "deflector": req.deflector.model_dump(mode="json") if req.deflector else None,
+                 "orientation": req.orientation.model_dump(mode="json") if req.orientation else None})
 
 
 def _uid(ns: uuid.UUID, key: str) -> str:
@@ -181,6 +183,8 @@ class _State:
         self.excluded = [prep(Polygon(r)) for r in req.search.excluded_regions_local_ft]
         self.segments = [s for ring in region.boundary.rings for s in ring.segments]
         self.bsegs_uv = boundary_uv(self.frame, self.segments)
+        self.s_axis = orientation_axis(self.frame, req.orientation, req.tolerances.length_ft) \
+            if req.orientation is not None and req.orientation.frame == "LOCAL" else None
         order = {m: i for i, m in enumerate(MEASUREMENT_ORDER)}
         self.constraints = sorted(resolution.constraints, key=lambda c: (order.get(c.measurement, 99), c.key))
         self._point_cache: dict[tuple[int, int], dict] = {}
@@ -282,6 +286,22 @@ def _measurement_blockers(req: DesignRequest, region, res: RuleResolution) -> li
                                    message=f"{len(unknown)} boundary segment(s) are of unknown kind; a wall-reference "
                                            "measurement cannot tell whether they are walls",
                                    detail={"segments": [s.uid for s in unknown]}))
+    if meas & ORIENTATION_MEASUREMENTS:
+        o = req.orientation
+        if o is None:
+            out.append(DesignIssue(code="LAYOUT_ORIENTATION_MISSING",
+                                   message="an S x L rule applies but no branch-line orientation (LayoutOrientation) "
+                                           "was supplied; S is never taken from the room's long axis"))
+        elif o.frame != "LOCAL":
+            out.append(DesignIssue(code="WRONG_COORDINATE_FRAME",
+                                   message=f"branch-line orientation is in frame {o.frame}; the evaluator works in LOCAL"))
+        elif region is not None and req.tolerances is not None and orientation_axis(
+                room_frame([tuple(p) for p in region.polygon_local_ft]), o, req.tolerances.length_ft) is None:
+            out.append(DesignIssue(code="ORIENTATION_NOT_ALIGNED_WITH_ARRAY_FRAME",
+                                   message="the branch-line direction is parallel to neither axis of the array frame "
+                                           "(search family room_axis_array/1 generates frame-aligned arrays only); "
+                                           "S x L is not evaluated for a direction the arrays do not follow",
+                                   detail={"branch_line_direction": list(o.branch_line_direction)}))
     if meas & VERTICAL_MEASUREMENTS:
         creg = req.ceiling.regions[0] if req.ceiling and len(req.ceiling.regions) == 1 else None
         if creg is None or creg.elevation.status != "known":
@@ -413,8 +433,42 @@ def measure_special(st: _State, c: EngineeringConstraint, grid):
         return Measured(None, not_evaluable="the layout is not a complete room-aligned rectangular grid, so array "
                                             "directions are undefined; it is not assumed to pass")
     us, vs = grid
-    fn = array_sxl if c.measurement == "array_sxl_protection_area" else perpendicular_walls
-    return fn(st.bsegs_uv, us, vs, c.reference_kinds, st.req.tolerances.length_ft, worst)
+    if c.measurement in SXL_MEASUREMENTS:
+        if st.s_axis is None:
+            return Measured(None, not_evaluable="no usable branch-line orientation: S and L are undefined")
+        o = st.req.orientation
+        return array_sxl(st.bsegs_uv, us, vs, c.reference_kinds, st.req.tolerances.length_ft, worst, st.s_axis,
+                         SXL_MEASUREMENTS[c.measurement],
+                         {"branch_line_axis": st.s_axis, "branch_line_direction_local": list(o.branch_line_direction),
+                          "strategy": o.strategy, "version": o.version})
+    return perpendicular_walls(st.bsegs_uv, us, vs, c.reference_kinds, st.req.tolerances.length_ft, worst)
+
+
+def orientation_axis(frame: RoomFrame, o: LayoutOrientation | None, tol_ft: float) -> str | None:
+    """'u' / 'v': the array-frame axis PARALLEL to the branch lines, or None (missing or not aligned). The
+    angular deviation is accepted only if it moves a point by at most the explicit length tolerance
+    across the room's extent."""
+    if o is None:
+        return None
+    dx, dy = o.branch_line_direction
+    extent = max(frame.extent_u, frame.extent_v, 1.0)
+    if abs(dx * frame.uy - dy * frame.ux) * extent <= tol_ft:
+        return "u"
+    if abs(dx * frame.ux + dy * frame.uy) * extent <= tol_ft:
+        return "v"
+    return None
+
+
+def default_orientation(region, source: InputSource) -> LayoutOrientation | None:
+    """ROOM-LONG-AXIS-DEFAULT/1: a named, versioned candidate-generation STRATEGY (not an engineering
+    definition of S) — branch lines along the room frame's long axis. None when the long axis is
+    ambiguous (equal extents): the caller must then choose explicitly."""
+    fr = room_frame([tuple(p) for p in region.polygon_local_ft])
+    if abs(fr.extent_u - fr.extent_v) <= 1e-9 * max(fr.extent_u, fr.extent_v, 1.0):
+        return None
+    return LayoutOrientation(branch_line_direction=(fr.ux, fr.uy), strategy="ROOM-LONG-AXIS-DEFAULT/1", source=source,
+                             note="default candidate-generation strategy before routing exists; replaceable by "
+                                  "routing / optimisation / a person")
 
 
 def _not_evaluable(st: _State, c: EngineeringConstraint, why: str, subject=None) -> ConstraintEvaluation:
@@ -450,6 +504,10 @@ def evaluate_layout(st: _State, iu, iv, full: bool) -> LayoutEvaluation:
     arr = {"u_indices": list(iu), "v_indices": list(iv), "n_u": len(iu), "n_v": len(iv),
            "spacing_u_ft": (iu[1] - iu[0]) * st.step if len(iu) > 1 else None,
            "spacing_v_ft": (iv[1] - iv[0]) * st.step if len(iv) > 1 else None}
+    if st.req.orientation is not None:
+        arr["orientation"] = {"branch_line_axis": st.s_axis,
+                              "branch_line_direction_local": list(st.req.orientation.branch_line_direction),
+                              "strategy": st.req.orientation.strategy, "version": st.req.orientation.version}
     evals, first = [], None
     if not all(p["inside"] for p in cells):
         first = "structural:outside_space"
@@ -524,7 +582,8 @@ def _inputs(req: DesignRequest) -> dict:
             "jurisdiction": req.jurisdiction,
             "system": req.system.model_dump(mode="json") if req.system else None,
             "eligibility": {k: v.model_dump(mode="json") for k, v in sorted(req.eligibility.items())},
-            "deflector": req.deflector.model_dump(mode="json") if req.deflector else None}
+            "deflector": req.deflector.model_dump(mode="json") if req.deflector else None,
+            "orientation": req.orientation.model_dump(mode="json") if req.orientation else None}
 
 
 def _finish(res: EngineeringDesignResult) -> EngineeringDesignResult:
@@ -664,9 +723,15 @@ def _as_array(st: _State, pts: list[tuple[float, float]]):
 def evaluate_proposal(req: DesignRequest, proposal: CandidateProposal) -> ProposalEvaluation:
     """Deterministically evaluate a PROPOSED layout. PASS / FAIL / UNKNOWN / REFUSED come only from the
     rules engine and the geometry evaluator; nothing in the proposal can override them."""
-    fp = request_fingerprint(req)
     digest = _proposal_digest(proposal)
     refusals: list[DesignIssue] = []
+    if proposal.orientation is not None:
+        if req.orientation is None:
+            req = req.model_copy(update={"orientation": proposal.orientation})     # proposer-chosen, fingerprinted
+        elif proposal.orientation.model_dump(mode="json") != req.orientation.model_dump(mode="json"):
+            refusals.append(DesignIssue(code="ORIENTATION_MISMATCH",
+                                        message="the proposal's branch-line orientation differs from the request's"))
+    fp = request_fingerprint(req)
     if proposal.frame != "LOCAL" or proposal.units != "ft":
         refusals.append(DesignIssue(code="WRONG_COORDINATE_FRAME",
                                     message=f"proposal is in {proposal.frame}/{proposal.units}; the evaluator works in "

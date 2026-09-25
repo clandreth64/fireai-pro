@@ -10,10 +10,17 @@ Identity: `NFPA13-2019-BASE` v1 · layer `base_standard` · governing standard `
 `2019` · EMPTY + DRAFT (`fireai/rules/catalog.py`). Every rule's `source.edition` must be `2019`; a
 rule citing another edition cannot be approved, and a request mixing editions refuses.
 
-**Owner decision still open:** no development envelope is registered for 2019. Rules can be
-authored, reviewed and approved without one, but real design under 2019 REFUSES
-(`NO_SUPPORTED_ENVELOPE`) until the owner registers a 2019 envelope (conditions as for 2025, or
-different).
+**Envelope (M2.2A.1):** `NFPA13-2019-DEV-ENVELOPE-1` is registered: Light Hazard, wet pipe,
+hydraulically calculated, non-storage, standard spray pendent, `noncombustible_unobstructed`
+construction classification, smooth flat horizontal single-plane ceiling at a known elevation with no
+features or obstructions, orthogonal walls, explicit branch-line orientation, small-room `not_eligible`.
+It does NOT approve the rule set.
+
+**Licensing (M2.2A.1):** NFPA 13-2019 source status is `INTERNAL_R_AND_D_ONLY`. Rules entered from it
+are for INTERNAL R&D; they are NOT release-eligible for beta / production / commercial / external use
+until the owner records a commercial authorization covering that use
+(`docs/SOURCE_AUTHORIZATION_AND_RELEASE.md`). Do not record license numbers, customer ids or personal
+data in `source_id`, notes or anywhere else — use an internal document-control reference.
 
 ---
 
@@ -39,7 +46,8 @@ different).
 
 | Requirement kind (neutral) | Measurement | Dim. | Status |
 |---|---|---|---|
-| Protection area per sprinkler (spacing-based S x L) | `array_sxl_protection_area` (SXL-ARRAY/1) | area | implemented — rectangular arrays, frame-aligned walls. **The author must confirm SXL-ARRAY/1 matches the 2019 definition** (larger side per axis; side = adjacent sprinkler, or twice the perpendicular distance to the participating wall) |
+| Protection area per sprinkler (S x L) | `array_sxl_protection_area` (SXL-ARRAY/2) | area | implemented — S along the explicit BRANCH-LINE direction (`LayoutOrientation`), L perpendicular; rectangular arrays, orthogonal walls. **The author must confirm SXL-ARRAY/2 matches the 2019 definition** (larger side per axis; side = adjacent sprinkler, or twice the perpendicular distance to the participating wall) |
+| S or L alone (branch-line / between-line dimension) | `array_sxl_s_dimension`, `array_sxl_l_dimension` | length | implemented (M2.2A.1) — requires the explicit orientation |
 | Nearest-sprinkler (Voronoi) cell area | `nearest_sprinkler_cell_area` | area | implemented — a DIFFERENT measurement; not S x L |
 | Maximum spacing (along array axes) | `array_axis_spacing` | length | implemented |
 | Minimum spacing | `pairwise_min_distance` | length | implemented |

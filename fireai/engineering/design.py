@@ -16,6 +16,8 @@ from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field, model_validator
 
+from fireai.engineering.inputs import LayoutOrientation
+
 PLACEMENT_ENGINE_VERSION = "fireai.engineering.placement/0.2.0"      # M2.2A: new measurements, fingerprint covers system/eligibility/deflector
 ORDERING_STRATEGY = "ORDER-LONGAXIS-LR-BT/1"      # layouts: fewer sprinklers first; sprinklers: by v (bottom-to-top) then u (left-to-right) in the room frame
 SYNTHETIC_DISCLAIMERS = ("TEST ONLY", "SYNTHETIC RULE VALUES", "NOT NFPA 13 COMPLIANT", "NOT FOR ENGINEERING USE")
@@ -171,6 +173,7 @@ class CandidateProposal(BaseModel):
     rule_sets: list[dict[str, str]]           # [{rule_set_id, version, digest}]
     listing: dict[str, str]                   # {listing_id, version, digest}
     positions: list[tuple[float, float]]      # sprinkler plan positions (x, y) in the stated frame
+    orientation: Optional[LayoutOrientation] = None   # M2.2A.1: the proposer may choose the branch-line direction
     note: str = ""
 
 

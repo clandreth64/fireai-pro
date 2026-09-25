@@ -30,11 +30,16 @@ MEASUREMENTS: dict[str, tuple[str, str]] = {
                                             "NOT an S x L protection area: see array_sxl_protection_area"),
     # ── M2.2A ────────────────────────────────────────────────────────────────────────────────────
     "array_sxl_protection_area": ("area", "for each sprinkler of a rectangular (room-frame) array: S x L, where "
-                                          "S is taken along the array's u axis and L along its v axis, and each "
+                                          "S is taken along the BRANCH-LINE direction of the explicit layout "
+                                          "orientation and L perpendicular to it (between branch lines), and each "
                                           "dimension is the larger of the two sides' values; a side's value is the "
                                           "distance to the adjacent sprinkler on that side, or, with no adjacent "
                                           "sprinkler, TWICE the perpendicular distance to the participating wall "
-                                          "reference reached on that side (SXL-ARRAY/1)"),
+                                          "reference reached on that side (SXL-ARRAY/2). Requires a LayoutOrientation"),
+    "array_sxl_s_dimension": ("length", "per sprinkler, the S dimension of SXL-ARRAY/2 (along the branch lines); "
+                                        "worst over the sprinklers. Requires a LayoutOrientation"),
+    "array_sxl_l_dimension": ("length", "per sprinkler, the L dimension of SXL-ARRAY/2 (perpendicular to the "
+                                        "branch lines); worst over the sprinklers. Requires a LayoutOrientation"),
     "perpendicular_wall_distance": ("length", "for each sprinkler of a rectangular (room-frame) array and each "
                                               "array direction with no adjacent sprinkler, the perpendicular plan "
                                               "distance from the sprinkler centre to the first boundary reached in "
@@ -44,11 +49,15 @@ MEASUREMENTS: dict[str, tuple[str, str]] = {
                                                          "one explicit datum (signed: positive = deflector below the "
                                                          "ceiling); single flat ceiling region only (VERT-DEFLECTOR/1)"),
 }
+SXL_MEASUREMENTS = {"array_sxl_protection_area": "area", "array_sxl_s_dimension": "S",
+                    "array_sxl_l_dimension": "L"}
+# measurements that need the layout's explicit branch-line orientation (M2.2A.1)
+ORIENTATION_MEASUREMENTS = set(SXL_MEASUREMENTS)
 BOUNDARY_MEASUREMENTS = {"point_to_boundary_min", "boundary_point_to_nearest_sprinkler_max",
-                         "array_sxl_protection_area", "perpendicular_wall_distance"}
+                         "perpendicular_wall_distance"} | set(SXL_MEASUREMENTS)
 # measurements that follow array directions to a wall reference: straight, room-frame-aligned
 # boundaries only; angled / irregular boundaries REFUSE (never evaluated with straight-wall logic)
-WALL_RAY_MEASUREMENTS = {"array_sxl_protection_area", "perpendicular_wall_distance"}
+WALL_RAY_MEASUREMENTS = {"perpendicular_wall_distance"} | set(SXL_MEASUREMENTS)
 # measurements that need an established vertical position (ceiling elevation + deflector elevation)
 VERTICAL_MEASUREMENTS = {"ceiling_to_deflector_vertical_distance"}
 # measurement CONTRACTS that are declared (so a rule can name them honestly) but not implemented: an

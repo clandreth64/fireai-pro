@@ -676,3 +676,19 @@ The run was read-only, with `.fireai_data` mounted `:ro` and nothing written:
   design method, no ceiling height and no Z.
 * The TEST ONLY synthetic run is unchanged from M2.0 and M2.1: 21,263 candidates and 10,629 valid, in
   9.9 s. Z stays `unknown` because no deflector position exists for REAL_002.
+
+## §M2.2A.1: REAL_002 regression (orientation, 2019 envelope, release gate)
+
+The run was read-only (`.fireai_data` mounted `:ro`). It used `tests/test_m22a1_real002.py` (2
+passed) and `scripts/m2_design_check.py`.
+
+* Gate: PASSED, HUMAN_VERIFIED (clandreth).
+* NFPA 13-2025 (empty draft): **REFUSED** with the M2.2A codes: missing listing, ceiling,
+  classification, tolerances, search space and system; rule set not approved; jurisdiction not
+  specified.
+* NFPA 13-2019 (empty draft): **REFUSED** with the same missing inputs, plus:
+  - `OUTSIDE_SUPPORTED_ENVELOPE`: no small-room determination;
+  - `MISSING_LAYOUT_ORIENTATION`.
+* No hazard, envelope, construction classification, design method, ceiling height, Z, branch-line
+  orientation, listing, small-room status or rule value was assigned to REAL_002.
+* The TEST ONLY synthetic run is unchanged: 21,263 candidates and 10,629 valid, with Z unknown.

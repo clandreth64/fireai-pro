@@ -301,3 +301,66 @@ engine or rules-mechanism module contains an edition literal (a structural test 
 Mixing editions refuses (`MULTIPLE_BASE_RULESETS`, `EDITION_MISMATCH`), and both refuse real
 engineering while empty. 2019 has no development envelope yet, so it also refuses with
 `NO_SUPPORTED_ENVELOPE`.
+
+## 8. Milestone 2.2A.1: branch-line orientation, the 2019 development envelope, release gate
+
+**S/L correction.** This supersedes the §7 wording "S along u". In SXL-ARRAY/2, S is measured along the
+BRANCH-LINE direction and L perpendicular to it, between branch lines. The room's long axis never
+defines S.
+
+The branch-line direction is a first-class, fingerprinted and provenance-bearing design input,
+`LayoutOrientation`, with these fields:
+- `frame`;
+- `branch_line_direction`, a line direction canonicalised so its sign doesn't matter;
+- `strategy`;
+- `version`;
+- `source`.
+
+The perpendicular direction is `cross_line_direction`. The orientation can come from four places:
+- a person, as `explicit_design_input`;
+- a named, versioned default strategy, `ROOM-LONG-AXIS-DEFAULT/1` (`default_orientation`), which
+  returns nothing when the long axis is ambiguous;
+- a future routing engine;
+- an optimiser.
+
+A proposal (`CandidateProposal.orientation`) may carry its own orientation, so different orientations
+can be evaluated and compared. A missing orientation refuses (`LAYOUT_ORIENTATION_MISSING`), as do a
+wrong frame and a direction that neither array axis follows (`ORIENTATION_NOT_ALIGNED_WITH_ARRAY_FRAME`).
+The orientation is part of:
+- the request fingerprint;
+- the layout (`array.orientation`);
+- the result inputs;
+- project `dependencies_of`, so changing it makes stored designs STALE. The M2.2A gap is also
+  closed: `eligibility` and `deflector` are now tracked there too.
+
+There are three measurements over the same per-sprinkler S and L. They use the same geometry and each
+explains which geometry produced each value:
+- `array_sxl_protection_area` (S×L);
+- `array_sxl_s_dimension`;
+- `array_sxl_l_dimension`.
+
+Because the S×L product is symmetric, the separate S and L limits are where orientation becomes an
+engineering difference (tests 1–2 and 13). The Voronoi `nearest_sprinkler_cell_area` stays a separate
+measurement.
+
+**NFPA13-2019-DEV-ENVELOPE-1** (`fireai/rules/catalog.py`) is a supported development envelope, not a
+rule set, and it holds no values. It covers:
+- Light Hazard;
+- wet pipe;
+- hydraulically calculated;
+- non-storage;
+- standard spray pendent;
+- ceiling construction classification `noncombustible_unobstructed`;
+- a smooth, flat, horizontal single-plane ceiling with a known elevation, no features and no
+  obstructions;
+- orthogonal straight walls;
+- `room_axis_array/1`;
+- an explicit orientation;
+- an explicit small-room decision of `not_eligible`.
+
+Anything else refuses (`OUTSIDE_SUPPORTED_ENVELOPE` / `MISSING_*`). The envelope doesn't approve
+`NFPA13-2019-BASE`. The 2025 envelope from M2.1 is unchanged and never inherits 2019 conditions.
+
+**Release gate:** see `SOURCE_AUTHORIZATION_AND_RELEASE.md`. Engineering status and release
+authorization are separate. External use of NFPA-derived content requires owner-recorded
+`COMMERCIAL_AUTHORIZED` status. Today 2019 is internal R&D only and 2025 is not available.

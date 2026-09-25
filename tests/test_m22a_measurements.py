@@ -17,7 +17,7 @@ from pydantic import ValidationError
 from fireai.engineering import run_design
 from fireai.engineering.design import CandidateProposal
 from fireai.engineering.geometry import room_frame
-from fireai.engineering.inputs import (ConstructionClassification, DeflectorPosition, Elevation,
+from fireai.engineering.inputs import (ConstructionClassification, DeflectorPosition, Elevation, LayoutOrientation,
                                        EligibilityCriterion, EligibilityDecision, InputSource, SystemCondition)
 from fireai.engineering.measure import UVSegment, ray_hit
 from fireai.engineering.placement import (_cells, _State, _validate, design_facts, evaluate_proposal,
@@ -63,7 +63,14 @@ def _proposal(req, positions):
                                         for s in req.rule_sets],
                              listing={"listing_id": req.listing.listing_id, "version": req.listing.version,
                                       "digest": req.listing.digest()},
-                             positions=positions)
+                             positions=positions, orientation=None if req.orientation else _u_orientation(req.package))
+
+
+def _u_orientation(pkg):
+    """M2.2A.1: S x L needs an explicit branch-line orientation. These M2.2A cases were derived with S
+    along the room-frame u axis, so the orientation is stated explicitly as that direction."""
+    fr = room_frame([tuple(p) for p in pkg.spaces[0].polygon_local_ft])
+    return LayoutOrientation(branch_line_direction=(fr.ux, fr.uy), strategy="explicit_design_input", source=S.SYN)
 
 
 def _eval(req, positions, key):
@@ -463,7 +470,7 @@ def test_23_frame_or_datum_mismatch_refuses(tmp_path):
 def test_24_repeatable_and_every_input_is_fingerprinted(tmp_path):
     pkg = _pkg(tmp_path, w=20, h=10)
     req = S.request(pkg, rule_sets=[rs(sxl_rule(120.0), wall_rule(6.0), VERT)], srch=S.search(1.0, 4, 2)) \
-        .model_copy(update={"deflector": _deflector()})
+        .model_copy(update={"deflector": _deflector(), "orientation": _u_orientation(pkg)})
     a, b = run_design(req), run_design(req)
     assert S.dumps(a) == S.dumps(b) and a.status == "VALID_LAYOUTS_FOUND"
     sysc = SystemCondition(system_type="wet_pipe", storage="non_storage", source=HUMAN)
@@ -494,7 +501,8 @@ def test_25b_pruned_search_equals_reference_with_the_new_measurements(tmp_path):
     pkg = _pkg(tmp_path, w=20, h=10, window=("left", 2, 8))
     req = S.request(pkg, rule_sets=[rs(sxl_rule(110.0, kinds=("wall", "window")),
                                        wall_rule(6.0, kinds=("wall", "window")), VERT)],
-                    srch=S.search(1.0, 4, 2)).model_copy(update={"deflector": _deflector()})
+                    srch=S.search(1.0, 4, 2)).model_copy(update={"deflector": _deflector(),
+                                                                 "orientation": _u_orientation(pkg)})
     r = run_design(req)
     valid, n = reference_search(req)
     _i, sp, reg, res = _validate(req)
@@ -535,7 +543,8 @@ def test_2019_and_2025_never_mix_in_one_request():
 
 def test_both_editions_refuse_real_engineering_while_empty(tmp_path):
     pkg = _pkg(tmp_path)
-    for ident, extra in ((NFPA13_2025_BASE, set()), (NFPA13_2019_BASE, {"NO_SUPPORTED_ENVELOPE"})):
+    # M2.2A.1: the owner registered NFPA13-2019-DEV-ENVELOPE-1, so 2019 now refuses on its envelope inputs
+    for ident, extra in ((NFPA13_2025_BASE, set()), (NFPA13_2019_BASE, {"MISSING_LAYOUT_ORIENTATION"})):
         r = run_design(S.request(pkg, rule_sets=[empty_draft(ident)], mode="engineering",
                                  jurisdiction="amendments_not_evaluated"))
         assert r.status == "REFUSED" and {"RULESET_NOT_APPROVED"} | extra <= _codes(r)

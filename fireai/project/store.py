@@ -170,7 +170,11 @@ def dependencies_of(req: DesignRequest) -> DesignDependencies:
                  if req.listing else None),
         inputs={k: (_digest(getattr(req, a)) if getattr(req, a) is not None else None)
                 for k, a in (("ceiling", "ceiling"), ("classification", "classification"), ("system", "system"),
-                             ("tolerances", "tolerances"), ("search", "search"))} | {"jurisdiction": req.jurisdiction},
+                             ("tolerances", "tolerances"), ("search", "search"), ("deflector", "deflector"),
+                             ("orientation", "orientation"))}
+        | {"jurisdiction": req.jurisdiction}
+        | ({"eligibility": _digest({k: v.model_dump(mode="json") for k, v in sorted(req.eligibility.items())})}
+           if req.eligibility else {}),
         engine_version=PLACEMENT_ENGINE_VERSION, mode=req.mode)
 
 

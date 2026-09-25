@@ -1,15 +1,26 @@
-"""Supported-envelope gate for REAL engineering (Milestone 2.1).
+"""Supported-envelope gate for REAL engineering (Milestone 2.1; extended in M2.2A.1).
 
 The envelope is looked up from the base rule set's standard + edition (data in
 ``fireai.rules.catalog``), never from a constant. Every envelope condition must be matched by an
 EXPLICIT input; a missing input is a refusal, a different value is OUTSIDE_SUPPORTED_ENVELOPE — there
-is no fallback to a "nearest" supported condition, and nothing is inferred.
+is no fallback to a "nearest" supported condition, and nothing is inferred. An envelope never approves
+a rule set: it only bounds what FireAI will attempt.
 """
 
 from __future__ import annotations
 
 from fireai.engineering.design import DesignIssue
+from fireai.engineering.geometry import room_frame
+from fireai.engineering.measure import boundary_uv, misaligned_segments
 from fireai.rules.catalog import envelope_for
+
+
+def _region(req):
+    pkg = req.package
+    sem = {s.uid: s for s in pkg.semantic_spaces}
+    regions = {s.uid: s for s in pkg.spaces}
+    space = sem.get(req.space_uid)
+    return regions.get(space.region_uid) if space else regions.get(req.space_uid)
 
 
 def envelope_blockers(req, rule_sets) -> list[DesignIssue]:
@@ -30,6 +41,9 @@ def envelope_blockers(req, rule_sets) -> list[DesignIssue]:
                                        f"(supported: {allowed}); no fallback is applied",
                                detail={"condition": condition, "value": value, "envelope": env.envelope_id}))
 
+    def missing(code, message):
+        out.append(DesignIssue(code=code, message=message, detail={"envelope": env.envelope_id}))
+
     if req.system is None:
         out.append(DesignIssue(code="MISSING_SYSTEM_CONDITION", message="no system type / storage condition supplied"))
     else:
@@ -37,6 +51,11 @@ def envelope_blockers(req, rule_sets) -> list[DesignIssue]:
             outside("system type", req.system.system_type, env.system_types)
         if req.system.storage not in env.storage_conditions:
             outside("storage condition", req.system.storage, env.storage_conditions)
+        if env.design_methods is not None:
+            if req.system.design_method == "unknown":
+                missing("MISSING_DESIGN_METHOD", f"envelope {env.envelope_id} requires an explicit system design method")
+            elif req.system.design_method not in env.design_methods:
+                outside("design method", req.system.design_method, env.design_methods)
     if req.classification is not None and (req.classification.scheme, req.classification.value) not in env.classifications:
         outside("classification", f"{req.classification.scheme}: {req.classification.value}", env.classifications)
     if req.listing is not None:
@@ -50,6 +69,42 @@ def envelope_blockers(req, rule_sets) -> list[DesignIssue]:
                 outside("ceiling surface", r.surface, env.ceiling_surfaces)
             if r.construction not in env.ceiling_constructions:
                 outside("ceiling construction", r.construction, env.ceiling_constructions)
+            if env.construction_classifications is not None:
+                cc = r.construction_classification
+                if cc is None:
+                    missing("MISSING_CONSTRUCTION_CLASSIFICATION",
+                            f"envelope {env.envelope_id} requires an explicit construction classification for "
+                            f"ceiling region {r.uid} (geometry does not establish it)")
+                elif (cc.scheme, cc.value) not in env.construction_classifications:
+                    outside("construction classification", f"{cc.scheme}: {cc.value}", env.construction_classifications)
+            if env.requires_horizontal_ceiling:
+                if r.slope.status != "known" or (r.slope.value_deg or 0.0) != 0.0:
+                    outside("ceiling slope", r.slope.value_deg if r.slope.status == "known" else "unknown", [0.0])
+                if r.elevation.status != "known":
+                    missing("MISSING_CEILING_ELEVATION", f"envelope {env.envelope_id} requires a known ceiling elevation")
+        if env.requires_horizontal_ceiling and len(req.ceiling.regions) != 1:
+            outside("ceiling planes", len(req.ceiling.regions), [1])
+        if env.requires_horizontal_ceiling and req.ceiling.features:
+            outside("ceiling features", sorted({f.kind for f in req.ceiling.features}), [])
         if req.ceiling.obstructions_statement not in env.obstruction_statements:
             outside("obstruction statement", req.ceiling.obstructions_statement, env.obstruction_statements)
+    if env.small_room_statuses is not None:
+        dec = req.eligibility.get("small_room")
+        status = dec.status if dec is not None else "not_determined"
+        if status not in env.small_room_statuses:
+            outside("small-room eligibility", status, env.small_room_statuses)
+    if env.requires_branch_line_orientation and req.orientation is None:
+        missing("MISSING_LAYOUT_ORIENTATION",
+                f"envelope {env.envelope_id} requires an explicit branch-line orientation (LayoutOrientation)")
+    if env.search_families is not None and req.search is not None and req.search.family not in env.search_families:
+        outside("placement search family", req.search.family, env.search_families)
+    if env.requires_orthogonal_geometry and req.tolerances is not None:
+        region = _region(req)
+        if region is not None:
+            segs = [s for ring in region.boundary.rings for s in ring.segments]
+            frame = room_frame([tuple(p) for p in region.polygon_local_ft])
+            angled = misaligned_segments(boundary_uv(frame, segs), req.tolerances.length_ft)
+            if angled:
+                outside("space geometry", f"{len(angled)} angled / irregular boundary segment(s)",
+                        "orthogonal straight walls only")
     return out

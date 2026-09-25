@@ -7,9 +7,10 @@ are defined in, so a rotated room gives the same result as an axis-aligned one.
   usable only if that segment is PERPENDICULAR to the direction (within the explicit length
   tolerance) and of a PARTICIPATING kind (the rule decides: a door opening, window, open opening
   or unknown segment is never silently a wall). Otherwise the measurement is NOT EVALUABLE.
-* ``array_sxl`` (SXL-ARRAY/1): per sprinkler, S along u and L along v; each is the larger of its two
-  sides, a side being the distance to the adjacent sprinkler or, with none, twice the perpendicular
-  distance to the participating wall reference reached on that side.
+* ``array_sxl`` (SXL-ARRAY/2, M2.2A.1): per sprinkler, S along the BRANCH-LINE axis (explicit layout
+  orientation) and L along the perpendicular axis; each is the larger of its two sides, a side being
+  the distance to the adjacent sprinkler or, with none, twice the perpendicular distance to the
+  participating wall reference reached on that side. The room's long axis never defines S.
 * ``perpendicular_walls`` (PERP-WALL/1): per sprinkler, the perpendicular distance to the wall
   reference in every array direction with no adjacent sprinkler.
 * ``ceiling_to_deflector``: ceiling elevation - deflector elevation on one explicit datum.
@@ -112,8 +113,14 @@ def _explain_miss(hit: WallHit, axis: str, sign: int, kinds: list[str]) -> str:
     return f"no boundary is reached in direction {d}"
 
 
-def array_sxl(bsegs, us: list[float], vs: list[float], kinds: list[str], tol: float, worst) -> Measured:
-    """SXL-ARRAY/1 over a complete rectangular grid (room-frame coordinates us x vs)."""
+def array_sxl(bsegs, us: list[float], vs: list[float], kinds: list[str], tol: float, worst,
+              s_axis: str, output: str = "area", orientation: Optional[dict] = None) -> Measured:
+    """SXL-ARRAY/2 over a complete rectangular grid (room-frame coordinates us x vs).
+
+    ``s_axis`` ('u' or 'v') is the array axis PARALLEL TO THE BRANCH LINES (from the explicit
+    LayoutOrientation): S is measured along it, L along the other axis. ``output``: 'area' (S x L),
+    'S' or 'L' — the per-sprinkler quantity whose worst value is reported."""
+    l_axis = "v" if s_axis == "u" else "u"
     per = []
     for j, v in enumerate(vs):
         for i, u in enumerate(us):
@@ -134,20 +141,23 @@ def array_sxl(bsegs, us: list[float], vs: list[float], kinds: list[str], tol: fl
                                   "from": "twice_wall_distance", "wall": hit.describe()})
                 gov = max(sides, key=lambda x: x["value_ft"])
                 dims[axis] = {"value_ft": gov["value_ft"], "governed_by": gov["direction"], "sides": sides}
-            area = dims["u"]["value_ft"] * dims["v"]["value_ft"]
-            per.append((area, j * len(us) + i, dims))
+            s_val, l_val = dims[s_axis]["value_ft"], dims[l_axis]["value_ft"]
+            q = s_val * l_val if output == "area" else s_val if output == "S" else l_val
+            per.append((q, j * len(us) + i, dims))
     if not per:
         return Measured(None)
-    area, idx, dims = worst(per, key=lambda x: (x[0], -x[1]) if worst is max else (x[0], x[1]))
-    return Measured(area, {"sprinkler_index": idx, "S_axis": "u", "L_axis": "v",
-                           "S_ft": dims["u"]["value_ft"], "L_ft": dims["v"]["value_ft"],
-                           "S": dims["u"], "L": dims["v"],
-                           "orientation": "S along the array's room-frame u axis (ROOM-FRAME-LONG-AXIS/1); the "
-                                          "S x L product is invariant under the S/L assignment",
-                           "per_sprinkler": [{"index": k, "S_ft": dd["u"]["value_ft"], "L_ft": dd["v"]["value_ft"],
-                                              "area_sf": a, "S_from": dd["u"]["governed_by"],
-                                              "L_from": dd["v"]["governed_by"]}
-                                             for a, k, dd in sorted(per, key=lambda x: x[1])]})
+    q, idx, dims = worst(per, key=lambda x: (x[0], -x[1]) if worst is max else (x[0], x[1]))
+    return Measured(q, {"sprinkler_index": idx, "output": output, "S_axis": s_axis, "L_axis": l_axis,
+                        "S_ft": dims[s_axis]["value_ft"], "L_ft": dims[l_axis]["value_ft"],
+                        "area_sf": dims[s_axis]["value_ft"] * dims[l_axis]["value_ft"],
+                        "S": dims[s_axis], "L": dims[l_axis],
+                        "orientation": {**(orientation or {}),
+                                        "semantics": "S along the branch lines (explicit LayoutOrientation), L "
+                                                     "perpendicular to them; the room's long axis does not define S"},
+                        "per_sprinkler": [{"index": k, "S_ft": dd[s_axis]["value_ft"], "L_ft": dd[l_axis]["value_ft"],
+                                           "area_sf": dd[s_axis]["value_ft"] * dd[l_axis]["value_ft"],
+                                           "S_from": dd[s_axis]["governed_by"], "L_from": dd[l_axis]["governed_by"]}
+                                          for _q, k, dd in sorted(per, key=lambda x: x[1])]})
 
 
 def perpendicular_walls(bsegs, us: list[float], vs: list[float], kinds: list[str], tol: float, worst) -> Measured:
