@@ -26,14 +26,15 @@ The input file can't change it.
 | A | Table 10.2.4.2.1(a) | `sprinkler.max_protection_area` | `array_sxl_protection_area` (S along the branch lines; never Voronoi) | max | wall only |
 | B | Table 10.2.4.2.1(a) | `sprinkler.max_spacing` | `array_axis_spacing` | max | — |
 | C | 10.2.5.2.1 | `sprinkler.max_wall_distance` | `perpendicular_wall_distance`, **derived**: factor × effective max spacing (B) | max | wall only |
-| D | 10.2.5.3 | `sprinkler.min_wall_distance` | `perpendicular_wall_distance` | min | wall only |
+| D | 10.2.5.3 | `sprinkler.min_wall_distance` | `min_perpendicular_wall_distance` (minimum clearance to ANY solid wall; M2.2B.1) | min | wall only |
 | E | 10.2.5.4.1 | `sprinkler.min_spacing` | `pairwise_min_distance` | min | — |
 | F_MIN / F_MAX | 10.2.6.1.1.1 | `sprinkler.min/max_deflector_below_ceiling` | `ceiling_to_deflector_vertical_distance` | min / max | — |
 
-**Reviewer note on D.** `perpendicular_wall_distance` measures from each sprinkler to the solid wall
-in the array directions that have no adjacent sprinkler. In the first envelope's orthogonal
-rectangular spaces, that equals the distance to the nearest wall. Please confirm this is the intended
-reading.
+**Rule D (corrected in M2.2B.1).** D uses `min_perpendicular_wall_distance`. For each sprinkler it takes the perpendicular distance from the sprinkler centre to every solid wall segment whose perpendicular foot lies on the segment, and uses the minimum. Neighbouring sprinklers make no difference. The measurement refuses, as not evaluable, in two cases:
+- a nearer wall END, such as a re-entrant corner or door jamb;
+- no wall with its perpendicular foot on it.
+
+The end-condition measurement `perpendicular_wall_distance`, used by C and S×L, accepts only a MAX bound. A minimum-wall rule mapped to it is refused (`MEASUREMENT_BOUND_MISMATCH`).
 
 ## Outside the first envelope (refused, not approximated)
 

@@ -417,7 +417,7 @@ def test_rectangle_fast_path_prunes_safely(tmp_path, axis):
     o = LayoutOrientation(branch_line_direction=(fr.ux, fr.uy) if axis == "u" else (-fr.uy, fr.ux),
                           strategy="explicit_design_input", source=S.SYN)
     rules = [S.rule("SYN-PW-MAX", "k.pwmax", "perpendicular_wall_distance", "max", 3.5, kinds=["wall"]),
-             S.rule("SYN-PW-MIN", "k.pwmin", "perpendicular_wall_distance", "min", 1.0, kinds=["wall"]),
+             S.rule("SYN-PW-MIN", "k.pwmin", "min_perpendicular_wall_distance", "min", 1.0, kinds=["wall"]),
              S.rule("SYN-S", "k.s", "array_sxl_s_dimension", "max", 6.0, kinds=["wall"], category="spacing"),
              S.rule("SYN-L", "k.l", "array_sxl_l_dimension", "max", 7.0, kinds=["wall"], category="spacing"),
              S.rule("SYN-AREA", "k.a", "array_sxl_protection_area", "max", 40.0, unit="sf", kinds=["wall"],

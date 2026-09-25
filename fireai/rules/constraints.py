@@ -40,11 +40,19 @@ MEASUREMENTS: dict[str, tuple[str, str]] = {
                                         "worst over the sprinklers. Requires a LayoutOrientation"),
     "array_sxl_l_dimension": ("length", "per sprinkler, the L dimension of SXL-ARRAY/2 (perpendicular to the "
                                         "branch lines); worst over the sprinklers. Requires a LayoutOrientation"),
-    "perpendicular_wall_distance": ("length", "for each sprinkler of a rectangular (room-frame) array and each "
-                                              "array direction with no adjacent sprinkler, the perpendicular plan "
-                                              "distance from the sprinkler centre to the first boundary reached in "
-                                              "that direction, which must be a participating kind and perpendicular "
-                                              "to the direction (PERP-WALL/1)"),
+    "perpendicular_wall_distance": ("length", "END-CONDITION wall distance: for each sprinkler of a rectangular "
+                                              "(room-frame) array and each array direction with no adjacent "
+                                              "sprinkler (where the array terminates at a boundary), the "
+                                              "perpendicular plan distance from the sprinkler centre to the first "
+                                              "boundary reached in that direction, which must be a participating kind "
+                                              "and perpendicular to the direction (PERP-WALL/1). MAX bound only: it "
+                                              "is NOT a minimum wall clearance"),
+    "min_perpendicular_wall_distance": ("length", "MINIMUM wall CLEARANCE: for each sprinkler, the perpendicular plan "
+                                                  "distance from its centre to EVERY participating wall segment whose "
+                                                  "perpendicular foot lies on the segment, taking the minimum; "
+                                                  "independent of neighbouring sprinklers. A nearer wall end (re-entrant "
+                                                  "corner / jamb) makes it NOT EVALUABLE (MIN-WALL-CLEARANCE/1). MIN "
+                                                  "bound only"),
     "ceiling_to_deflector_vertical_distance": ("length", "ceiling elevation minus sprinkler deflector elevation, on "
                                                          "one explicit datum (signed: positive = deflector below the "
                                                          "ceiling); single flat ceiling region only (VERT-DEFLECTOR/1)"),
@@ -54,12 +62,19 @@ SXL_MEASUREMENTS = {"array_sxl_protection_area": "area", "array_sxl_s_dimension"
 # measurements that need the layout's explicit branch-line orientation (M2.2A.1)
 ORIENTATION_MEASUREMENTS = set(SXL_MEASUREMENTS)
 BOUNDARY_MEASUREMENTS = {"point_to_boundary_min", "boundary_point_to_nearest_sprinkler_max",
-                         "perpendicular_wall_distance"} | set(SXL_MEASUREMENTS)
+                         "perpendicular_wall_distance", "min_perpendicular_wall_distance"} | set(SXL_MEASUREMENTS)
+# M2.2B.1: a measurement whose meaning only makes sense with one bound says so; any other bound is a
+# MAPPING ERROR that the resolver and the approval check refuse (e.g. a minimum-wall rule mapped to the
+# end-condition measurement)
+MEASUREMENT_BOUNDS: dict[str, set[str]] = {"perpendicular_wall_distance": {"max"},
+                                           "min_perpendicular_wall_distance": {"min"}}
 # measurements that follow array directions to a wall reference: straight, room-frame-aligned
 # boundaries only; angled / irregular boundaries REFUSE (never evaluated with straight-wall logic)
 WALL_RAY_MEASUREMENTS = {"perpendicular_wall_distance"} | set(SXL_MEASUREMENTS)
 # measurements that need an established vertical position (ceiling elevation + deflector elevation)
 VERTICAL_MEASUREMENTS = {"ceiling_to_deflector_vertical_distance"}
+# measurements that treat boundary segments as WALL references (angled and unknown segments refuse)
+WALL_REFERENCE_MEASUREMENTS = WALL_RAY_MEASUREMENTS | {"min_perpendicular_wall_distance"}
 # measurement CONTRACTS that are declared (so a rule can name them honestly) but not implemented: an
 # applicable rule using one REFUSES (MEASUREMENT_NOT_IMPLEMENTED) and it can never be approved.
 DECLARED_MEASUREMENTS: dict[str, tuple[str, str]] = {

@@ -312,3 +312,11 @@ These are recorded as SOFTWARE requirements, not rule content.
 
 **M2.2B phase 1 stopped at the owner-input boundary:** no values, people, cases or listing have been
 supplied (`docs/m2_2b/README.md`).
+
+---
+
+## M2.2B.1: owner correction (2026-09-25)
+
+| # | Decision | Implemented as |
+|---|---|---|
+| 39 | Rule D (minimum distance from walls) is the minimum perpendicular distance to ANY applicable solid wall, not the end-condition measurement. The two concepts are distinct and a mismatch is refused | `min_perpendicular_wall_distance`; `MEASUREMENT_BOUNDS`; `M22B_MAPPINGS["D"]` |

@@ -202,12 +202,12 @@
       },
       "mapping_read_only": {
         "constraint_key": "sprinkler.min_wall_distance",
-        "measurement": "perpendicular_wall_distance",
+        "measurement": "min_perpendicular_wall_distance",
         "bound": "min",
         "reference_kinds": [
           "wall"
         ],
-        "note": "measured perpendicular to solid walls in the array directions (PERP-WALL/1). Reviewer: in orthogonal rectangular spaces this equals the nearest-wall distance; re-entrant corners are outside the first envelope's fixtures"
+        "note": "M2.2B.1: minimum perpendicular distance from each sprinkler to ANY solid wall segment (MIN-WALL-CLEARANCE/1), independent of neighbouring sprinklers; a nearer wall end refuses"
       },
       "proposed_applicability": [
         {

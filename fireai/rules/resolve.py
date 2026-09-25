@@ -19,7 +19,8 @@ from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field
 
-from fireai.rules.constraints import DECLARED_MEASUREMENTS, MEASUREMENTS, Contribution, EngineeringConstraint
+from fireai.rules.constraints import (DECLARED_MEASUREMENTS, MEASUREMENT_BOUNDS, MEASUREMENTS, Contribution,
+                                      EngineeringConstraint)
 from fireai.rules.model import LAYER_ORDER, UNSUPPORTED_MEASUREMENT, Condition, Quantity, Rule, RuleSet
 from fireai.rules.units import UnitError, dimension, to_canonical
 
@@ -374,6 +375,12 @@ def _resolve_key(key: str, members: list, replaced: dict[str, str], effective: d
     if c0.measurement not in MEASUREMENTS:
         refusals.append(RuleIssue(code="UNKNOWN_MEASUREMENT", rule_id=live[0][0].rule_id,
                                   message=f"measurement {c0.measurement!r} is not implemented"))
+        return None
+    if c0.bound not in MEASUREMENT_BOUNDS.get(c0.measurement, {"max", "min"}):
+        refusals.append(RuleIssue(code="MEASUREMENT_BOUND_MISMATCH", rule_id=live[0][0].rule_id,
+                                  message=f"{key}: measurement {c0.measurement!r} only supports bound "
+                                          f"{sorted(MEASUREMENT_BOUNDS[c0.measurement])}, not {c0.bound!r}; the rule is "
+                                          "mapped to a measurement with a different meaning"))
         return None
     if any((r.constraint.measurement, r.constraint.bound, sorted(r.constraint.reference_kinds))
            != (c0.measurement, c0.bound, sorted(c0.reference_kinds)) for r, _s in live):

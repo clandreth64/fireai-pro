@@ -11,8 +11,10 @@ are defined in, so a rotated room gives the same result as an axis-aligned one.
   orientation) and L along the perpendicular axis; each is the larger of its two sides, a side being
   the distance to the adjacent sprinkler or, with none, twice the perpendicular distance to the
   participating wall reference reached on that side. The room's long axis never defines S.
-* ``perpendicular_walls`` (PERP-WALL/1): per sprinkler, the perpendicular distance to the wall
-  reference in every array direction with no adjacent sprinkler.
+* ``perpendicular_walls`` (PERP-WALL/1): END-CONDITION distance — per sprinkler, the perpendicular distance
+  to the wall reference in every array direction with no adjacent sprinkler (where the array ends).
+* ``min_wall_clearance`` (MIN-WALL-CLEARANCE/1, M2.2B.1): MINIMUM clearance — per sprinkler, the nearest
+  perpendicular distance to ANY participating wall segment, whatever the array looks like.
 * ``ceiling_to_deflector``: ceiling elevation - deflector elevation on one explicit datum.
 
 A NOT EVALUABLE outcome is never a pass.
@@ -180,6 +182,54 @@ def perpendicular_walls(bsegs, us: list[float], vs: list[float], kinds: list[str
     return Measured(d, {"sprinkler_index": idx, "direction": direction, "wall": hit.describe(),
                         "per_direction": [{"index": k, "direction": dr, "distance_ft": x, "kind": h.kind}
                                           for x, k, dr, h in sorted(per, key=lambda y: (y[1], y[2]))]})
+
+
+def min_wall_clearance(bsegs, pts_uv: list[tuple[float, float]], kinds: list[str], tol: float, worst) -> Measured:
+    """MIN-WALL-CLEARANCE/1 (M2.2B.1): for EACH sprinkler, the perpendicular plan distance from its centre
+    to every participating wall segment, taking the minimum. Independent of the array and of neighbouring
+    sprinklers.
+
+    Segment semantics (explicit, deterministic): a segment contributes its perpendicular distance only if
+    the foot of the perpendicular lies ON the finite segment (endpoints included, within the explicit
+    length tolerance). No other distance is substituted. If a participating wall END (off-segment
+    endpoint: a re-entrant corner or an opening jamb) is nearer than every perpendicular distance, the
+    applicable clearance is not defined by this measurement -> NOT EVALUABLE (never a pass). Segments of
+    non-participating kinds (door / open opening / window) are not walls and are ignored."""
+    part = [s for s in bsegs if s.kind in kinds]
+    per = []
+    for k, p in enumerate(pts_uv):
+        best_perp, best_seg, best_end = None, None, None
+        for s in part:
+            dx, dy = s.b[0] - s.a[0], s.b[1] - s.a[1]
+            length = (dx * dx + dy * dy) ** 0.5
+            if length <= 1e-12:
+                continue
+            along = ((p[0] - s.a[0]) * dx + (p[1] - s.a[1]) * dy) / length
+            if -tol <= along <= length + tol:
+                d = abs((p[0] - s.a[0]) * dy - (p[1] - s.a[1]) * dx) / length
+                if best_perp is None or d < best_perp - 1e-12 or (abs(d - best_perp) <= 1e-12 and s.index < best_seg.index):
+                    best_perp, best_seg = d, s
+            else:
+                e = min(((p[0] - q[0]) ** 2 + (p[1] - q[1]) ** 2) ** 0.5 for q in (s.a, s.b))
+                best_end = e if best_end is None else min(best_end, e)
+        if best_perp is None:
+            return Measured(None, {"sprinkler_index": k},
+                            not_evaluable="no participating wall segment has the sprinkler's perpendicular foot on it")
+        if best_end is not None and best_end < best_perp - tol:
+            return Measured(None, {"sprinkler_index": k, "nearest_perpendicular_ft": best_perp,
+                                   "nearest_wall_end_ft": best_end},
+                            not_evaluable=f"a wall END (re-entrant corner / opening jamb) at {best_end:.6g} ft is nearer "
+                                          f"than any perpendicular wall distance ({best_perp:.6g} ft); endpoint "
+                                          "clearance is not defined for this measurement in the current envelope")
+        per.append((best_perp, k, best_seg))
+    if not per:
+        return Measured(None)
+    d, idx, seg = worst(per, key=lambda x: (x[0], -x[1]) if worst is max else (x[0], x[1]))
+    return Measured(d, {"sprinkler_index": idx, "wall": {"segment_uid": seg.uid, "kind": seg.kind, "index": seg.index},
+                        "semantics": "minimum perpendicular distance to any participating wall segment "
+                                     "(independent of neighbouring sprinklers)",
+                        "per_sprinkler": [{"index": k2, "distance_ft": x, "segment_uid": s2.uid}
+                                          for x, k2, s2 in sorted(per, key=lambda y: y[1])]})
 
 
 def ceiling_to_deflector(ceiling_elevation, deflector) -> Measured:

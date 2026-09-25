@@ -35,17 +35,18 @@ from fireai.engineering.search import layout_key, search
 from fireai.engineering.geometry import (RoomFrame, dist_point_segment, nearest_cells, room_frame,
                                          worst_boundary_point, worst_space_point)
 from fireai.engineering.inputs import CeilingCondition, DesignRequest, InputSource, LayoutOrientation
-from fireai.engineering.measure import (array_sxl, boundary_uv, ceiling_to_deflector, misaligned_segments,
-                                        perpendicular_walls)
+from fireai.engineering.measure import (array_sxl, boundary_uv, ceiling_to_deflector, min_wall_clearance,
+                                        misaligned_segments, perpendicular_walls)
 from fireai.rules.constraints import (ORIENTATION_MEASUREMENTS, SXL_MEASUREMENTS, VERTICAL_MEASUREMENTS,
-                                      WALL_RAY_MEASUREMENTS, EngineeringConstraint)
+                                      WALL_RAY_MEASUREMENTS, WALL_REFERENCE_MEASUREMENTS, EngineeringConstraint)
 from fireai.rules.resolve import RuleResolution, resolve
 
 # evaluation order (cheap first); rejected layouts record the FIRST failure in this order
 MEASUREMENT_ORDER = ("ceiling_to_deflector_vertical_distance", "point_to_boundary_min", "pairwise_min_distance",
                      "array_axis_spacing", "perpendicular_wall_distance", "boundary_point_to_nearest_sprinkler_max",
                      "space_point_to_nearest_sprinkler_max", "nearest_sprinkler_cell_area",
-                     "array_sxl_s_dimension", "array_sxl_l_dimension", "array_sxl_protection_area")
+                     "min_perpendicular_wall_distance", "array_sxl_s_dimension", "array_sxl_l_dimension",
+                     "array_sxl_protection_area")
 Z_LIMITATION = ("Sprinkler elevation (Z) is not established: no deflector position was supplied, so placements "
                 "carry Z UNKNOWN and no vertical rule was evaluated")
 M2_LIMITATIONS = (
@@ -276,7 +277,7 @@ def _measurement_blockers(req: DesignRequest, region, res: RuleResolution) -> li
     """M2.2A: conditions under which a resolved measurement cannot be made at all -> REFUSE up front."""
     out: list[DesignIssue] = []
     meas = {c.measurement for c in res.constraints}
-    if region is not None and req.tolerances is not None and meas & WALL_RAY_MEASUREMENTS:
+    if region is not None and req.tolerances is not None and meas & WALL_REFERENCE_MEASUREMENTS:
         segs = [s for ring in region.boundary.rings for s in ring.segments]
         frame = room_frame([tuple(p) for p in region.polygon_local_ft])
         angled = misaligned_segments(boundary_uv(frame, segs), req.tolerances.length_ft)
@@ -405,6 +406,12 @@ def _eval_constraint(st: _State, c: EngineeringConstraint, cells: list[dict], ar
         areas = [(g.area, i) for i, g in enumerate(nearest_cells(st.polygon, pts))]
         measured, idx = worst(areas)
         subject = {"sprinkler_index": idx}
+    elif c.measurement == "min_perpendicular_wall_distance":
+        m = min_wall_clearance(st.bsegs_uv, [tuple(p["uv"]) for p in cells], c.reference_kinds,
+                               st.req.tolerances.length_ft, worst)
+        if m.not_evaluable:
+            return _not_evaluable(st, c, m.not_evaluable, m.subject)
+        measured, subject = m.value, m.subject
     elif c.measurement in WALL_RAY_MEASUREMENTS or c.measurement in VERTICAL_MEASUREMENTS:
         m = measure_special(st, c, grid)
         if m.not_evaluable:

@@ -26,7 +26,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from fireai.rules.constraints import BOUNDARY_MEASUREMENTS, DECLARED_MEASUREMENTS, FACTS, MEASUREMENTS
+from fireai.rules.constraints import (BOUNDARY_MEASUREMENTS, DECLARED_MEASUREMENTS, FACTS, MEASUREMENT_BOUNDS,
+                                      MEASUREMENTS)
 from fireai.rules.model import UNSUPPORTED_MEASUREMENT, Quantity, Rule, RuleSet
 from fireai.rules.units import UnitError, dimension
 
@@ -91,6 +92,9 @@ def approval_problems(rule: Rule, rs: RuleSet) -> list[str]:
                     p.append(f"limit unit {lim.value.unit!r} does not match a {MEASUREMENTS[c.measurement][0]} measurement")
             except UnitError as exc:
                 p.append(str(exc))
+        if c.bound not in MEASUREMENT_BOUNDS.get(c.measurement, {"max", "min"}):
+            p.append(f"measurement {c.measurement!r} only supports bound {sorted(MEASUREMENT_BOUNDS[c.measurement])}, "
+                     f"not {c.bound!r} (a rule mapped to a measurement with a different meaning)")
         if c.measurement in BOUNDARY_MEASUREMENTS:
             if not c.reference_kinds:
                 p.append("boundary measurement without participating boundary kinds")

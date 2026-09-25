@@ -698,3 +698,8 @@ passed) and `scripts/m2_design_check.py`.
 The run was read-only. `tests/test_m22a1_real002.py` passed 2 of 2 with `.fireai_data` mounted `:ro`.
 REAL_002 is still HUMAN_VERIFIED and unclassified, and it refuses for both editions. Nothing from the
 M2.2B workflow touches it: no rule, envelope, fact or listing was assigned to it.
+
+## §M2.2B.1: REAL_002 regression
+
+The run was read-only. `tests/test_m22a1_real002.py` passed 2 of 2 with `.fireai_data` mounted `:ro`.
+REAL_002 is unchanged: HUMAN_VERIFIED, unclassified, and refusing real design.

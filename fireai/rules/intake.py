@@ -66,11 +66,10 @@ M22B_MAPPINGS: dict[str, RuleMapping] = {m.mapping_id: m for m in (
     RuleMapping("C", "10.2.5.2.1", "sprinkler.max_wall_distance", "perpendicular_wall_distance", "max",
                 "distance_to_boundary", ("wall",), "factor", tuple(_SSP), derived_from_key="sprinkler.max_spacing",
                 note="DERIVED: factor x the effective maximum spacing (rule B); solid walls only"),
-    RuleMapping("D", "10.2.5.3", "sprinkler.min_wall_distance", "perpendicular_wall_distance", "min",
+    RuleMapping("D", "10.2.5.3", "sprinkler.min_wall_distance", "min_perpendicular_wall_distance", "min",
                 "distance_to_boundary", ("wall",), "length", tuple(_SSP),
-                note="measured perpendicular to solid walls in the array directions (PERP-WALL/1). Reviewer: in "
-                     "orthogonal rectangular spaces this equals the nearest-wall distance; re-entrant corners are "
-                     "outside the first envelope's fixtures"),
+                note="M2.2B.1: minimum perpendicular distance from each sprinkler to ANY solid wall segment "
+                     "(MIN-WALL-CLEARANCE/1), independent of neighbouring sprinklers; a nearer wall end refuses"),
     RuleMapping("E", "10.2.5.4.1", "sprinkler.min_spacing", "pairwise_min_distance", "min", "spacing", (), "length",
                 tuple(_SSP), note="general rule only; baffle / in-rack exception paths are outside the envelope"),
     RuleMapping("F_MIN", "10.2.6.1.1.1", "sprinkler.min_deflector_below_ceiling",

@@ -108,7 +108,7 @@ def search(st) -> SearchOutcome:
 
     rect = _rectangle(st)
     fast = [c for c in cons if rect is not None and set(rect[2]) <= set(c.reference_kinds) and (
-        c.measurement == "perpendicular_wall_distance"
+        c.measurement in ("perpendicular_wall_distance", "min_perpendicular_wall_distance")
         or (c.measurement in ("array_sxl_s_dimension", "array_sxl_l_dimension") and c.bound == "max"
             and getattr(st, "s_axis", None) is not None))]
 
@@ -122,7 +122,9 @@ def search(st) -> SearchOutcome:
             extent = rect[0] if axis == "u" else rect[1]
             ends = (ix[0] * step, extent - ix[-1] * step)          # distances to the two walls of this axis
             for c in fast:
-                if c.measurement == "perpendicular_wall_distance":
+                if c.measurement in ("perpendicular_wall_distance", "min_perpendicular_wall_distance"):
+                    # rectangle, all walls participating: the end-condition distances (max) and the minimum
+                    # clearance (min over every sprinkler and wall) are both set by this axis's two ends
                     if _viol(c, max(ends) if c.bound == "max" else min(ends), _tol(st, c)):
                         return c.key
                     continue
@@ -281,6 +283,12 @@ def _rectangle(st):
 def full_measure(st, c, pts, arr) -> float | None:
     """Exact measurement for constraints decided in the FULL stage (a vacuous measurement passes; None =
     not evaluable, which is never a pass). ``arr`` = (u index set, v index set)."""
+    if c.measurement == "min_perpendicular_wall_distance":
+        from fireai.engineering.measure import min_wall_clearance
+        uv = [(i * st.step, j * st.step) for j in arr[1] for i in arr[0]]
+        m = min_wall_clearance(st.bsegs_uv, uv, c.reference_kinds, st.req.tolerances.length_ft,
+                               max if c.bound == "max" else min)
+        return None if m.not_evaluable else m.value
     if c.measurement in GLOBAL_MEAS or c.measurement in WALL_RAY_MEASUREMENTS:
         from fireai.engineering.placement import measure_special
         grid = ([i * st.step for i in arr[0]], [j * st.step for j in arr[1]]) if arr else None

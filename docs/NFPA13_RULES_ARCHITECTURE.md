@@ -404,3 +404,22 @@ fixture (57.5 × 38 ft at 0.5 ft, up to 24 sprinklers) evaluates 89.2M candidate
 **Status summary** (`fireai/engineering/status.py`): shows ENGINEERING RULE STATUS / SOURCE
 AUTHORIZATION / EXTERNAL RELEASE side by side. It never claims customer-, AHJ- or production-ready or
 commercially licensed.
+
+## 10. Milestone 2.2B.1: minimum wall clearance is a separate measurement
+
+Two wall-distance concepts now have two measurements. Each accepts only the bound its meaning supports
+(`MEASUREMENT_BOUNDS`). The resolver and the approval check refuse any other bound with
+`MEASUREMENT_BOUND_MISMATCH`, so a minimum-wall rule can't be mapped to the end-condition measurement
+by accident.
+
+| Measurement | Meaning | Bound | Used by |
+|---|---|---|---|
+| `perpendicular_wall_distance` (PERP-WALL/1) | END-CONDITION: per sprinkler, the distance to the wall reached in each array direction with no adjacent sprinkler, where the array ends | max only | C (derived maximum wall distance); the same end relationship as S×L |
+| `min_perpendicular_wall_distance` (MIN-WALL-CLEARANCE/1) | MINIMUM CLEARANCE: per sprinkler, the perpendicular distance to EVERY participating wall segment whose foot lies on it, taking the minimum. Neighbours are irrelevant | min only | D |
+
+**Endpoint semantics:** a segment counts only if the perpendicular foot is on it, endpoints included,
+within the explicit length tolerance. No other distance is ever substituted. If a participating wall
+end (a re-entrant corner or an opening jamb) is nearer than every perpendicular distance, the result is
+NOT EVALUABLE, which is never a pass. Door and open openings are not walls. Windows remain outside the
+2019 envelope. Unknown segments refuse (`BOUNDARY_KIND_UNKNOWN`), and so do angled walls. The
+rectangle fast path decides the minimum clearance exactly at the axis stage.
