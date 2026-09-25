@@ -1,5 +1,7 @@
 # NFPA 13-2019 — First Rule Set: Structured Input Checklist (Milestone 2.2A → 2.2B)
 
+**M2.2B:** the first package's inputs are now collected through the machine-checked templates in `docs/m2_2b/` (see its README). This checklist remains the reference for what each field means.
+
 **This document contains no NFPA 13 requirement, value, section number or paraphrase.** It says
 exactly which STRUCTURED fields a qualified person must supply, from a lawfully accessed copy of
 NFPA 13 (2019 edition), for each rule entered in M2.2B, and which FireAI measurement each rule can

@@ -12,7 +12,8 @@ from __future__ import annotations
 from fireai.engineering.design import DesignIssue
 from fireai.engineering.geometry import room_frame
 from fireai.engineering.measure import boundary_uv, misaligned_segments
-from fireai.rules.catalog import envelope_for
+from fireai.rules.catalog import envelope_for, envelope_record
+from fireai.rules.constraints import BOUNDARY_MEASUREMENTS
 
 
 def _region(req):
@@ -30,9 +31,12 @@ def envelope_blockers(req, rule_sets) -> list[DesignIssue]:
     b = bases[0]
     env = envelope_for(b.governing_standard, b.edition)
     if env is None:
+        rec = envelope_record(b.governing_standard, b.edition)
+        why = (f"envelope {rec.envelope_id} is {rec.status}" if rec is not None
+               else "no development envelope is registered")
         return [DesignIssue(code="NO_SUPPORTED_ENVELOPE",
-                            message=f"FireAI has no supported development envelope for {b.governing_standard} "
-                                    f"{b.edition}; real design is not supported under it yet")]
+                            message=f"FireAI does not support engineering under {b.governing_standard} {b.edition} "
+                                    f"yet ({why})", detail={"envelope": rec.envelope_id if rec else None})]
     out: list[DesignIssue] = []
 
     def outside(condition, value, allowed):
@@ -63,6 +67,12 @@ def envelope_blockers(req, rule_sets) -> list[DesignIssue]:
             outside("sprinkler type", req.listing.sprinkler_type, env.sprinkler_types)
         if req.listing.orientation not in env.orientations:
             outside("sprinkler orientation", req.listing.orientation, env.orientations)
+        if env.installation_styles is not None:
+            if req.listing.installation_style is None:
+                missing("MISSING_INSTALLATION_STYLE", f"envelope {env.envelope_id} requires the listing's installation "
+                                                      "style (exposed / recessed / flush / concealed)")
+            elif req.listing.installation_style not in env.installation_styles:
+                outside("installation style", req.listing.installation_style, env.installation_styles)
     if req.ceiling is not None:
         for r in req.ceiling.regions:
             if r.surface not in env.ceiling_surfaces:
@@ -98,6 +108,24 @@ def envelope_blockers(req, rule_sets) -> list[DesignIssue]:
                 f"envelope {env.envelope_id} requires an explicit branch-line orientation (LayoutOrientation)")
     if env.search_families is not None and req.search is not None and req.search.family not in env.search_families:
         outside("placement search family", req.search.family, env.search_families)
+    if env.perimeter_boundary_kinds is not None:
+        region = _region(req)
+        if region is not None:
+            other = sorted({s.kind for ring in region.boundary.rings for s in ring.segments}
+                           - set(env.perimeter_boundary_kinds))
+            if other:
+                outside("perimeter boundary kinds", other,
+                        f"{env.perimeter_boundary_kinds} only (LIMITATION: door openings, open openings, windows and "
+                        "unknown segments are not wall references in this envelope; their treatment is deferred)")
+    if env.wall_reference_kinds is not None:
+        stack = list(rule_sets) + ([req.listing.rules] if req.listing is not None else [])
+        for rs in stack:
+            for r in rs.rules:
+                c = r.constraint
+                if c is not None and c.measurement in BOUNDARY_MEASUREMENTS \
+                        and sorted(c.reference_kinds) != sorted(env.wall_reference_kinds):
+                    outside("rule wall reference kinds", f"{r.rule_id}: {sorted(c.reference_kinds)}",
+                            env.wall_reference_kinds)
     if env.requires_orthogonal_geometry and req.tolerances is not None:
         region = _region(req)
         if region is not None:

@@ -117,6 +117,8 @@ class SprinklerListing(BaseModel):
     k_factor: Optional[Quantity] = None                 # unknown stays None — never a remembered value
     temperature_rating: Optional[Quantity] = None
     response_type: Optional[str] = None
+    # M2.2B: how the sprinkler is installed relative to the ceiling (a listed / specified fact, never assumed)
+    installation_style: Optional[Literal["exposed", "recessed", "flush", "concealed"]] = None
     parameters: list[RuleParameter] = Field(default_factory=list)          # further listed data, with units
     installation_constraints: list[RuleParameter] = Field(default_factory=list)
     document: RuleSource                                # data sheet / listing document: id, revision, date, access

@@ -24,7 +24,9 @@ from shapely.geometry import Point, Polygon
 from shapely.prepared import prep
 
 from fireai.contract import EngineeringInput, space_engineering_blockers
-from fireai.engineering.design import (ORDERING_STRATEGY, PLACEMENT_ENGINE_VERSION, SYNTHETIC_DISCLAIMERS,
+from fireai.engineering.design import (ORDERING_STRATEGY, PLACEMENT_ENGINE_VERSION, RULE_REVIEW_DISCLAIMERS,
+                                       RULE_VALIDATION_DISCLAIMERS,
+                                       SYNTHETIC_DISCLAIMERS,
                                        CandidateProposal, ConstraintEvaluation, DesignIssue, DesignPoint,
                                        DesignProvenance, EngineeringDesignResult, LayoutEvaluation, ProposalEvaluation,
                                        SprinklerPlacement, ValidLayoutFamily, ValidLayoutSet, ZState)
@@ -235,21 +237,27 @@ def _validate(req: DesignRequest) -> tuple[list[DesignIssue], Any, Any, RuleReso
         issues.append(DesignIssue(code="MISSING_TOLERANCES", message="no explicit engineering tolerances supplied"))
     if req.search is None:
         issues.append(DesignIssue(code="MISSING_SEARCH_SPACE", message="no explicit placement search space supplied"))
-    if req.mode == "engineering":
-        if req.listing and (req.listing.content_basis != "authoritative" or req.listing.review_status != "approved"):
+    if req.mode in ("rule_validation", "rule_review") and req.listing and \
+            req.listing.content_basis != "synthetic_test_only":
+        issues.append(DesignIssue(code="RULE_VALIDATION_NEEDS_SYNTHETIC_LISTING",
+                                  message="rule_validation is for synthetic listings; use engineering mode with an "
+                                          "approved authoritative listing"))
+    if req.mode in ("engineering", "rule_validation", "rule_review"):
+        if req.mode == "engineering" and req.listing and (req.listing.content_basis != "authoritative"
+                                                          or req.listing.review_status != "approved"):
             issues.append(DesignIssue(code="LISTING_NOT_APPROVED_AUTHORITATIVE",
                                       message=f"listing {req.listing.listing_id} is {req.listing.content_basis} / "
                                               f"{req.listing.review_status}"))
         if req.classification and req.classification.source.kind not in ("human_decision", "project_document"):
             issues.append(DesignIssue(code="CLASSIFICATION_NOT_HUMAN_DECIDED",
                                       message="a design classification must be a human decision or project document"))
-        if any(s.kind == "synthetic_test_only" for s in _sources(req)):
+        if any(s.kind == "synthetic_test_only" for s in _sources(req)):   # (listing data is not an input source)
             issues.append(DesignIssue(code="SYNTHETIC_INPUT_IN_ENGINEERING_MODE",
                                       message="synthetic (TEST ONLY) inputs can never support engineering"))
-    elif req.listing and req.listing.content_basis != "synthetic_test_only":
+    elif req.mode == "synthetic_test" and req.listing and req.listing.content_basis != "synthetic_test_only":
         issues.append(DesignIssue(code="MIXED_SYNTHETIC_AND_AUTHORITATIVE_INPUTS",
                                   message="synthetic test runs may only use synthetic listings"))
-    if req.mode == "engineering":
+    if req.mode in ("engineering", "rule_validation", "rule_review"):
         issues.extend(envelope_blockers(req, req.rule_sets))
     area = region.area_sf if region is not None else None
     stack = list(req.rule_sets) + ([req.listing.rules] if req.listing else [])
@@ -609,6 +617,7 @@ def run_design(req: DesignRequest) -> EngineeringDesignResult:
     valid = [evaluate_layout(st, iu, iv, full=True) for iu, iv in out.valid] if explicit else []
     rejected_examples = [evaluate_layout(st, iu, iv, full=True) for iu, iv in out.examples]
     synthetic = res.basis == "synthetic_test_only"
+    validation = res.basis in ("authoritative_rules_synthetic_listing", "rules_under_review")
     fams: dict[tuple, list] = {}
     for iu, iv in out.valid:
         key = (len(iu), (iu[1] - iu[0]) if len(iu) > 1 else 0, len(iv), (iv[1] - iv[0]) if len(iv) > 1 else 0)
@@ -624,8 +633,10 @@ def run_design(req: DesignRequest) -> EngineeringDesignResult:
                                  f"{req.search.max_explicit_layouts}: enumerate on demand (iter_valid_layouts)")
     return _finish(EngineeringDesignResult(
         result_uid=_uid(ns, "result"), status="VALID_LAYOUTS_FOUND" if out.valid else "NO_VALID_LAYOUT_IN_SEARCH_SPACE",
-        basis=res.basis, engineering_use="NOT_FOR_ENGINEERING_USE" if synthetic else "REQUIRES_QUALIFIED_HUMAN_APPROVAL",
-        disclaimers=list(SYNTHETIC_DISCLAIMERS) if synthetic else [],
+        basis=res.basis,
+        engineering_use="NOT_FOR_ENGINEERING_USE" if synthetic or validation else "REQUIRES_QUALIFIED_HUMAN_APPROVAL",
+        disclaimers=(list(SYNTHETIC_DISCLAIMERS) if synthetic else list(RULE_VALIDATION_DISCLAIMERS)
+                     if res.basis == "authoritative_rules_synthetic_listing" else list(RULE_REVIEW_DISCLAIMERS) if res.basis == "rules_under_review" else []),
         limitations=list(res.limitations) + ([] if _z_known(req) else [Z_LIMITATION]) + list(M2_LIMITATIONS),
         context=_context(req, space, region, st.frame),
         inputs=_inputs(req), rules=rules,
@@ -783,4 +794,6 @@ def evaluate_proposal(req: DesignRequest, proposal: CandidateProposal) -> Propos
     verdict = "FAIL" if failed else "UNKNOWN" if unknown else "PASS"
     return ProposalEvaluation(verdict=verdict, reasons=reasons, evaluations=evals, proposal_digest=digest,
                               request_fingerprint=fp, basis=basis,
-                              disclaimers=list(SYNTHETIC_DISCLAIMERS) if basis == "synthetic_test_only" else [])
+                              disclaimers=(list(SYNTHETIC_DISCLAIMERS) if basis == "synthetic_test_only" else
+                                           list(RULE_VALIDATION_DISCLAIMERS) if basis == "authoritative_rules_synthetic_listing" else
+                                           list(RULE_REVIEW_DISCLAIMERS) if basis == "rules_under_review" else []))

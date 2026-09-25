@@ -37,7 +37,8 @@ FIXTURE_SOURCE = InputSource(kind="human_decision", by="M2.2B fixture author (ge
 
 def listing_placeholder():
     """TEST ONLY: a synthetic standard-spray pendent listing (no manufacturer data)."""
-    return S.listing().model_copy(update={"sprinkler_type": "standard_spray", "orientation": "pendent"})
+    return S.listing().model_copy(update={"sprinkler_type": "standard_spray", "orientation": "pendent",
+                                          "installation_style": "exposed"})
 
 
 def space(tmp: Path):

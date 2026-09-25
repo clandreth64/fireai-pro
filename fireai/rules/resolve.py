@@ -23,7 +23,11 @@ from fireai.rules.constraints import DECLARED_MEASUREMENTS, MEASUREMENTS, Contri
 from fireai.rules.model import LAYER_ORDER, UNSUPPORTED_MEASUREMENT, Condition, Quantity, Rule, RuleSet
 from fireai.rules.units import UnitError, dimension, to_canonical
 
-Mode = Literal["engineering", "synthetic_test"]
+# M2.2B: "rule_validation" = engineering rules policy (approved, authoritative, envelope) with an explicitly
+# SYNTHETIC listing allowed, for rule-engine known-answer validation only. Never a product design.
+# "rule_review" = the same, but for rule sets still in DRAFT / UNDER REVIEW: used ONLY to run known-answer
+# cases before approval; its results are labelled RULES UNDER REVIEW and can never be engineering output.
+Mode = Literal["engineering", "synthetic_test", "rule_validation", "rule_review"]
 JurisdictionStatement = Literal["amendments_layered", "amendments_not_evaluated"]
 _MISSING = object()
 
@@ -46,7 +50,7 @@ class RuleOutcome(BaseModel):
 class RuleResolution(BaseModel):
     status: Literal["resolved", "refused"]
     mode: str
-    basis: Literal["authoritative", "synthetic_test_only"]
+    basis: Literal["authoritative", "synthetic_test_only", "authoritative_rules_synthetic_listing", "rules_under_review"]
     rule_sets: list[dict]
     constraints: list[EngineeringConstraint] = Field(default_factory=list)
     outcomes: list[RuleOutcome] = Field(default_factory=list)
@@ -102,6 +106,10 @@ def _check_stack(rule_sets: list[RuleSet], mode: Mode, jurisdiction: Optional[Ju
                                       message="synthetic test runs may only use synthetic rule sets"))
         limitations.append("TEST ONLY: synthetic rule values — not NFPA 13 requirements")
         return
+    if mode in ("rule_validation", "rule_review"):   # only the LISTING layer may be synthetic here
+        synthetic = [s for s in synthetic if s.layer != "listing"]
+        limitations.append("RULE VALIDATION ONLY: the sprinkler listing is SYNTHETIC; this is not a product-specific "
+                           "design")
     if synthetic:
         refusals.append(RuleIssue(code="SYNTHETIC_RULES_IN_ENGINEERING_MODE",
                                   message="synthetic (TEST ONLY) rule sets can never support engineering: "
@@ -133,6 +141,10 @@ def _check_stack(rule_sets: list[RuleSet], mode: Mode, jurisdiction: Optional[Ju
                                           message=f"rule {r.rule_id} cites edition {r.source.edition!r} inside the "
                                                   f"{b.edition!r} base rule set"))
     for s in rule_sets:
+        if mode == "rule_review" and s.review_status in ("draft", "under_review"):
+            limitations.append(f"RULES UNDER REVIEW: {s.rule_set_id} v{s.version} is {s.review_status} (known-answer "
+                               "verification only)")
+            continue
         if s.content_basis == "authoritative" and s.review_status != "approved":
             refusals.append(RuleIssue(code="RULESET_NOT_APPROVED", rule_set_id=s.rule_set_id,
                                       message=f"rule set {s.rule_set_id} v{s.version} is {s.review_status}, not approved"))
@@ -153,6 +165,10 @@ def resolve(rule_sets: list[RuleSet], facts: dict[str, Any], mode: Mode,
     stack = sorted(rule_sets, key=lambda s: (_layer_index(s.layer), s.rule_set_id))
     _check_stack(stack, mode, jurisdiction, refusals, limitations)
     basis = "synthetic_test_only" if any(s.content_basis == "synthetic_test_only" for s in stack) else "authoritative"
+    if mode == "rule_validation" and basis == "synthetic_test_only":
+        basis = "authoritative_rules_synthetic_listing"
+    if mode == "rule_review":
+        basis = "rules_under_review"
 
     located: dict[str, tuple[Rule, RuleSet]] = {}
     for s in stack:
@@ -171,7 +187,7 @@ def resolve(rule_sets: list[RuleSet], facts: dict[str, Any], mode: Mode,
         if r.effective_status != "effective":
             out("not_effective", r.effective_status)
             continue
-        if mode == "engineering" and r.review_status != "approved":
+        if mode in ("engineering", "rule_validation") and r.review_status != "approved":
             refusals.append(RuleIssue(code="RULE_NOT_APPROVED", rule_id=rid, rule_set_id=s.rule_set_id,
                                       message=f"rule {rid} is {r.review_status}"))
         ok, unknown = evaluate_all(r.applicability.all_of, facts)

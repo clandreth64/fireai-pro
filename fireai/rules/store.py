@@ -114,8 +114,17 @@ def approval_problems(rule: Rule, rs: RuleSet) -> list[str]:
 
 
 class RuleStore:
-    def __init__(self, root: Path):
+    def __init__(self, root: Path, known_answers=None):
         self.root = Path(root)
+        # M2.2B: NFPA-derived rules need verified independent known-answer cases before approval
+        self.known_answers = known_answers
+
+    def _known_answer_problems(self, rule: Rule, rs: RuleSet) -> list[str]:
+        if not rs.governing_standard.upper().startswith("NFPA"):
+            return []
+        if self.known_answers is None:
+            return ["NFPA-derived rules need a known-answer registry (KnownAnswerStore) to be approved"]
+        return self.known_answers.problems_for_rule(rule)
 
     # ── io ────────────────────────────────────────────────────────────────────
     def _dir(self, rid: str) -> Path:
@@ -244,7 +253,7 @@ class RuleStore:
             if who == rule.author:
                 raise RuleAuthoringError("the reviewer must be a different person from the author (two-person review)")
             if decision == "approve":
-                problems = approval_problems(rule, rs)
+                problems = approval_problems(rule, rs) + self._known_answer_problems(rule, rs)
                 if problems:
                     self._event(rid, version, "review_blocked", who, rule_id=rule_id, problems=problems)
                     raise RuleAuthoringError(f"{rule_id} cannot be approved: " + "; ".join(problems))
@@ -271,7 +280,7 @@ class RuleStore:
             authored = sorted({r.author for r in rs.rules if r.author == who})
             if authored:
                 raise RuleAuthoringError("the approver must not have authored rules in this set (two-person review)")
-            problems = {r.rule_id: approval_problems(r, rs) for r in rs.rules}
+            problems = {r.rule_id: approval_problems(r, rs) + self._known_answer_problems(r, rs) for r in rs.rules}
             problems = {k: v for k, v in problems.items() if v}
             if problems:
                 raise RuleAuthoringError(f"rules not approvable: {problems}")

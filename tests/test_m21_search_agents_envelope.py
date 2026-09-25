@@ -180,11 +180,27 @@ def _eng(pkg, **kw):
     return run_design(S.request(pkg, **base))
 
 
+@pytest.fixture()
+def active_2025_envelope(monkeypatch):
+    """M2.2B: the 2025 envelope is INACTIVE by owner decision. These M2.1 tests check the envelope
+    MECHANISM, so they activate a copy of that historical envelope for the test only."""
+    from fireai.rules import catalog
+    env = catalog.NFPA13_2025_FIRST_ENVELOPE.model_copy(update={"status": "active_internal_rnd"})
+    monkeypatch.setitem(catalog.ENVELOPES, ("NFPA 13", "2025"), env)
+    return env
+
+
+def test_2025_envelope_is_inactive_by_default(tmp_path):
+    r = _eng(_pkg(tmp_path))
+    assert "NO_SUPPORTED_ENVELOPE" in {i.code for i in r.refusals}
+
+
 ENVELOPE_CODES = {"OUTSIDE_SUPPORTED_ENVELOPE", "MISSING_SYSTEM_CONDITION", "NO_SUPPORTED_ENVELOPE",
                   "CEILING_NOT_SUPPORTED_IN_M2_0"}
 
 
-def test_31_supported_condition_clears_the_envelope_but_still_needs_approved_authoritative_data(tmp_path):
+def test_31_supported_condition_clears_the_envelope_but_still_needs_approved_authoritative_data(tmp_path,
+                                                                                               active_2025_envelope):
     r = _eng(_pkg(tmp_path))
     codes = {i.code for i in r.refusals}
     assert r.status == "REFUSED" and not (codes & ENVELOPE_CODES)                  # every envelope input matched
@@ -225,12 +241,12 @@ def test_33_unknown_obstruction_state_refuses(tmp_path):
     (dict(system=SystemCondition(system_type="wet_pipe", storage="storage", source=HUMAN)), "storage condition"),   # 34
     (dict(system=SystemCondition(system_type="dry_pipe", storage="non_storage", source=HUMAN)), "system type"),
 ])
-def test_34_outside_envelope_system_or_storage_refuses(tmp_path, change, condition):
+def test_34_outside_envelope_system_or_storage_refuses(tmp_path, change, condition, active_2025_envelope):
     r = _eng(_pkg(tmp_path), **change)
     assert condition in {i.detail.get("condition") for i in r.refusals if i.code == "OUTSIDE_SUPPORTED_ENVELOPE"}
 
 
-def test_35_unsupported_classification_refuses_without_fallback(tmp_path):
+def test_35_unsupported_classification_refuses_without_fallback(tmp_path, active_2025_envelope):
     cls = S.classification().model_copy(update={"scheme": "NFPA 13 occupancy hazard classification",
                                                "value": "Ordinary Hazard Group 1", "source": HUMAN})
     r = _eng(_pkg(tmp_path), cls=cls)

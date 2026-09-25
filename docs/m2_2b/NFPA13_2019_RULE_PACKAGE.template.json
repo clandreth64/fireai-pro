@@ -1,0 +1,375 @@
+{
+  "template": "fireai.nfpa13_2019.first_rule_package/1",
+  "status": "AWAITING_OWNER_INPUT",
+  "instructions": "Fill every null from your lawfully accessed NFPA 13-2019 copy. Do not paste standard text: titles and notes are your own words. Do not enter license / customer / order numbers or personal data. Source status stays INTERNAL_R_AND_D_ONLY (not releasable).",
+  "rule_set": {
+    "rule_set_id": "NFPA13-2019-BASE",
+    "edition": "2019"
+  },
+  "source": {
+    "document": "NFPA 13",
+    "edition": "2019",
+    "access_method": null,
+    "accessed_at": null,
+    "internal_document_control_reference": null
+  },
+  "people": {
+    "author": null,
+    "reviewer": null,
+    "approver": null
+  },
+  "rules": [
+    {
+      "mapping_id": "A",
+      "rule_id": null,
+      "rule_version": "1",
+      "locator": "Table 10.2.4.2.1(a)",
+      "title": null,
+      "limit": {
+        "value": null,
+        "unit": null,
+        "dimension": "area"
+      },
+      "mapping_read_only": {
+        "constraint_key": "sprinkler.max_protection_area",
+        "measurement": "array_sxl_protection_area",
+        "bound": "max",
+        "reference_kinds": [
+          "wall"
+        ],
+        "note": "S x L with S along the explicit branch-line direction (SXL-ARRAY/2); never the Voronoi cell"
+      },
+      "proposed_applicability": [
+        {
+          "fact": "hazard.scheme",
+          "op": "eq",
+          "value": "NFPA 13 occupancy hazard classification"
+        },
+        {
+          "fact": "hazard.classification",
+          "op": "eq",
+          "value": "Light Hazard"
+        },
+        {
+          "fact": "sprinkler.type",
+          "op": "eq",
+          "value": "standard_spray"
+        },
+        {
+          "fact": "sprinkler.orientation",
+          "op": "in",
+          "value": [
+            "pendent",
+            "upright"
+          ]
+        },
+        {
+          "fact": "system.design_method",
+          "op": "eq",
+          "value": "hydraulically_calculated"
+        },
+        {
+          "fact": "ceiling.construction_classification.scheme",
+          "op": "eq",
+          "value": "NFPA 13 ceiling construction classification"
+        },
+        {
+          "fact": "ceiling.construction_classification",
+          "op": "eq",
+          "value": "noncombustible_unobstructed"
+        }
+      ],
+      "applicability_confirmed": false,
+      "applicability_override": null,
+      "exceptions_outside_envelope": [],
+      "exceptions_outside_envelope_confirmed": false,
+      "notes": ""
+    },
+    {
+      "mapping_id": "B",
+      "rule_id": null,
+      "rule_version": "1",
+      "locator": "Table 10.2.4.2.1(a)",
+      "title": null,
+      "limit": {
+        "value": null,
+        "unit": null,
+        "dimension": "length"
+      },
+      "mapping_read_only": {
+        "constraint_key": "sprinkler.max_spacing",
+        "measurement": "array_axis_spacing",
+        "bound": "max",
+        "reference_kinds": [],
+        "note": "maximum spacing, evaluated separately from protection area"
+      },
+      "proposed_applicability": [
+        {
+          "fact": "hazard.scheme",
+          "op": "eq",
+          "value": "NFPA 13 occupancy hazard classification"
+        },
+        {
+          "fact": "hazard.classification",
+          "op": "eq",
+          "value": "Light Hazard"
+        },
+        {
+          "fact": "sprinkler.type",
+          "op": "eq",
+          "value": "standard_spray"
+        },
+        {
+          "fact": "sprinkler.orientation",
+          "op": "in",
+          "value": [
+            "pendent",
+            "upright"
+          ]
+        },
+        {
+          "fact": "system.design_method",
+          "op": "eq",
+          "value": "hydraulically_calculated"
+        },
+        {
+          "fact": "ceiling.construction_classification.scheme",
+          "op": "eq",
+          "value": "NFPA 13 ceiling construction classification"
+        },
+        {
+          "fact": "ceiling.construction_classification",
+          "op": "eq",
+          "value": "noncombustible_unobstructed"
+        }
+      ],
+      "applicability_confirmed": false,
+      "applicability_override": null,
+      "exceptions_outside_envelope": [],
+      "exceptions_outside_envelope_confirmed": false,
+      "notes": ""
+    },
+    {
+      "mapping_id": "C",
+      "rule_id": null,
+      "rule_version": "1",
+      "locator": "10.2.5.2.1",
+      "title": null,
+      "derived": {
+        "factor": null,
+        "from_key": "sprinkler.max_spacing"
+      },
+      "mapping_read_only": {
+        "constraint_key": "sprinkler.max_wall_distance",
+        "measurement": "perpendicular_wall_distance",
+        "bound": "max",
+        "reference_kinds": [
+          "wall"
+        ],
+        "note": "DERIVED: factor x the effective maximum spacing (rule B); solid walls only"
+      },
+      "proposed_applicability": [
+        {
+          "fact": "sprinkler.type",
+          "op": "eq",
+          "value": "standard_spray"
+        },
+        {
+          "fact": "sprinkler.orientation",
+          "op": "in",
+          "value": [
+            "pendent",
+            "upright"
+          ]
+        }
+      ],
+      "applicability_confirmed": false,
+      "applicability_override": null,
+      "exceptions_outside_envelope": [],
+      "exceptions_outside_envelope_confirmed": false,
+      "notes": ""
+    },
+    {
+      "mapping_id": "D",
+      "rule_id": null,
+      "rule_version": "1",
+      "locator": "10.2.5.3",
+      "title": null,
+      "limit": {
+        "value": null,
+        "unit": null,
+        "dimension": "length"
+      },
+      "mapping_read_only": {
+        "constraint_key": "sprinkler.min_wall_distance",
+        "measurement": "perpendicular_wall_distance",
+        "bound": "min",
+        "reference_kinds": [
+          "wall"
+        ],
+        "note": "measured perpendicular to solid walls in the array directions (PERP-WALL/1). Reviewer: in orthogonal rectangular spaces this equals the nearest-wall distance; re-entrant corners are outside the first envelope's fixtures"
+      },
+      "proposed_applicability": [
+        {
+          "fact": "sprinkler.type",
+          "op": "eq",
+          "value": "standard_spray"
+        },
+        {
+          "fact": "sprinkler.orientation",
+          "op": "in",
+          "value": [
+            "pendent",
+            "upright"
+          ]
+        }
+      ],
+      "applicability_confirmed": false,
+      "applicability_override": null,
+      "exceptions_outside_envelope": [],
+      "exceptions_outside_envelope_confirmed": false,
+      "notes": ""
+    },
+    {
+      "mapping_id": "E",
+      "rule_id": null,
+      "rule_version": "1",
+      "locator": "10.2.5.4.1",
+      "title": null,
+      "limit": {
+        "value": null,
+        "unit": null,
+        "dimension": "length"
+      },
+      "mapping_read_only": {
+        "constraint_key": "sprinkler.min_spacing",
+        "measurement": "pairwise_min_distance",
+        "bound": "min",
+        "reference_kinds": [],
+        "note": "general rule only; baffle / in-rack exception paths are outside the envelope"
+      },
+      "proposed_applicability": [
+        {
+          "fact": "sprinkler.type",
+          "op": "eq",
+          "value": "standard_spray"
+        },
+        {
+          "fact": "sprinkler.orientation",
+          "op": "in",
+          "value": [
+            "pendent",
+            "upright"
+          ]
+        }
+      ],
+      "applicability_confirmed": false,
+      "applicability_override": null,
+      "exceptions_outside_envelope": [],
+      "exceptions_outside_envelope_confirmed": false,
+      "notes": ""
+    },
+    {
+      "mapping_id": "F_MIN",
+      "rule_id": null,
+      "rule_version": "1",
+      "locator": "10.2.6.1.1.1",
+      "title": null,
+      "applies": null,
+      "not_applicable_reason": null,
+      "limit": {
+        "value": null,
+        "unit": null,
+        "dimension": "length"
+      },
+      "mapping_read_only": {
+        "constraint_key": "sprinkler.min_deflector_below_ceiling",
+        "measurement": "ceiling_to_deflector_vertical_distance",
+        "bound": "min",
+        "reference_kinds": [],
+        "note": "recessed / flush / concealed and ceiling-elevation-change paths are outside the envelope"
+      },
+      "proposed_applicability": [
+        {
+          "fact": "sprinkler.type",
+          "op": "eq",
+          "value": "standard_spray"
+        },
+        {
+          "fact": "sprinkler.orientation",
+          "op": "in",
+          "value": [
+            "pendent",
+            "upright"
+          ]
+        },
+        {
+          "fact": "ceiling.surface",
+          "op": "eq",
+          "value": "flat"
+        },
+        {
+          "fact": "ceiling.construction_classification",
+          "op": "eq",
+          "value": "noncombustible_unobstructed"
+        }
+      ],
+      "applicability_confirmed": false,
+      "applicability_override": null,
+      "exceptions_outside_envelope": [],
+      "exceptions_outside_envelope_confirmed": false,
+      "notes": ""
+    },
+    {
+      "mapping_id": "F_MAX",
+      "rule_id": null,
+      "rule_version": "1",
+      "locator": "10.2.6.1.1.1",
+      "title": null,
+      "applies": null,
+      "not_applicable_reason": null,
+      "limit": {
+        "value": null,
+        "unit": null,
+        "dimension": "length"
+      },
+      "mapping_read_only": {
+        "constraint_key": "sprinkler.max_deflector_below_ceiling",
+        "measurement": "ceiling_to_deflector_vertical_distance",
+        "bound": "max",
+        "reference_kinds": [],
+        "note": "as F_MIN"
+      },
+      "proposed_applicability": [
+        {
+          "fact": "sprinkler.type",
+          "op": "eq",
+          "value": "standard_spray"
+        },
+        {
+          "fact": "sprinkler.orientation",
+          "op": "in",
+          "value": [
+            "pendent",
+            "upright"
+          ]
+        },
+        {
+          "fact": "ceiling.surface",
+          "op": "eq",
+          "value": "flat"
+        },
+        {
+          "fact": "ceiling.construction_classification",
+          "op": "eq",
+          "value": "noncombustible_unobstructed"
+        }
+      ],
+      "applicability_confirmed": false,
+      "applicability_override": null,
+      "exceptions_outside_envelope": [],
+      "exceptions_outside_envelope_confirmed": false,
+      "notes": ""
+    }
+  ]
+}

@@ -11,7 +11,8 @@ import pytest
 from fireai.engineering.inputs import SprinklerListing
 from fireai.engineering.listings import ListingError, ListingStore
 from fireai.rules import Condition, ConstraintTemplate, Quantity, Rule, RuleApplicability, RuleParameter, RuleSet, RuleSource, resolve
-from fireai.rules.catalog import NFPA13_2025_BASE, NFPA13_2025_FIRST_ENVELOPE, ensure_rule_set_identity, envelope_for
+from fireai.rules.catalog import (NFPA13_2025_BASE, NFPA13_2025_FIRST_ENVELOPE, ensure_rule_set_identity, envelope_for,
+                                  envelope_record)
 from fireai.rules.store import RuleAuthoringError, RuleStore
 from fixtures import synthetic_design as S
 
@@ -55,7 +56,10 @@ def test_07_08_nfpa13_2025_identity_is_empty_draft_and_cannot_engineer(tmp_path)
     assert res.status == "refused" and "RULESET_NOT_APPROVED" in {x.code for x in res.refusals}
     with pytest.raises(RuleAuthoringError, match="EMPTY"):
         rs.submit_for_review("NFPA13-2025-BASE", "1", "owner")
-    assert envelope_for("NFPA 13", "2025") == NFPA13_2025_FIRST_ENVELOPE and envelope_for("NFPA 13", "2022") is None
+    # M2.2B owner decision: the 2025 envelope is kept as history but INACTIVE (not supported)
+    assert envelope_record("NFPA 13", "2025") == NFPA13_2025_FIRST_ENVELOPE
+    assert NFPA13_2025_FIRST_ENVELOPE.status == "inactive_not_supported" and envelope_for("NFPA 13", "2025") is None
+    assert envelope_for("NFPA 13", "2022") is None
 
 
 # ── approval blockers ─────────────────────────────────────────────────────────

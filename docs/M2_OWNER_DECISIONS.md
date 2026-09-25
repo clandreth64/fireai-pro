@@ -297,3 +297,18 @@ These are recorded as SOFTWARE requirements, not rule content.
 - When owner and admin identity become authenticated.
 - Whether the 2025 development envelope from M2.1 should remain registered. It currently is, from the
   M2.1 decision.
+
+---
+
+## M2.2B: owner decisions (2026-09-24)
+
+| # | Decision | Implemented as |
+|---|---|---|
+| 34 | M2.2A.1 S/L semantics approved for the first envelope: interior uses adjacent spacing; ends compare adjacent spacing with twice the wall distance; a one-sprinkler row or column is decided from both sides | SXL-ARRAY/2 (unchanged) |
+| 35 | Only verified SOLID WALL segments are wall references (S/L perimeter, maximum and minimum wall distance). Doors, open openings, unknown segments and windows are not walls; window treatment is deferred | 2019 envelope `perimeter_boundary_kinds` / `wall_reference_kinds` = `["wall"]` |
+| 36 | The 2025 development envelope is no longer advertised as supported | `status = inactive_not_supported` (history kept) |
+| 37 | First package: A–F, with these locators and measurements. Values, reviewer, approver and known answers come from the owner | `M22B_MAPPINGS`; `docs/m2_2b/` templates |
+| 38 | At least two independent known-answer cases per rule before internal approval | `KnownAnswerStore`; `RuleStore(known_answers=…)` |
+
+**M2.2B phase 1 stopped at the owner-input boundary:** no values, people, cases or listing have been
+supplied (`docs/m2_2b/README.md`).

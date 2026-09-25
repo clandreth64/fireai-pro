@@ -692,3 +692,9 @@ passed) and `scripts/m2_design_check.py`.
 * No hazard, envelope, construction classification, design method, ceiling height, Z, branch-line
   orientation, listing, small-room status or rule value was assigned to REAL_002.
 * The TEST ONLY synthetic run is unchanged: 21,263 candidates and 10,629 valid, with Z unknown.
+
+## §M2.2B: REAL_002 regression
+
+The run was read-only. `tests/test_m22a1_real002.py` passed 2 of 2 with `.fireai_data` mounted `:ro`.
+REAL_002 is still HUMAN_VERIFIED and unclassified, and it refuses for both editions. Nothing from the
+M2.2B workflow touches it: no rule, envelope, fact or listing was assigned to it.

@@ -1,0 +1,37 @@
+{
+  "template": "fireai.sprinkler_listing/1",
+  "status": "AWAITING_OWNER_INPUT",
+  "instructions": "Only from the manufacturer's current data sheet / listing document; leave unknown fields null. Until this exists, M2.2B designs run in rule_validation mode with a SYNTHETIC listing and are NOT product-specific designs.",
+  "listing": {
+    "listing_id": null,
+    "version": "1",
+    "content_basis": "authoritative",
+    "manufacturer": null,
+    "model": null,
+    "sin": null,
+    "product_family": null,
+    "sprinkler_type": "standard_spray",
+    "orientation": "pendent",
+    "installation_style": "exposed",
+    "response_type": null,
+    "k_factor": {
+      "value": null,
+      "unit": null
+    },
+    "temperature_rating": {
+      "value": null,
+      "unit": null
+    },
+    "document": {
+      "kind": "manufacturer_listing_document",
+      "document": null,
+      "revision": null,
+      "publication_date": null,
+      "access_method": null,
+      "accessed_at": null
+    },
+    "listed_limits_as_listing_rules": [],
+    "author": null,
+    "reviewer": null
+  }
+}

@@ -11,7 +11,7 @@ approved empty, and makes real engineering refuse until human-reviewed rules are
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -34,7 +34,9 @@ class DevelopmentEnvelope(BaseModel):
     envelope_id: str
     governing_standard: str
     edition: str
-    status: str = "development"
+    # M2.2B: only an ACTIVE envelope is supported; an inactive one is kept for history, never applied
+    status: Literal["active_internal_rnd", "inactive_not_supported"] = "active_internal_rnd"
+    status_history: list[dict] = Field(default_factory=list)      # [{status, at, by, reason}]
     system_types: list[str]
     storage_conditions: list[str]
     classifications: list[tuple[str, str]]          # (scheme, value)
@@ -51,6 +53,10 @@ class DevelopmentEnvelope(BaseModel):
     requires_orthogonal_geometry: bool = False                        # straight, frame-aligned walls only
     requires_horizontal_ceiling: bool = False                         # explicit slope 0 and known elevation
     search_families: Optional[list[str]] = None
+    # M2.2B: boundary semantics of the first authoritative envelope
+    perimeter_boundary_kinds: Optional[list[str]] = None              # every boundary segment must be one of these
+    wall_reference_kinds: Optional[list[str]] = None                  # exact reference kinds wall rules may use
+    installation_styles: Optional[list[str]] = None                   # SprinklerListing.installation_style
     not_included: list[str] = Field(default_factory=list)             # documented exclusions (refused)
     space_scope: str = "one simple known space at a time"
     note: str = ""
@@ -72,7 +78,12 @@ NFPA13_2025_FIRST_ENVELOPE = DevelopmentEnvelope(
     obstruction_statements=["none_present"],
     note="First development envelope (owner decision 2026-09-24). Defines what FireAI will ATTEMPT to support "
          "first; it is not permission to classify any real space and carries no NFPA requirement.",
-    approved_at="2026-09-24")
+    approved_at="2026-09-24",
+    # M2.2B owner decision: NFPA 13-2025 engineering is NOT advertised as supported. Kept for history only.
+    status="inactive_not_supported",
+    status_history=[{"status": "active_internal_rnd", "at": "2026-09-24", "by": "owner", "reason": "M2.1 decision"},
+                    {"status": "inactive_not_supported", "at": "2026-09-24", "by": "owner",
+                     "reason": "M2.2B decision: 2025 source not available / not authorized; do not imply 2025 support"}])
 
 # M2.2A: NFPA 13-2019 — a separate identity (never a copy of 2025). EMPTY + DRAFT. Its development
 # envelope (M2.2A.1, below) does not approve it.
@@ -97,7 +108,14 @@ NFPA13_2019_FIRST_ENVELOPE = DevelopmentEnvelope(
     small_room_statuses=["not_eligible"],
     requires_branch_line_orientation=True, requires_orthogonal_geometry=True, requires_horizontal_ceiling=True,
     search_families=["room_axis_array/1"],
+    perimeter_boundary_kinds=["wall"], wall_reference_kinds=["wall"], installation_styles=["exposed"],
+    status_history=[{"status": "active_internal_rnd", "at": "2026-09-24", "by": "owner",
+                     "reason": "M2.2A.1 decision; INTERNAL R&D only (source status INTERNAL_R_AND_D_ONLY)"}],
     not_included=["small-room provisions (eligible or undetermined)", "angled / irregular walls", "storage",
+                  "door openings, open openings, windows or unknown segments on the space boundary (M2.2B: only "
+                  "verified solid walls are wall references; window treatment deferred)",
+                  "recessed / flush / concealed installation", "baffles, in-rack sprinklers",
+                  "ceiling elevation changes",
                   "beams, soffits, clouds, known obstructions", "sloped / stepped / multi-plane ceilings",
                   "pipe-schedule design", "other hazards, system types, sprinkler types or orientations"],
     note="Owner decision (M2.2A.1). Scope of what FireAI will ATTEMPT under NFPA 13-2019; not an approved rule set, "
@@ -110,8 +128,15 @@ ENVELOPES: dict[tuple[str, str], DevelopmentEnvelope] = {("NFPA 13", "2025"): NF
                                                          ("NFPA 13", "2019"): NFPA13_2019_FIRST_ENVELOPE}
 
 
-def envelope_for(standard: str, edition: Optional[str]) -> Optional[DevelopmentEnvelope]:
+def envelope_record(standard: str, edition: Optional[str]) -> Optional[DevelopmentEnvelope]:
+    """The registered envelope record, ACTIVE OR NOT (history)."""
     return ENVELOPES.get((standard, edition or ""))
+
+
+def envelope_for(standard: str, edition: Optional[str]) -> Optional[DevelopmentEnvelope]:
+    """The SUPPORTED (active) envelope, or None: an inactive envelope is never applied."""
+    env = envelope_record(standard, edition)
+    return env if env is not None and env.status == "active_internal_rnd" else None
 
 
 def empty_draft(identity: RuleSetIdentity) -> RuleSet:

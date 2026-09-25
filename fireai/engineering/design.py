@@ -21,6 +21,11 @@ from fireai.engineering.inputs import LayoutOrientation
 PLACEMENT_ENGINE_VERSION = "fireai.engineering.placement/0.2.0"      # M2.2A: new measurements, fingerprint covers system/eligibility/deflector
 ORDERING_STRATEGY = "ORDER-LONGAXIS-LR-BT/1"      # layouts: fewer sprinklers first; sprinklers: by v (bottom-to-top) then u (left-to-right) in the room frame
 SYNTHETIC_DISCLAIMERS = ("TEST ONLY", "SYNTHETIC RULE VALUES", "NOT NFPA 13 COMPLIANT", "NOT FOR ENGINEERING USE")
+# M2.2B: approved rules exercised with a SYNTHETIC listing (rule-engine validation only)
+RULE_VALIDATION_DISCLAIMERS = ("RULE VALIDATION ONLY", "SYNTHETIC LISTING DATA", "NOT A PRODUCT-SPECIFIC DESIGN",
+                               "NOT FOR ENGINEERING USE")
+RULE_REVIEW_DISCLAIMERS = ("RULES UNDER REVIEW - NOT APPROVED", "KNOWN-ANSWER VERIFICATION ONLY",
+                           "SYNTHETIC LISTING DATA", "NOT FOR ENGINEERING USE")
 
 
 class ZState(BaseModel):
@@ -103,7 +108,7 @@ class EngineeringDesignResult(BaseModel):
     schema_: Literal["engineering_design_result/1"] = Field("engineering_design_result/1", alias="schema")
     result_uid: str
     status: Literal["VALID_LAYOUTS_FOUND", "NO_VALID_LAYOUT_IN_SEARCH_SPACE", "REFUSED"]
-    basis: Literal["authoritative", "synthetic_test_only", "none"]
+    basis: Literal["authoritative", "synthetic_test_only", "authoritative_rules_synthetic_listing", "rules_under_review", "none"]
     engineering_use: Literal["NOT_FOR_ENGINEERING_USE", "REQUIRES_QUALIFIED_HUMAN_APPROVAL", "NONE_REFUSED"]
     disclaimers: list[str] = Field(default_factory=list)
     refusals: list[DesignIssue] = Field(default_factory=list)
@@ -128,6 +133,11 @@ class EngineeringDesignResult(BaseModel):
             missing = [d for d in SYNTHETIC_DISCLAIMERS if d not in self.disclaimers]
             if missing or self.engineering_use != "NOT_FOR_ENGINEERING_USE":
                 raise ValueError(f"synthetic results must be NOT_FOR_ENGINEERING_USE with disclaimers {missing}")
+        if self.basis in ("authoritative_rules_synthetic_listing", "rules_under_review"):
+            need = RULE_VALIDATION_DISCLAIMERS if self.basis == "authoritative_rules_synthetic_listing" else RULE_REVIEW_DISCLAIMERS
+            missing = [d for d in need if d not in self.disclaimers]
+            if missing or self.engineering_use != "NOT_FOR_ENGINEERING_USE":
+                raise ValueError(f"rule-validation results must be NOT_FOR_ENGINEERING_USE with disclaimers {missing}")
         if self.status == "REFUSED" and (self.valid_layouts or self.valid_set or self.engineering_use != "NONE_REFUSED"):
             raise ValueError("a refused design carries no layouts and no engineering use")
         if self.valid_set is not None and (self.valid_set.count > 0) != (self.status == "VALID_LAYOUTS_FOUND"):
@@ -183,7 +193,7 @@ class ProposalEvaluation(BaseModel):
     evaluations: list[ConstraintEvaluation] = Field(default_factory=list)
     proposal_digest: str
     request_fingerprint: str
-    basis: Literal["authoritative", "synthetic_test_only", "none"]
+    basis: Literal["authoritative", "synthetic_test_only", "authoritative_rules_synthetic_listing", "rules_under_review", "none"]
     disclaimers: list[str] = Field(default_factory=list)
     note: str = ("The verdict comes only from the rules engine and deterministic evaluation; the proposer cannot "
                  "override it. PASS on synthetic rules is TEST ONLY.")

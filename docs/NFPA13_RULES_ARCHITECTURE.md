@@ -364,3 +364,43 @@ Anything else refuses (`OUTSIDE_SUPPORTED_ENVELOPE` / `MISSING_*`). The envelope
 **Release gate:** see `SOURCE_AUTHORIZATION_AND_RELEASE.md`. Engineering status and release
 authorization are separate. External use of NFPA-derived content requires owner-recorded
 `COMMERCIAL_AUTHORIZED` status. Today 2019 is internal R&D only and 2025 is not available.
+
+## 9. Milestone 2.2B, phase 1: first NFPA 13-2019 rule-package workflow (stopped at owner input)
+
+**Envelopes:** `NFPA13-2025-DEV-ENVELOPE-1` is now `inactive_not_supported`. It is kept with its status
+history but never applied, so 2025 engineering refuses with `NO_SUPPORTED_ENVELOPE`. The 2025 identity
+stays EMPTY and DRAFT. `NFPA13-2019-DEV-ENVELOPE-1` is `active_internal_rnd` and adds three conditions:
+- every boundary segment must be a solid `wall`;
+- rules may use only `["wall"]` as their wall reference;
+- the listing's installation style must be `exposed`. `SprinklerListing.installation_style` is new.
+
+**Intake** (`fireai/rules/intake.py`) holds the fixed mapping `M22B_MAPPINGS`, from locator to
+key, measurement, bound and wall kinds. The owner input template is generated from the same code and
+checked by a test, so the two can't drift. `load_rule_package` reports every missing or unconfirmed
+field at once. It refuses titles and notes that look like copied text, identifiers in the
+document-control reference, and fewer than three distinct people (author, reviewer, approver).
+
+**Known answers** (`fireai/rules/known_answers.py`): cases are write-once and audit-logged. They are
+worked by hand, never from FireAI output: the author and provenance can't name FireAI, a model or an
+agent. Each case is reviewed by someone other than its author and verified by running the
+deterministic engine (`tests/fixtures/known_answer_harness.py`).
+- A verification pins the rule's content digest, so editing a rule invalidates its old verifications.
+- A mismatch is recorded, and the case's expected values are never rewritten.
+- `RuleStore(…, known_answers=…)` refuses to approve an NFPA-derived rule until it has at least two
+  reviewed, verified cases for its exact content. This applies to both rule review and set approval.
+
+**Modes:**
+- `rule_review` runs rules still in draft or under review, labelled RULES UNDER REVIEW. It is used
+  only for known-answer verification.
+- `rule_validation` runs approved authoritative rules with a SYNTHETIC listing, with disclaimers
+  including NOT A PRODUCT-SPECIFIC DESIGN.
+- Neither mode can produce an engineering result.
+
+**Search:** an exact rectangle fast path decides perpendicular wall distance and the S and L
+dimensions at the axis stage. It applies when the space is a frame-aligned rectangle whose every
+segment is a participating kind. It is proven equal to the brute-force reference. The commercial
+fixture (57.5 × 38 ft at 0.5 ft, up to 24 sprinklers) evaluates 89.2M candidates in about 7 s.
+
+**Status summary** (`fireai/engineering/status.py`): shows ENGINEERING RULE STATUS / SOURCE
+AUTHORIZATION / EXTERNAL RELEASE side by side. It never claims customer-, AHJ- or production-ready or
+commercially licensed.

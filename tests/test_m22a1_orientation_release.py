@@ -25,7 +25,7 @@ from fireai.engineering.placement import default_orientation, evaluate_proposal
 from fireai.rules import ConstraintTemplate, Quantity, Rule, RuleParameter, RuleSet, RuleSource
 from fireai.rules.authorization import (AuthorityActor, AuthorizationError, AuthorizationStore, SourceAuthorization,
                                         seed_owner_declared, source_key)
-from fireai.rules.catalog import NFPA13_2019_BASE, NFPA13_2025_BASE, empty_draft, envelope_for
+from fireai.rules.catalog import NFPA13_2019_BASE, NFPA13_2025_BASE, empty_draft, envelope_for, envelope_record
 from fireai.rules.release import (DevelopmentOverride, ReleaseBlocked, assert_ruleset_release_eligible,
                                   evaluate_release, guard_rule_set_activation)
 from fireai.rules.resolve import resolve
@@ -307,8 +307,9 @@ def test_2019_envelope_is_never_applied_to_2025_rules(commercial):
     req = C.request(commercial, [empty_draft(NFPA13_2025_BASE)])
     b25 = envelope_blockers(req, [empty_draft(NFPA13_2025_BASE)])
     assert all(x.detail.get("envelope") != "NFPA13-2019-DEV-ENVELOPE-1" for x in b25)
-    assert envelope_for("NFPA 13", "2025").envelope_id == "NFPA13-2025-DEV-ENVELOPE-1"
-    assert envelope_for("NFPA 13", "2025").design_methods is None     # 2019 conditions are not inherited
+    assert envelope_record("NFPA 13", "2025").envelope_id == "NFPA13-2025-DEV-ENVELOPE-1"
+    assert envelope_record("NFPA 13", "2025").design_methods is None  # 2019 conditions are not inherited
+    assert envelope_for("NFPA 13", "2025") is None                    # M2.2B: 2025 envelope inactive
 
 
 # ── 24-35: source authorization and the external release gate ───────────────

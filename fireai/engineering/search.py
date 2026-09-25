@@ -9,6 +9,10 @@ specific constraint, and the rejection is attributed to that constraint:
   1. AXIS    array_axis_spacing (either bound) and pairwise_min_distance (min bound) are decided per
              axis before any combination: in a rectangular array the closest pair is adjacent along an
              axis, so min pairwise distance = min of the present axis spacings.
+             M2.2B RECTANGLE FAST PATH (exact): when the space is a frame-aligned rectangle whose every
+             boundary segment is a participating kind, perpendicular_wall_distance (both bounds) and the
+             S / L dimensions (max bound) depend on ONE axis only (the end sprinklers' distances to the
+             two walls of that axis, and its spacing), so they are decided per axis as well.
   2. COUNT   nearest_sprinkler_cell_area: the cells partition the space, so max cell >= area / n and
              min cell <= area / n — whole (n_u, n_v) groups are decided without coordinates.
   3. POINTS  structural containment / exclusion and point_to_boundary_min are properties of single
@@ -102,18 +106,36 @@ def search(st) -> SearchOutcome:
     axis_cons = [c for c in cons if c.measurement in AXIS_MEAS or (c.measurement == "pairwise_min_distance"
                                                                       and c.bound == "min")]
 
-    def axis_fail(ix):
-        if len(ix) < 2:
-            return None
-        sp = (ix[1] - ix[0]) * step
-        for c in axis_cons:
-            if _viol(c, sp, _tol(st, c)):
-                return c.key
+    rect = _rectangle(st)
+    fast = [c for c in cons if rect is not None and set(rect[2]) <= set(c.reference_kinds) and (
+        c.measurement == "perpendicular_wall_distance"
+        or (c.measurement in ("array_sxl_s_dimension", "array_sxl_l_dimension") and c.bound == "max"
+            and getattr(st, "s_axis", None) is not None))]
+
+    def axis_fail(ix, axis):
+        if len(ix) >= 2:
+            sp = (ix[1] - ix[0]) * step
+            for c in axis_cons:
+                if _viol(c, sp, _tol(st, c)):
+                    return c.key
+        if fast:
+            extent = rect[0] if axis == "u" else rect[1]
+            ends = (ix[0] * step, extent - ix[-1] * step)          # distances to the two walls of this axis
+            for c in fast:
+                if c.measurement == "perpendicular_wall_distance":
+                    if _viol(c, max(ends) if c.bound == "max" else min(ends), _tol(st, c)):
+                        return c.key
+                    continue
+                along = st.s_axis if c.measurement == "array_sxl_s_dimension" else ("v" if st.s_axis == "u" else "u")
+                if along == axis:
+                    dim = max(2.0 * ends[0], 2.0 * ends[1], (ix[1] - ix[0]) * step if len(ix) > 1 else 0.0)
+                    if _viol(c, dim, _tol(st, c)):
+                        return c.key
         return None
 
     U_ok, V_ok = [], []
     for u in U_all:
-        k = axis_fail(u)
+        k = axis_fail(u, "u")
         if k:
             n = sum(hv_all[lv] for lv in hv_all if len(u) * lv <= s.max_sprinklers)
             first_v = next((v for v in V_all if len(u) * len(v) <= s.max_sprinklers), None)
@@ -122,7 +144,7 @@ def search(st) -> SearchOutcome:
             U_ok.append(u)
     hu_ok = Counter(len(u) for u in U_ok)
     for v in V_all:
-        k = axis_fail(v)
+        k = axis_fail(v, "v")
         if k:
             n = sum(hu_ok[lu] for lu in hu_ok if lu * len(v) <= s.max_sprinklers)
             first_u = next((u for u in U_ok if len(u) * len(v) <= s.max_sprinklers), None)
@@ -233,6 +255,27 @@ def search(st) -> SearchOutcome:
     valid.sort(key=lambda t: layout_key(*t))
     return SearchOutcome(valid=valid, rejected_by=dict(sorted(rejected.items())), pruned_by_stage=dict(stages),
                          search_space_size=size, fully_evaluated=evaluated, examples=examples)
+
+
+def _rectangle(st):
+    """(extent_u, extent_v, boundary kinds) if the space is exactly its frame-aligned bounding rectangle
+    (one ring, all segments on its four sides), else None. Tolerance: the explicit length tolerance."""
+    tol = st.req.tolerances.length_ft
+    fr = st.frame
+    if len(st.region.boundary.rings) != 1:
+        return None
+    for s in st.bsegs_uv:
+        for q in (s.a, s.b):
+            on_u = min(abs(q[0]), abs(q[0] - fr.extent_u)) <= tol
+            on_v = min(abs(q[1]), abs(q[1] - fr.extent_v)) <= tol
+            if not (on_u or on_v):
+                return None
+        if not (abs(s.a[0] - s.b[0]) <= tol and min(abs(s.a[0]), abs(s.a[0] - fr.extent_u)) <= tol
+                or abs(s.a[1] - s.b[1]) <= tol and min(abs(s.a[1]), abs(s.a[1] - fr.extent_v)) <= tol):
+            return None
+    if abs(st.poly.area - fr.extent_u * fr.extent_v) > tol * (fr.extent_u + fr.extent_v):
+        return None
+    return fr.extent_u, fr.extent_v, sorted({s.kind for s in st.bsegs_uv})
 
 
 def full_measure(st, c, pts, arr) -> float | None:
