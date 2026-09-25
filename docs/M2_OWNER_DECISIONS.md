@@ -331,3 +331,13 @@ supplied (`docs/m2_2b/README.md`).
 | 41 | Non-geometric requirements are generic fact requirements | `FactRequirement` / `fact_requirement` |
 | 42 | Rule G (9.4.3.1): response / selection requirement for a new Light Hazard standard-spray installation; values are owner input; other technologies and existing-system exceptions are outside the envelope | `M22B_MAPPINGS["G"]`; envelope `required_fact_rules` |
 | 43 | An approved rule subset is not NFPA compliance; completeness needs a qualified, independently approved manifest; compliance is not claimed | `completeness.py`; `nfpa_status`; `NFPA13_2019_DEV_MANIFEST` |
+
+---
+
+## M2.2C: owner draft package (2026-09-25)
+
+| # | Decision | Implemented as |
+|---|---|---|
+| 44 | Enter the owner-approved structured values for A–G as a DRAFT: A 225 sf; B 15 ft; C 0.5 × B; D 4 in; E 6 ft; F_MIN 1 in; F_MAX 12 in; G `quick_response` | `docs/m2_2b/NFPA13_2019_RULE_PACKAGE.owner_draft.json` |
+| 45 | `PLACEHOLDER_*` identities can populate drafts but can never satisfy any review, approval or authorization control | `fireai/rules/identity.py`; guards in the rule, known-answer, manifest and authorization stores and the release gate |
+| 46 | The canonical response vocabulary is `quick_response` only. The standard-response spelling is an OPEN decision, so candidate G-2 is incomplete | `FACT_VALUES` |

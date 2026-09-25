@@ -709,3 +709,9 @@ REAL_002 is unchanged: HUMAN_VERIFIED, unclassified, and refusing real design.
 The run was read-only (`tests/test_m22a1_real002.py` with `.fireai_data` mounted `:ro`). No
 installation context, response type or other fact was assigned. REAL_002 is still HUMAN_VERIFIED and
 unclassified, and real design still refuses.
+
+## §M2.2C: REAL_002 regression
+
+The run was read-only (`tests/test_m22a1_real002.py` with `.fireai_data` mounted `:ro`). Nothing from
+the owner draft package touches REAL_002. It is still HUMAN_VERIFIED and unclassified, and real design
+still refuses.

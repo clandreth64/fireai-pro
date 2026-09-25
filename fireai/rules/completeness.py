@@ -32,6 +32,7 @@ from typing import Literal, Optional
 from pydantic import BaseModel, model_validator
 
 from fireai.rules.authorization import AuthorityActor, source_key
+from fireai.rules.identity import is_placeholder, placeholder_message
 from fireai.rules.intake import M22B_MAPPINGS
 from fireai.rules.model import RuleSet
 
@@ -73,6 +74,9 @@ class CompletenessManifest(BaseModel):
 
     @model_validator(mode="after")
     def _completeness_needs_qualified_approval(self):
+        if self.completeness == "ESTABLISHED" and any(is_placeholder(x) for x in (self.author, self.reviewer,
+                                                                                    self.approver)):
+            raise ValueError(placeholder_message("PLACEHOLDER_*", "an established completeness manifest"))
         if (self.completeness == "ESTABLISHED") != (self.status == "APPROVED_COMPLETE_FOR_ENVELOPE"):
             raise ValueError("completeness is ESTABLISHED exactly when the manifest is APPROVED_COMPLETE_FOR_ENVELOPE")
         if self.completeness == "ESTABLISHED":
@@ -157,6 +161,13 @@ class ManifestStore:
             m = self.get(mid)
             if m is None:
                 raise CompletenessError(f"no manifest {mid}")
+            for name, control in ((m.author, "completeness approval (as the manifest author)"),
+                                  (reviewer.name, "completeness-manifest review"),
+                                  (approver.name, "completeness-manifest approval")):
+                if is_placeholder(name):
+                    self._event({"action": "manifest_approval_refused", "manifest_id": mid, "by": name,
+                                 "reason": placeholder_message(name, control)})
+                    raise CompletenessError(placeholder_message(name, control))
             for a in (reviewer, approver):
                 if a.role not in HUMAN_ROLES:
                     self._event({"action": "manifest_approval_refused", "manifest_id": mid, "by": a.name,

@@ -1,6 +1,29 @@
 # M2.2B: owner input needed (NFPA 13-2019 first rule package, internal R&D only)
 
-**Status: STOPPED AT THE HUMAN-INPUT BOUNDARY.** The repository contains no NFPA 13-2019 value, no
+**Status (M2.2C): OWNER DRAFT ENTERED; AWAITING REAL HUMAN REVIEW.**
+
+* `NFPA13_2019_RULE_PACKAGE.owner_draft.json`: your approved structured values for A–G. It parses
+  and validates. The people are `PLACEHOLDER_*` identities, which cannot review or approve anything
+  (`PLACEHOLDER_IDENTITY_NOT_PERMITTED`).
+* `KNOWN_ANSWER_CASES.owner_draft.json`: 15 CANDIDATE cases with your arithmetic. The deterministic
+  engine reproduces all 15. That is NOT review: with placeholder author and reviewer they cannot count
+  toward approval. **G-2 is incomplete.** No canonical value for standard response exists, and FireAI
+  will not invent one.
+* The A–E and G candidates carry an explicit harness input, deflector 10.50 ft. The package includes
+  the F rules, which need a Z. It does not affect those cases' measurements.
+
+**Next human actions:**
+1. Replace the placeholder author, reviewer and approver with real, distinct people.
+2. Have the case author and case reviewer (real, distinct people) confirm each candidate case.
+3. Decide the canonical spelling for standard response (an engine vocabulary change in
+   `FACT_VALUES`), then complete G-2.
+4. Run the workflow: author → submit → record cases, review and verify them → review each rule →
+   approve the set.
+
+Even after all that, the result is INTERNAL R&D only: completeness NOT_ESTABLISHED, compliance
+NOT_CLAIMED, and NOT release eligible.
+
+**Earlier status (M2.2B): STOPPED AT THE HUMAN-INPUT BOUNDARY.** The repository contains no NFPA 13-2019 value, no
 reviewer or approver identity, no known-answer case and no listing. FireAI will not supply any of
 them.
 

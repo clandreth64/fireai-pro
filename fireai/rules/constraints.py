@@ -118,6 +118,26 @@ FACTS: dict[str, str] = {
 }
 
 
+# M2.2C: CANONICAL values for facts whose vocabulary has been decided. A fact requirement on one of these
+# facts may only allow canonical values (no second spelling of the same thing). A fact NOT listed here
+# has no decided vocabulary yet. "sprinkler.response": only quick response is decided; the spelling of
+# standard response is an OPEN owner decision (legacy v1 code used both "standard" and
+# "standard_response"), so it is deliberately absent.
+FACT_VALUES: dict[str, tuple[str, ...]] = {
+    "sprinkler.response": ("quick_response",),
+}
+SYNTHETIC_VALUE_PREFIX = "TEST_ONLY_SYNTHETIC_"
+
+
+def non_canonical_values(fact: str, values: list, real_edition: bool) -> list:
+    """Values of ``fact`` that are not canonical. Explicitly TEST_ONLY_SYNTHETIC_ values are tolerated ONLY
+    for non-registered (hypothetical / test) editions — never inside a real edition's rule set."""
+    if fact not in FACT_VALUES:
+        return []
+    return [v for v in values if v not in FACT_VALUES[fact]
+            and (real_edition or not (isinstance(v, str) and v.startswith(SYNTHETIC_VALUE_PREFIX)))]
+
+
 class Contribution(BaseModel):
     """One rule's part in an effective constraint, and what happened to it."""
     rule_id: str

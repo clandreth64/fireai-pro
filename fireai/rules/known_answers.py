@@ -26,6 +26,8 @@ from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field, model_validator
 
+from fireai.rules.identity import is_placeholder, placeholder_message
+
 MIN_CASES = 2
 IDENTITY_ASSURANCE = "unauthenticated_name (NOT PRODUCTION SAFE)"
 _ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.\-]{0,127}$")
@@ -145,6 +147,13 @@ class KnownAnswerStore:
                 raise KnownAnswerError(f"no case {case_id}")
             if reviewer.strip() == c.author.strip():
                 raise KnownAnswerError("the case reviewer must be a different person from its author")
+            if decision == "approve":
+                for name, control in ((reviewer, "known-answer review"), (c.author, "a reviewed known-answer case "
+                                                                                   "(as its author)")):
+                    if is_placeholder(name):
+                        self._event({"action": "review_case_refused", "case_id": case_id, "by": reviewer,
+                                     "reason": placeholder_message(name, control)})
+                        raise KnownAnswerError(placeholder_message(name, control))
             if decision not in ("approve", "reject"):
                 raise KnownAnswerError("decision must be 'approve' or 'reject'")
             c = c.model_copy(update={"reviewer": reviewer, "reviewed_at": datetime.now(timezone.utc).isoformat(),
@@ -163,13 +172,18 @@ class KnownAnswerStore:
             c = self.get(case_id)
             if c is None:
                 raise KnownAnswerError(f"no case {case_id}")
+            from fireai.rules.model import Quantity
+            from fireai.rules.units import to_canonical
+
+            def canon(value, unit):             # a case may state values in any supported unit (e.g. 4 in)
+                return to_canonical(Quantity(value=value, unit=unit))[0] if unit else value
             if c.expected_fact_value is not None:
                 match = (outcome == c.expected_outcome and fact_value == c.expected_fact_value
                          and sorted(allowed_values or []) == sorted(c.expected_allowed_values or []))
             else:
                 match = (measured is not None and limit is not None and outcome == c.expected_outcome
-                         and abs(measured - c.expected_measurement) <= tolerance
-                         and abs(limit - c.expected_limit) <= tolerance)
+                         and abs(measured - canon(c.expected_measurement, c.expected_unit)) <= tolerance
+                         and abs(limit - canon(c.expected_limit, c.expected_limit_unit)) <= tolerance)
             rec = {"at": datetime.now(timezone.utc).isoformat(), "engine": engine, "rule_set_digest": rule_set_digest,
                    "rule_digest": rule_digest, "fact_value": fact_value, "allowed_values": allowed_values,
                    "measured": measured, "limit": limit, "outcome": outcome, "tolerance": tolerance, "match": match}
@@ -185,7 +199,8 @@ class KnownAnswerStore:
         digest = rule_content_digest(rule)
         cases = [c for c in self.cases() if c.rule_id == rule_id and c.rule_version == rule_version]
         good = [c for c in cases if c.status == "reviewed" and c.verifications and c.verifications[-1]["match"]
-                and c.verifications[-1].get("rule_digest") == digest]
+                and c.verifications[-1].get("rule_digest") == digest
+                and not is_placeholder(c.author) and not is_placeholder(c.reviewer)]
         stale = [c.case_id for c in cases if c.verifications and c.verifications[-1].get("rule_digest") != digest]
         if stale:
             p_stale = [f"known-answer cases verified against DIFFERENT rule content (re-run them): {stale}"]

@@ -101,6 +101,10 @@ def evaluate_release(rule_sets: list[RuleSet], context: str, authorizations: Aut
     statuses: list[RuleSetReleaseStatus] = []
     labels: list[str] = []
     override_used = False
+    from fireai.rules.identity import is_placeholder, placeholder_message
+    if override is not None and is_placeholder(override.enabled_by):
+        blockers.append(ReleaseBlocker(code="PLACEHOLDER_IDENTITY_NOT_PERMITTED",
+                                       message=placeholder_message(override.enabled_by, "a development override")))
     if override is not None and external:
         blockers.append(ReleaseBlocker(code="OVERRIDE_NOT_PERMITTED",
                                        message=f"a development override can never apply to the {context} context"))

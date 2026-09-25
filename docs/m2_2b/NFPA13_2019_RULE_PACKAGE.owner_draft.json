@@ -1,0 +1,471 @@
+{
+  "template": "fireai.nfpa13_2019.first_rule_package/1",
+  "status": "OWNER_DRAFT_AWAITING_REAL_HUMAN_REVIEW",
+  "instructions": "Fill every null from your lawfully accessed NFPA 13-2019 copy. Do not paste standard text: titles and notes are your own words. Do not enter license / customer / order numbers or personal data. Source status stays INTERNAL_R_AND_D_ONLY (not releasable).",
+  "rule_set": {
+    "rule_set_id": "NFPA13-2019-BASE",
+    "edition": "2019"
+  },
+  "source": {
+    "document": "NFPA 13",
+    "edition": "2019",
+    "access_method": "Owner-held NFPA 13-2019 copy used for internal R&D review",
+    "accessed_at": "2026-09-25",
+    "internal_document_control_reference": "FIREAI-N13-2019-RD-001"
+  },
+  "people": {
+    "author": "PLACEHOLDER_INTERNAL_AUTHOR",
+    "reviewer": "PLACEHOLDER_INDEPENDENT_REVIEWER",
+    "approver": "PLACEHOLDER_INDEPENDENT_APPROVER"
+  },
+  "rules": [
+    {
+      "mapping_id": "A",
+      "rule_id": "N13-2019-SSP-LH-MAX-AREA",
+      "rule_version": "1",
+      "locator": "Table 10.2.4.2.1(a)",
+      "title": "Light Hazard Maximum Protection Area — Standard Spray Hydraulic Design",
+      "limit": {
+        "value": 225,
+        "unit": "sf",
+        "dimension": "area"
+      },
+      "mapping_read_only": {
+        "constraint_key": "sprinkler.max_protection_area",
+        "measurement": "array_sxl_protection_area",
+        "bound": "max",
+        "reference_kinds": [
+          "wall"
+        ],
+        "note": "S x L with S along the explicit branch-line direction (SXL-ARRAY/2); never the Voronoi cell"
+      },
+      "proposed_applicability": [
+        {
+          "fact": "hazard.scheme",
+          "op": "eq",
+          "value": "NFPA 13 occupancy hazard classification"
+        },
+        {
+          "fact": "hazard.classification",
+          "op": "eq",
+          "value": "Light Hazard"
+        },
+        {
+          "fact": "sprinkler.type",
+          "op": "eq",
+          "value": "standard_spray"
+        },
+        {
+          "fact": "sprinkler.orientation",
+          "op": "in",
+          "value": [
+            "pendent",
+            "upright"
+          ]
+        },
+        {
+          "fact": "system.design_method",
+          "op": "eq",
+          "value": "hydraulically_calculated"
+        },
+        {
+          "fact": "ceiling.construction_classification.scheme",
+          "op": "eq",
+          "value": "NFPA 13 ceiling construction classification"
+        },
+        {
+          "fact": "ceiling.construction_classification",
+          "op": "eq",
+          "value": "noncombustible_unobstructed"
+        }
+      ],
+      "applicability_confirmed": true,
+      "applicability_override": null,
+      "exceptions_outside_envelope": [
+        "pipe-schedule design",
+        "hazard classifications other than Light Hazard",
+        "storage",
+        "construction classifications other than noncombustible unobstructed",
+        "small-room-specific design paths",
+        "sloped or combustible special conditions"
+      ],
+      "exceptions_outside_envelope_confirmed": true,
+      "notes": ""
+    },
+    {
+      "mapping_id": "B",
+      "rule_id": "N13-2019-SSP-LH-MAX-SPACING",
+      "rule_version": "1",
+      "locator": "Table 10.2.4.2.1(a)",
+      "title": "Light Hazard Maximum Sprinkler Spacing — Standard Spray Hydraulic Design",
+      "limit": {
+        "value": 15,
+        "unit": "ft",
+        "dimension": "length"
+      },
+      "mapping_read_only": {
+        "constraint_key": "sprinkler.max_spacing",
+        "measurement": "array_axis_spacing",
+        "bound": "max",
+        "reference_kinds": [],
+        "note": "maximum spacing, evaluated separately from protection area"
+      },
+      "proposed_applicability": [
+        {
+          "fact": "hazard.scheme",
+          "op": "eq",
+          "value": "NFPA 13 occupancy hazard classification"
+        },
+        {
+          "fact": "hazard.classification",
+          "op": "eq",
+          "value": "Light Hazard"
+        },
+        {
+          "fact": "sprinkler.type",
+          "op": "eq",
+          "value": "standard_spray"
+        },
+        {
+          "fact": "sprinkler.orientation",
+          "op": "in",
+          "value": [
+            "pendent",
+            "upright"
+          ]
+        },
+        {
+          "fact": "system.design_method",
+          "op": "eq",
+          "value": "hydraulically_calculated"
+        },
+        {
+          "fact": "ceiling.construction_classification.scheme",
+          "op": "eq",
+          "value": "NFPA 13 ceiling construction classification"
+        },
+        {
+          "fact": "ceiling.construction_classification",
+          "op": "eq",
+          "value": "noncombustible_unobstructed"
+        }
+      ],
+      "applicability_confirmed": true,
+      "applicability_override": null,
+      "exceptions_outside_envelope": [
+        "pipe-schedule design",
+        "hazard classifications other than Light Hazard",
+        "storage",
+        "construction classifications other than noncombustible unobstructed",
+        "small-room-specific design paths",
+        "sloped or combustible special conditions"
+      ],
+      "exceptions_outside_envelope_confirmed": true,
+      "notes": ""
+    },
+    {
+      "mapping_id": "C",
+      "rule_id": "N13-2019-SSP-MAX-WALL-DIST",
+      "rule_version": "1",
+      "locator": "10.2.5.2.1",
+      "title": "Maximum Distance from Solid Walls — Standard Spray",
+      "derived": {
+        "factor": 0.5,
+        "from_key": "sprinkler.max_spacing"
+      },
+      "mapping_read_only": {
+        "constraint_key": "sprinkler.max_wall_distance",
+        "measurement": "perpendicular_wall_distance",
+        "bound": "max",
+        "reference_kinds": [
+          "wall"
+        ],
+        "note": "DERIVED: factor x the effective maximum spacing (rule B); solid walls only"
+      },
+      "proposed_applicability": [
+        {
+          "fact": "sprinkler.type",
+          "op": "eq",
+          "value": "standard_spray"
+        },
+        {
+          "fact": "sprinkler.orientation",
+          "op": "in",
+          "value": [
+            "pendent",
+            "upright"
+          ]
+        }
+      ],
+      "applicability_confirmed": true,
+      "applicability_override": null,
+      "exceptions_outside_envelope": [
+        "angled or irregular-wall path",
+        "small-room path",
+        "curved-surface path",
+        "openings and windows not supported by the current envelope"
+      ],
+      "exceptions_outside_envelope_confirmed": true,
+      "notes": ""
+    },
+    {
+      "mapping_id": "D",
+      "rule_id": "N13-2019-SSP-MIN-WALL-DIST",
+      "rule_version": "1",
+      "locator": "10.2.5.3",
+      "title": "Minimum Clearance from Solid Walls — Standard Spray",
+      "limit": {
+        "value": 4,
+        "unit": "in",
+        "dimension": "length"
+      },
+      "mapping_read_only": {
+        "constraint_key": "sprinkler.min_wall_distance",
+        "measurement": "min_perpendicular_wall_distance",
+        "bound": "min",
+        "reference_kinds": [
+          "wall"
+        ],
+        "note": "M2.2B.1: minimum perpendicular distance from each sprinkler to ANY solid wall segment (MIN-WALL-CLEARANCE/1), independent of neighbouring sprinklers; a nearer wall end refuses"
+      },
+      "proposed_applicability": [
+        {
+          "fact": "sprinkler.type",
+          "op": "eq",
+          "value": "standard_spray"
+        },
+        {
+          "fact": "sprinkler.orientation",
+          "op": "in",
+          "value": [
+            "pendent",
+            "upright"
+          ]
+        }
+      ],
+      "applicability_confirmed": true,
+      "applicability_override": null,
+      "exceptions_outside_envelope": [
+        "non-orthogonal or non-solid walls (solid orthogonal walls only)",
+        "windows and openings where material",
+        "angled or unknown boundaries (refused)"
+      ],
+      "exceptions_outside_envelope_confirmed": true,
+      "notes": ""
+    },
+    {
+      "mapping_id": "E",
+      "rule_id": "N13-2019-SSP-MIN-SPACING",
+      "rule_version": "1",
+      "locator": "10.2.5.4.1",
+      "title": "Minimum Spacing Between Standard Spray Sprinklers",
+      "limit": {
+        "value": 6,
+        "unit": "ft",
+        "dimension": "length"
+      },
+      "mapping_read_only": {
+        "constraint_key": "sprinkler.min_spacing",
+        "measurement": "pairwise_min_distance",
+        "bound": "min",
+        "reference_kinds": [],
+        "note": "general rule only; baffle / in-rack exception paths are outside the envelope"
+      },
+      "proposed_applicability": [
+        {
+          "fact": "sprinkler.type",
+          "op": "eq",
+          "value": "standard_spray"
+        },
+        {
+          "fact": "sprinkler.orientation",
+          "op": "in",
+          "value": [
+            "pendent",
+            "upright"
+          ]
+        }
+      ],
+      "applicability_confirmed": true,
+      "applicability_override": null,
+      "exceptions_outside_envelope": [
+        "baffle exception path",
+        "in-rack exception path"
+      ],
+      "exceptions_outside_envelope_confirmed": true,
+      "notes": ""
+    },
+    {
+      "mapping_id": "F_MIN",
+      "rule_id": "N13-2019-SSP-MIN-DEFLECTOR",
+      "rule_version": "1",
+      "locator": "10.2.6.1.1.1",
+      "title": "Minimum Deflector Distance Below Ceiling — Unobstructed Construction",
+      "applies": true,
+      "not_applicable_reason": null,
+      "limit": {
+        "value": 1,
+        "unit": "in",
+        "dimension": "length"
+      },
+      "mapping_read_only": {
+        "constraint_key": "sprinkler.min_deflector_below_ceiling",
+        "measurement": "ceiling_to_deflector_vertical_distance",
+        "bound": "min",
+        "reference_kinds": [],
+        "note": "recessed / flush / concealed and ceiling-elevation-change paths are outside the envelope"
+      },
+      "proposed_applicability": [
+        {
+          "fact": "sprinkler.type",
+          "op": "eq",
+          "value": "standard_spray"
+        },
+        {
+          "fact": "sprinkler.orientation",
+          "op": "in",
+          "value": [
+            "pendent",
+            "upright"
+          ]
+        },
+        {
+          "fact": "ceiling.surface",
+          "op": "eq",
+          "value": "flat"
+        },
+        {
+          "fact": "ceiling.construction_classification",
+          "op": "eq",
+          "value": "noncombustible_unobstructed"
+        }
+      ],
+      "applicability_confirmed": true,
+      "applicability_override": null,
+      "exceptions_outside_envelope": [
+        "concealed installation",
+        "recessed installation",
+        "flush installation",
+        "ceiling-elevation-change paths",
+        "other unsupported ceiling conditions"
+      ],
+      "exceptions_outside_envelope_confirmed": true,
+      "notes": ""
+    },
+    {
+      "mapping_id": "F_MAX",
+      "rule_id": "N13-2019-SSP-MAX-DEFLECTOR",
+      "rule_version": "1",
+      "locator": "10.2.6.1.1.1",
+      "title": "Maximum Deflector Distance Below Ceiling — Unobstructed Construction",
+      "applies": true,
+      "not_applicable_reason": null,
+      "limit": {
+        "value": 12,
+        "unit": "in",
+        "dimension": "length"
+      },
+      "mapping_read_only": {
+        "constraint_key": "sprinkler.max_deflector_below_ceiling",
+        "measurement": "ceiling_to_deflector_vertical_distance",
+        "bound": "max",
+        "reference_kinds": [],
+        "note": "as F_MIN"
+      },
+      "proposed_applicability": [
+        {
+          "fact": "sprinkler.type",
+          "op": "eq",
+          "value": "standard_spray"
+        },
+        {
+          "fact": "sprinkler.orientation",
+          "op": "in",
+          "value": [
+            "pendent",
+            "upright"
+          ]
+        },
+        {
+          "fact": "ceiling.surface",
+          "op": "eq",
+          "value": "flat"
+        },
+        {
+          "fact": "ceiling.construction_classification",
+          "op": "eq",
+          "value": "noncombustible_unobstructed"
+        }
+      ],
+      "applicability_confirmed": true,
+      "applicability_override": null,
+      "exceptions_outside_envelope": [
+        "concealed installation",
+        "recessed installation",
+        "flush installation",
+        "ceiling-elevation-change paths",
+        "other unsupported ceiling conditions"
+      ],
+      "exceptions_outside_envelope_confirmed": true,
+      "notes": ""
+    },
+    {
+      "mapping_id": "G",
+      "rule_id": "N13-2019-LH-NEW-SSP-RESPONSE",
+      "rule_version": "1",
+      "locator": "9.4.3.1",
+      "title": "New-System Light Hazard Sprinkler Response Requirement",
+      "allowed_values": [
+        "quick_response"
+      ],
+      "fact": "sprinkler.response",
+      "mapping_read_only": {
+        "constraint_key": "sprinkler.response_type",
+        "measurement": "fact_requirement",
+        "bound": "in",
+        "reference_kinds": [],
+        "note": "sprinkler response / selection requirement; evaluates the listing's stated response type"
+      },
+      "proposed_applicability": [
+        {
+          "fact": "hazard.scheme",
+          "op": "eq",
+          "value": "NFPA 13 occupancy hazard classification"
+        },
+        {
+          "fact": "hazard.classification",
+          "op": "eq",
+          "value": "Light Hazard"
+        },
+        {
+          "fact": "sprinkler.type",
+          "op": "eq",
+          "value": "standard_spray"
+        },
+        {
+          "fact": "sprinkler.orientation",
+          "op": "in",
+          "value": [
+            "pendent",
+            "upright"
+          ]
+        },
+        {
+          "fact": "installation.context",
+          "op": "eq",
+          "value": "new_system"
+        }
+      ],
+      "applicability_confirmed": true,
+      "applicability_override": null,
+      "exceptions_outside_envelope": [
+        "existing-system modification paths permitting other response characteristics",
+        "replacement paths",
+        "alternate sprinkler technologies outside the current standard-spray envelope"
+      ],
+      "exceptions_outside_envelope_confirmed": true,
+      "notes": ""
+    }
+  ],
+  "draft_note": "Owner-approved structured values (M2.2C). People are PLACEHOLDER identities: they cannot review or approve anything. Source status INTERNAL_R_AND_D_ONLY; not release-eligible."
+}

@@ -1,0 +1,677 @@
+{
+  "template": "fireai.known_answer_cases/1",
+  "status": "CANDIDATE_CASES_AWAITING_REAL_HUMAN_REVIEW",
+  "note": "Candidate cases with owner-supplied arithmetic. Author / reviewer are PLACEHOLDER identities: these cases cannot be reviewed, cannot count toward rule approval, and are not independent known answers until real people replace the identities and review them.",
+  "cases": [
+    {
+      "case_id": "KA-2019-A-1",
+      "rule_id": "N13-2019-SSP-LH-MAX-AREA",
+      "rule_version": "1",
+      "constraint_key": "sprinkler.max_protection_area",
+      "fixture": {
+        "builder": "rectangular_room",
+        "width_ft": 30.0,
+        "depth_ft": 30.0,
+        "unit": "ft"
+      },
+      "orientation": {
+        "branch_line_direction": [
+          1.0,
+          0.0
+        ],
+        "frame": "LOCAL"
+      },
+      "inputs": {
+        "positions_room_ft": [
+          [
+            7.5,
+            7.5
+          ],
+          [
+            22.5,
+            7.5
+          ],
+          [
+            7.5,
+            22.5
+          ],
+          [
+            22.5,
+            22.5
+          ]
+        ],
+        "deflector_elevation_ft": 10.5,
+        "harness_note": "deflector 10.50 ft (3 in below the 10.75 ft fixture ceiling) is a harness input only, required because the package includes the F rules; it does not affect this case's measurement"
+      },
+      "expected_measurement": 225,
+      "expected_unit": "sf",
+      "expected_limit": 225,
+      "expected_limit_unit": "sf",
+      "expected_outcome": "PASS",
+      "hand_calculation": "S = 15 ft, L = 15 ft; 15 ft × 15 ft = 225 sf ≤ 225 sf.",
+      "derivation": "hand_calculation",
+      "author": "PLACEHOLDER_CASE_AUTHOR",
+      "reviewer": "PLACEHOLDER_CASE_REVIEWER",
+      "provenance": "owner-supplied candidate arithmetic (M2.2C); awaiting confirmation by a real person"
+    },
+    {
+      "case_id": "KA-2019-A-2",
+      "rule_id": "N13-2019-SSP-LH-MAX-AREA",
+      "rule_version": "1",
+      "constraint_key": "sprinkler.max_protection_area",
+      "fixture": {
+        "builder": "rectangular_room",
+        "width_ft": 32.0,
+        "depth_ft": 30.0,
+        "unit": "ft"
+      },
+      "orientation": {
+        "branch_line_direction": [
+          1.0,
+          0.0
+        ],
+        "frame": "LOCAL"
+      },
+      "inputs": {
+        "positions_room_ft": [
+          [
+            8.0,
+            7.5
+          ],
+          [
+            24.0,
+            7.5
+          ],
+          [
+            8.0,
+            22.5
+          ],
+          [
+            24.0,
+            22.5
+          ]
+        ],
+        "deflector_elevation_ft": 10.5,
+        "harness_note": "deflector 10.50 ft (3 in below the 10.75 ft fixture ceiling) is a harness input only, required because the package includes the F rules; it does not affect this case's measurement"
+      },
+      "expected_measurement": 240,
+      "expected_unit": "sf",
+      "expected_limit": 225,
+      "expected_limit_unit": "sf",
+      "expected_outcome": "FAIL",
+      "hand_calculation": "S = 16 ft, L = 15 ft; 16 ft × 15 ft = 240 sf > 225 sf.",
+      "derivation": "hand_calculation",
+      "author": "PLACEHOLDER_CASE_AUTHOR",
+      "reviewer": "PLACEHOLDER_CASE_REVIEWER",
+      "provenance": "owner-supplied candidate arithmetic (M2.2C); awaiting confirmation by a real person"
+    },
+    {
+      "case_id": "KA-2019-B-1",
+      "rule_id": "N13-2019-SSP-LH-MAX-SPACING",
+      "rule_version": "1",
+      "constraint_key": "sprinkler.max_spacing",
+      "fixture": {
+        "builder": "rectangular_room",
+        "width_ft": 30.0,
+        "depth_ft": 30.0,
+        "unit": "ft"
+      },
+      "orientation": {
+        "branch_line_direction": [
+          1.0,
+          0.0
+        ],
+        "frame": "LOCAL"
+      },
+      "inputs": {
+        "positions_room_ft": [
+          [
+            7.5,
+            7.5
+          ],
+          [
+            22.5,
+            7.5
+          ],
+          [
+            7.5,
+            22.5
+          ],
+          [
+            22.5,
+            22.5
+          ]
+        ],
+        "deflector_elevation_ft": 10.5,
+        "harness_note": "deflector 10.50 ft (3 in below the 10.75 ft fixture ceiling) is a harness input only, required because the package includes the F rules; it does not affect this case's measurement"
+      },
+      "expected_measurement": 15,
+      "expected_unit": "ft",
+      "expected_limit": 15,
+      "expected_limit_unit": "ft",
+      "expected_outcome": "PASS",
+      "hand_calculation": "Maximum array-axis spacing 15 ft ≤ 15 ft.",
+      "derivation": "hand_calculation",
+      "author": "PLACEHOLDER_CASE_AUTHOR",
+      "reviewer": "PLACEHOLDER_CASE_REVIEWER",
+      "provenance": "owner-supplied candidate arithmetic (M2.2C); awaiting confirmation by a real person"
+    },
+    {
+      "case_id": "KA-2019-B-2",
+      "rule_id": "N13-2019-SSP-LH-MAX-SPACING",
+      "rule_version": "1",
+      "constraint_key": "sprinkler.max_spacing",
+      "fixture": {
+        "builder": "rectangular_room",
+        "width_ft": 32.0,
+        "depth_ft": 30.0,
+        "unit": "ft"
+      },
+      "orientation": {
+        "branch_line_direction": [
+          1.0,
+          0.0
+        ],
+        "frame": "LOCAL"
+      },
+      "inputs": {
+        "positions_room_ft": [
+          [
+            8.0,
+            7.5
+          ],
+          [
+            24.0,
+            7.5
+          ],
+          [
+            8.0,
+            22.5
+          ],
+          [
+            24.0,
+            22.5
+          ]
+        ],
+        "deflector_elevation_ft": 10.5,
+        "harness_note": "deflector 10.50 ft (3 in below the 10.75 ft fixture ceiling) is a harness input only, required because the package includes the F rules; it does not affect this case's measurement"
+      },
+      "expected_measurement": 16,
+      "expected_unit": "ft",
+      "expected_limit": 15,
+      "expected_limit_unit": "ft",
+      "expected_outcome": "FAIL",
+      "hand_calculation": "Maximum array-axis spacing 16 ft > 15 ft.",
+      "derivation": "hand_calculation",
+      "author": "PLACEHOLDER_CASE_AUTHOR",
+      "reviewer": "PLACEHOLDER_CASE_REVIEWER",
+      "provenance": "owner-supplied candidate arithmetic (M2.2C); awaiting confirmation by a real person"
+    },
+    {
+      "case_id": "KA-2019-C-1",
+      "rule_id": "N13-2019-SSP-MAX-WALL-DIST",
+      "rule_version": "1",
+      "constraint_key": "sprinkler.max_wall_distance",
+      "fixture": {
+        "builder": "rectangular_room",
+        "width_ft": 30.0,
+        "depth_ft": 30.0,
+        "unit": "ft"
+      },
+      "orientation": {
+        "branch_line_direction": [
+          1.0,
+          0.0
+        ],
+        "frame": "LOCAL"
+      },
+      "inputs": {
+        "positions_room_ft": [
+          [
+            7.5,
+            7.5
+          ],
+          [
+            22.5,
+            7.5
+          ],
+          [
+            7.5,
+            22.5
+          ],
+          [
+            22.5,
+            22.5
+          ]
+        ],
+        "deflector_elevation_ft": 10.5,
+        "harness_note": "deflector 10.50 ft (3 in below the 10.75 ft fixture ceiling) is a harness input only, required because the package includes the F rules; it does not affect this case's measurement"
+      },
+      "expected_measurement": 7.5,
+      "expected_unit": "ft",
+      "expected_limit": 7.5,
+      "expected_limit_unit": "ft",
+      "expected_outcome": "PASS",
+      "hand_calculation": "Maximum end-wall distance is 7.5 ft; derived limit is 0.5 × 15 ft = 7.5 ft.",
+      "derivation": "hand_calculation",
+      "author": "PLACEHOLDER_CASE_AUTHOR",
+      "reviewer": "PLACEHOLDER_CASE_REVIEWER",
+      "provenance": "owner-supplied candidate arithmetic (M2.2C); awaiting confirmation by a real person"
+    },
+    {
+      "case_id": "KA-2019-C-2",
+      "rule_id": "N13-2019-SSP-MAX-WALL-DIST",
+      "rule_version": "1",
+      "constraint_key": "sprinkler.max_wall_distance",
+      "fixture": {
+        "builder": "rectangular_room",
+        "width_ft": 32.0,
+        "depth_ft": 30.0,
+        "unit": "ft"
+      },
+      "orientation": {
+        "branch_line_direction": [
+          1.0,
+          0.0
+        ],
+        "frame": "LOCAL"
+      },
+      "inputs": {
+        "positions_room_ft": [
+          [
+            8.0,
+            7.5
+          ],
+          [
+            24.0,
+            7.5
+          ],
+          [
+            8.0,
+            22.5
+          ],
+          [
+            24.0,
+            22.5
+          ]
+        ],
+        "deflector_elevation_ft": 10.5,
+        "harness_note": "deflector 10.50 ft (3 in below the 10.75 ft fixture ceiling) is a harness input only, required because the package includes the F rules; it does not affect this case's measurement"
+      },
+      "expected_measurement": 8,
+      "expected_unit": "ft",
+      "expected_limit": 7.5,
+      "expected_limit_unit": "ft",
+      "expected_outcome": "FAIL",
+      "hand_calculation": "Maximum end-wall distance is 8 ft; derived limit is 0.5 × 15 ft = 7.5 ft.",
+      "derivation": "hand_calculation",
+      "author": "PLACEHOLDER_CASE_AUTHOR",
+      "reviewer": "PLACEHOLDER_CASE_REVIEWER",
+      "provenance": "owner-supplied candidate arithmetic (M2.2C); awaiting confirmation by a real person"
+    },
+    {
+      "case_id": "KA-2019-D-1",
+      "rule_id": "N13-2019-SSP-MIN-WALL-DIST",
+      "rule_version": "1",
+      "constraint_key": "sprinkler.min_wall_distance",
+      "fixture": {
+        "builder": "rectangular_room",
+        "width_ft": 10.0,
+        "depth_ft": 10.0,
+        "unit": "ft"
+      },
+      "orientation": {
+        "branch_line_direction": [
+          1.0,
+          0.0
+        ],
+        "frame": "LOCAL"
+      },
+      "inputs": {
+        "positions_room_ft": [
+          [
+            1.0,
+            5.0
+          ]
+        ],
+        "deflector_elevation_ft": 10.5,
+        "harness_note": "deflector 10.50 ft (3 in below the 10.75 ft fixture ceiling) is a harness input only, required because the package includes the F rules; it does not affect this case's measurement"
+      },
+      "expected_measurement": 1,
+      "expected_unit": "ft",
+      "expected_limit": 4,
+      "expected_limit_unit": "in",
+      "expected_outcome": "PASS",
+      "hand_calculation": "Minimum wall clearance 1 ft = 12 in ≥ 4 in.",
+      "derivation": "hand_calculation",
+      "author": "PLACEHOLDER_CASE_AUTHOR",
+      "reviewer": "PLACEHOLDER_CASE_REVIEWER",
+      "provenance": "owner-supplied candidate arithmetic (M2.2C); awaiting confirmation by a real person"
+    },
+    {
+      "case_id": "KA-2019-D-2",
+      "rule_id": "N13-2019-SSP-MIN-WALL-DIST",
+      "rule_version": "1",
+      "constraint_key": "sprinkler.min_wall_distance",
+      "fixture": {
+        "builder": "rectangular_room",
+        "width_ft": 10.0,
+        "depth_ft": 10.0,
+        "unit": "ft"
+      },
+      "orientation": {
+        "branch_line_direction": [
+          1.0,
+          0.0
+        ],
+        "frame": "LOCAL"
+      },
+      "inputs": {
+        "positions_room_ft": [
+          [
+            0.25,
+            5.0
+          ]
+        ],
+        "deflector_elevation_ft": 10.5,
+        "harness_note": "deflector 10.50 ft (3 in below the 10.75 ft fixture ceiling) is a harness input only, required because the package includes the F rules; it does not affect this case's measurement"
+      },
+      "expected_measurement": 0.25,
+      "expected_unit": "ft",
+      "expected_limit": 4,
+      "expected_limit_unit": "in",
+      "expected_outcome": "FAIL",
+      "hand_calculation": "Minimum wall clearance 0.25 ft = 3 in < 4 in.",
+      "derivation": "hand_calculation",
+      "author": "PLACEHOLDER_CASE_AUTHOR",
+      "reviewer": "PLACEHOLDER_CASE_REVIEWER",
+      "provenance": "owner-supplied candidate arithmetic (M2.2C); awaiting confirmation by a real person"
+    },
+    {
+      "case_id": "KA-2019-E-1",
+      "rule_id": "N13-2019-SSP-MIN-SPACING",
+      "rule_version": "1",
+      "constraint_key": "sprinkler.min_spacing",
+      "fixture": {
+        "builder": "rectangular_room",
+        "width_ft": 20.0,
+        "depth_ft": 10.0,
+        "unit": "ft"
+      },
+      "orientation": {
+        "branch_line_direction": [
+          1.0,
+          0.0
+        ],
+        "frame": "LOCAL"
+      },
+      "inputs": {
+        "positions_room_ft": [
+          [
+            5.0,
+            5.0
+          ],
+          [
+            11.0,
+            5.0
+          ]
+        ],
+        "deflector_elevation_ft": 10.5,
+        "harness_note": "deflector 10.50 ft (3 in below the 10.75 ft fixture ceiling) is a harness input only, required because the package includes the F rules; it does not affect this case's measurement"
+      },
+      "expected_measurement": 6,
+      "expected_unit": "ft",
+      "expected_limit": 6,
+      "expected_limit_unit": "ft",
+      "expected_outcome": "PASS",
+      "hand_calculation": "11 ft − 5 ft = 6 ft ≥ 6 ft.",
+      "derivation": "hand_calculation",
+      "author": "PLACEHOLDER_CASE_AUTHOR",
+      "reviewer": "PLACEHOLDER_CASE_REVIEWER",
+      "provenance": "owner-supplied candidate arithmetic (M2.2C); awaiting confirmation by a real person"
+    },
+    {
+      "case_id": "KA-2019-E-2",
+      "rule_id": "N13-2019-SSP-MIN-SPACING",
+      "rule_version": "1",
+      "constraint_key": "sprinkler.min_spacing",
+      "fixture": {
+        "builder": "rectangular_room",
+        "width_ft": 20.0,
+        "depth_ft": 10.0,
+        "unit": "ft"
+      },
+      "orientation": {
+        "branch_line_direction": [
+          1.0,
+          0.0
+        ],
+        "frame": "LOCAL"
+      },
+      "inputs": {
+        "positions_room_ft": [
+          [
+            5.0,
+            5.0
+          ],
+          [
+            10.0,
+            5.0
+          ]
+        ],
+        "deflector_elevation_ft": 10.5,
+        "harness_note": "deflector 10.50 ft (3 in below the 10.75 ft fixture ceiling) is a harness input only, required because the package includes the F rules; it does not affect this case's measurement"
+      },
+      "expected_measurement": 5,
+      "expected_unit": "ft",
+      "expected_limit": 6,
+      "expected_limit_unit": "ft",
+      "expected_outcome": "FAIL",
+      "hand_calculation": "10 ft − 5 ft = 5 ft < 6 ft.",
+      "derivation": "hand_calculation",
+      "author": "PLACEHOLDER_CASE_AUTHOR",
+      "reviewer": "PLACEHOLDER_CASE_REVIEWER",
+      "provenance": "owner-supplied candidate arithmetic (M2.2C); awaiting confirmation by a real person"
+    },
+    {
+      "case_id": "KA-2019-F_MIN-1",
+      "rule_id": "N13-2019-SSP-MIN-DEFLECTOR",
+      "rule_version": "1",
+      "constraint_key": "sprinkler.min_deflector_below_ceiling",
+      "fixture": {
+        "builder": "commercial_2019",
+        "width_ft": 57.5,
+        "depth_ft": 38.0
+      },
+      "orientation": {
+        "branch_line_direction": [
+          1.0,
+          0.0
+        ],
+        "frame": "LOCAL"
+      },
+      "inputs": {
+        "positions_room_ft": [
+          [
+            28.75,
+            19.0
+          ]
+        ],
+        "deflector_elevation_ft": 10.5
+      },
+      "expected_measurement": 0.25,
+      "expected_unit": "ft",
+      "expected_limit": 1,
+      "expected_limit_unit": "in",
+      "expected_outcome": "PASS",
+      "hand_calculation": "Ceiling 10.75 ft − deflector 10.50 ft = 0.25 ft = 3 in ≥ 1 in.",
+      "derivation": "hand_calculation",
+      "author": "PLACEHOLDER_CASE_AUTHOR",
+      "reviewer": "PLACEHOLDER_CASE_REVIEWER",
+      "provenance": "owner-supplied candidate arithmetic (M2.2C); awaiting confirmation by a real person"
+    },
+    {
+      "case_id": "KA-2019-F_MIN-2",
+      "rule_id": "N13-2019-SSP-MIN-DEFLECTOR",
+      "rule_version": "1",
+      "constraint_key": "sprinkler.min_deflector_below_ceiling",
+      "fixture": {
+        "builder": "commercial_2019",
+        "width_ft": 57.5,
+        "depth_ft": 38.0
+      },
+      "orientation": {
+        "branch_line_direction": [
+          1.0,
+          0.0
+        ],
+        "frame": "LOCAL"
+      },
+      "inputs": {
+        "positions_room_ft": [
+          [
+            28.75,
+            19.0
+          ]
+        ],
+        "deflector_elevation_ft": 10.7083333333
+      },
+      "expected_measurement": 0.5,
+      "expected_unit": "in",
+      "expected_limit": 1,
+      "expected_limit_unit": "in",
+      "expected_outcome": "FAIL",
+      "hand_calculation": "Ceiling 10.75 ft − deflector 10.7083333333 ft ≈ 0.0416666667 ft = 0.5 in < 1 in.",
+      "derivation": "hand_calculation",
+      "author": "PLACEHOLDER_CASE_AUTHOR",
+      "reviewer": "PLACEHOLDER_CASE_REVIEWER",
+      "provenance": "owner-supplied candidate arithmetic (M2.2C); awaiting confirmation by a real person"
+    },
+    {
+      "case_id": "KA-2019-F_MAX-1",
+      "rule_id": "N13-2019-SSP-MAX-DEFLECTOR",
+      "rule_version": "1",
+      "constraint_key": "sprinkler.max_deflector_below_ceiling",
+      "fixture": {
+        "builder": "commercial_2019",
+        "width_ft": 57.5,
+        "depth_ft": 38.0
+      },
+      "orientation": {
+        "branch_line_direction": [
+          1.0,
+          0.0
+        ],
+        "frame": "LOCAL"
+      },
+      "inputs": {
+        "positions_room_ft": [
+          [
+            28.75,
+            19.0
+          ]
+        ],
+        "deflector_elevation_ft": 10.25
+      },
+      "expected_measurement": 0.5,
+      "expected_unit": "ft",
+      "expected_limit": 12,
+      "expected_limit_unit": "in",
+      "expected_outcome": "PASS",
+      "hand_calculation": "Ceiling 10.75 ft − deflector 10.25 ft = 0.50 ft = 6 in ≤ 12 in.",
+      "derivation": "hand_calculation",
+      "author": "PLACEHOLDER_CASE_AUTHOR",
+      "reviewer": "PLACEHOLDER_CASE_REVIEWER",
+      "provenance": "owner-supplied candidate arithmetic (M2.2C); awaiting confirmation by a real person"
+    },
+    {
+      "case_id": "KA-2019-F_MAX-2",
+      "rule_id": "N13-2019-SSP-MAX-DEFLECTOR",
+      "rule_version": "1",
+      "constraint_key": "sprinkler.max_deflector_below_ceiling",
+      "fixture": {
+        "builder": "commercial_2019",
+        "width_ft": 57.5,
+        "depth_ft": 38.0
+      },
+      "orientation": {
+        "branch_line_direction": [
+          1.0,
+          0.0
+        ],
+        "frame": "LOCAL"
+      },
+      "inputs": {
+        "positions_room_ft": [
+          [
+            28.75,
+            19.0
+          ]
+        ],
+        "deflector_elevation_ft": 9.6666666667
+      },
+      "expected_measurement": 13,
+      "expected_unit": "in",
+      "expected_limit": 12,
+      "expected_limit_unit": "in",
+      "expected_outcome": "FAIL",
+      "hand_calculation": "Ceiling 10.75 ft − deflector 9.6666666667 ft ≈ 1.0833333333 ft = 13 in > 12 in.",
+      "derivation": "hand_calculation",
+      "author": "PLACEHOLDER_CASE_AUTHOR",
+      "reviewer": "PLACEHOLDER_CASE_REVIEWER",
+      "provenance": "owner-supplied candidate arithmetic (M2.2C); awaiting confirmation by a real person"
+    },
+    {
+      "case_id": "KA-2019-G-1",
+      "rule_id": "N13-2019-LH-NEW-SSP-RESPONSE",
+      "rule_version": "1",
+      "constraint_key": "sprinkler.response_type",
+      "fixture": {
+        "builder": "commercial_2019",
+        "width_ft": 57.5,
+        "depth_ft": 38.0
+      },
+      "orientation": {
+        "branch_line_direction": [
+          1.0,
+          0.0
+        ],
+        "frame": "LOCAL"
+      },
+      "inputs": {
+        "positions_room_ft": [
+          [
+            28.75,
+            19.0
+          ]
+        ],
+        "listing_response_type": "quick_response",
+        "deflector_elevation_ft": 10.5,
+        "harness_note": "deflector 10.50 ft is a harness input only"
+      },
+      "expected_fact_value": "quick_response",
+      "expected_allowed_values": [
+        "quick_response"
+      ],
+      "expected_outcome": "PASS",
+      "hand_calculation": "Listing states quick_response; allowed set is [quick_response].",
+      "derivation": "hand_calculation",
+      "author": "PLACEHOLDER_CASE_AUTHOR",
+      "reviewer": "PLACEHOLDER_CASE_REVIEWER",
+      "provenance": "owner-supplied candidate (M2.2C); awaiting confirmation by a real person"
+    }
+  ],
+  "incomplete_cases": [
+    {
+      "case_id": "KA-2019-G-2",
+      "status": "INCOMPLETE_VOCABULARY_DECISION_PENDING",
+      "reason": "No canonical internal value for standard response exists in the fireai package (legacy v1 code used both 'standard' and 'standard_response'). FireAI does not invent one: the owner must decide the canonical spelling (an engine vocabulary change, FACT_VALUES), then complete this FAIL case.",
+      "rule_id": "N13-2019-LH-NEW-SSP-RESPONSE",
+      "intended_expected_outcome": "FAIL",
+      "expected_allowed_values": [
+        "quick_response"
+      ],
+      "listing_response_type": null
+    }
+  ]
+}

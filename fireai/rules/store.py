@@ -26,8 +26,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from fireai.rules.constraints import (BOUNDARY_MEASUREMENTS, DECLARED_MEASUREMENTS, FACTS, MEASUREMENT_BOUNDS,
-                                      MEASUREMENTS)
+from fireai.rules.constraints import (BOUNDARY_MEASUREMENTS, DECLARED_MEASUREMENTS, FACT_VALUES, FACTS,
+                                      MEASUREMENT_BOUNDS, MEASUREMENTS, non_canonical_values)
+from fireai.rules.identity import is_placeholder, placeholder_message
 from fireai.rules.model import UNSUPPORTED_MEASUREMENT, Quantity, Rule, RuleSet
 from fireai.rules.units import UnitError, dimension
 
@@ -86,6 +87,13 @@ def approval_problems(rule: Rule, rs: RuleSet) -> list[str]:
             if not isinstance(vals, list) or not vals or any(isinstance(v, (dict, list, Quantity)) for v in vals):
                 p.append(f"fact requirement: {c.fact_requirement.allowed_parameter!r} must be a non-empty list of "
                          "scalar allowed values")
+            else:
+                from fireai.rules.catalog import REGISTERED_IDENTITIES
+                real = (rs.governing_standard, rs.edition or rs.base_edition or "") in REGISTERED_IDENTITIES
+                off = non_canonical_values(c.fact_requirement.fact, vals, real)
+                if off:
+                    p.append(f"fact requirement: {off} are not canonical values of {c.fact_requirement.fact!r} "
+                             f"{list(FACT_VALUES[c.fact_requirement.fact])} (no second spelling of the same fact)")
         elif c.derived is not None:
             fac = rule.parameter(c.derived.factor_parameter)
             if fac is None or isinstance(fac.value, bool) or not isinstance(fac.value, (int, float)):
@@ -265,6 +273,12 @@ class RuleStore:
             if who == rule.author:
                 raise RuleAuthoringError("the reviewer must be a different person from the author (two-person review)")
             if decision == "approve":
+                for name, control in ((who, "rule review"), (rule.author, "rule approval (as the rule's author)")):
+                    if is_placeholder(name):
+                        self._event(rid, version, "review_blocked", who, rule_id=rule_id,
+                                    problems=[placeholder_message(name, control)])
+                        raise RuleAuthoringError(placeholder_message(name, control))
+            if decision == "approve":
                 problems = approval_problems(rule, rs) + self._known_answer_problems(rule, rs)
                 if problems:
                     self._event(rid, version, "review_blocked", who, rule_id=rule_id, problems=problems)
@@ -289,6 +303,11 @@ class RuleStore:
             pending = [r.rule_id for r in rs.rules if r.review_status != "reviewed" or not r.reviewer]
             if pending:
                 raise RuleAuthoringError(f"rules not reviewed and accepted by a second person: {pending}")
+            for name, control in ([(who, "rule-set approval")] + [(r.author, "rule-set approval (rule author)")
+                                                                  for r in rs.rules]
+                                  + [(r.reviewer, "rule-set approval (rule reviewer)") for r in rs.rules]):
+                if is_placeholder(name):
+                    raise RuleAuthoringError(placeholder_message(name, control))
             authored = sorted({r.author for r in rs.rules if r.author == who})
             if authored:
                 raise RuleAuthoringError("the approver must not have authored rules in this set (two-person review)")

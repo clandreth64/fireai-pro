@@ -23,6 +23,8 @@ from typing import Any, Optional
 
 from fireai.rules.authorization import _screen
 from fireai.rules.catalog import NFPA13_2019_CONSTRUCTION_SCHEME
+from fireai.rules.catalog import REGISTERED_IDENTITIES
+from fireai.rules.constraints import FACT_VALUES, non_canonical_values
 from fireai.rules.model import (Condition, ConstraintTemplate, DerivedLimit, FactRequirement, Quantity, Rule,
                                 RuleApplicability, RuleParameter, RuleSource)
 from fireai.rules.units import UnitError, dimension
@@ -176,6 +178,12 @@ def load_rule_package(data: dict[str, Any], *, edition: str = "2019") -> RulePac
             if not isinstance(vals, list) or not vals or not all(isinstance(v, str) and v.strip() for v in vals):
                 p.append(f"{mid}: allowed_values (a non-empty list of response values as the listing states them) "
                          "is required")
+            elif non_canonical_values(m.fact, vals, ("NFPA 13", edition) in REGISTERED_IDENTITIES):
+                p.append(f"{mid}: allowed_values "
+                         f"{non_canonical_values(m.fact, vals, ('NFPA 13', edition) in REGISTERED_IDENTITIES)} are not "
+                         "canonical "
+                         f"values of {m.fact!r}: use {list(FACT_VALUES[m.fact])} (vocabulary decisions are engine "
+                         "changes, not input edits)")
             else:
                 params.append(RuleParameter(name="allowed", value=list(vals), meaning="owner-supplied allowed values"))
                 fact_req = FactRequirement(fact=m.fact, allowed_parameter="allowed")

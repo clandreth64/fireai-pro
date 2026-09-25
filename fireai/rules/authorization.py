@@ -26,6 +26,7 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from fireai.rules.identity import is_placeholder, placeholder_message
 from fireai.rules.model import RuleSet
 
 IDENTITY_ASSURANCE = "unauthenticated_name (NOT PRODUCTION SAFE)"
@@ -159,6 +160,11 @@ class AuthorizationStore:
                expiration_date: Optional[date] = None, permitted_uses: Optional[list[str]] = None,
                notes: str = "") -> SourceAuthorization:
         """Record a NEW authorization version (the previous one is kept). Owner / admin only."""
+        if is_placeholder(actor.name):
+            self._event({"action": "authorization_change_refused", "source_key": key, "by": actor.name,
+                         "role": actor.role, "requested_status": status,
+                         "reason": placeholder_message(actor.name, "a source-authorization change")})
+            raise AuthorizationError(placeholder_message(actor.name, "a source-authorization change"))
         if actor.role not in AUTHORIZING_ROLES:
             self._event({"action": "authorization_change_refused", "source_key": key, "by": actor.name,
                          "role": actor.role, "requested_status": status,
