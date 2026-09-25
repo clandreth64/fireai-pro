@@ -15,12 +15,23 @@ NOT_CLAIMED = ("customer-ready", "ready for submission to an authority having ju
                "commercially licensed")
 
 
-def status_summary(result: EngineeringDesignResult, internal: ReleaseDecision, external: ReleaseDecision) -> dict:
+def status_summary(result: EngineeringDesignResult, internal: ReleaseDecision, external: ReleaseDecision,
+                   rule_sets=None, manifest=None) -> dict:
+    """``rule_sets`` + ``manifest`` (M2.2B.2) add the rule-subset / envelope-completeness / compliance answers."""
+    from fireai.rules.completeness import nfpa_status
     nfpa = [s for s in internal.rule_sets if s.source_key]
     approved = bool(nfpa) and all(s.engineering_rule_status == "approved_and_sourced" for s in nfpa)
     auth = sorted({f"{s.source_key}: {(s.authorization or {}).get('status', 'UNKNOWN')}" for s in nfpa})
     internal_only = any((s.authorization or {}).get("status") != "COMMERCIAL_AUTHORIZED" for s in nfpa)
+    subset = nfpa_status(rule_sets or [], manifest,
+                         {s.source_key: (s.authorization or {}).get("status", "UNKNOWN") for s in nfpa},
+                         external_release_eligible=external.eligible)
     return {
+        "RULE_APPROVAL": subset["RULE_APPROVAL"] if rule_sets else "NOT_EVALUATED",
+        "NFPA_RULE_SUBSET_STATUS": subset["NFPA_RULE_SUBSET_STATUS"] if rule_sets else "NOT_EVALUATED",
+        "NFPA_ENVELOPE_COMPLETENESS": subset["NFPA_ENVELOPE_COMPLETENESS"],
+        "NFPA_COMPLIANCE": "NOT_CLAIMED",
+        "EXTERNAL_RELEASE": subset["EXTERNAL_RELEASE"],
         "ENGINEERING RULE STATUS": ("INTERNAL R&D APPROVED" if approved and internal_only else
                                     "APPROVED" if approved else "NOT APPROVED"),
         "SOURCE AUTHORIZATION": auth or ["no NFPA-derived rule set"],

@@ -72,10 +72,13 @@ class SprinklerPlacement(BaseModel):
 class ConstraintEvaluation(BaseModel):
     constraint_key: str
     measurement: str
-    bound: Literal["max", "min"]
-    limit: float
+    bound: Literal["max", "min", "in"]
+    limit: Optional[float] = None             # None for fact requirements (see allowed_values)
     unit: str
     tolerance: float
+    fact: Optional[str] = None                # M2.2B.2: fact requirements
+    fact_value: Optional[Any] = None
+    allowed_values: Optional[list] = None
     measured: Optional[float] = None
     margin: Optional[float] = None            # positive = inside the limit
     passed: bool

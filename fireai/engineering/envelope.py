@@ -108,6 +108,24 @@ def envelope_blockers(req, rule_sets) -> list[DesignIssue]:
                 f"envelope {env.envelope_id} requires an explicit branch-line orientation (LayoutOrientation)")
     if env.search_families is not None and req.search is not None and req.search.family not in env.search_families:
         outside("placement search family", req.search.family, env.search_families)
+    if env.installation_contexts is not None:
+        ctx = req.installation.kind if req.installation is not None else "unknown"
+        if ctx == "unknown":
+            missing("MISSING_INSTALLATION_CONTEXT", f"envelope {env.envelope_id} requires an explicit installation "
+                                                    "context (new system / modification / replacement)")
+        elif ctx not in env.installation_contexts:
+            outside("installation context", ctx, env.installation_contexts)
+    if env.required_fact_rules is not None:
+        facts_with_rules = {r.constraint.fact_requirement.fact for rs in list(rule_sets)
+                            + ([req.listing.rules] if req.listing is not None else [])
+                            for r in rs.rules if r.constraint is not None and r.constraint.fact_requirement is not None}
+        for fact in env.required_fact_rules:
+            if fact == "sprinkler.response" and req.listing is not None and not req.listing.response_type:
+                missing("MISSING_RESPONSE_TYPE", f"envelope {env.envelope_id} requires the listing's response type")
+            if fact not in facts_with_rules:
+                missing("REQUIRED_FACT_RULE_MISSING",
+                        f"envelope {env.envelope_id} requires an approved rule evaluating {fact!r}; the rule stack has "
+                        "none, so the fact would go unchecked")
     if env.perimeter_boundary_kinds is not None:
         region = _region(req)
         if region is not None:

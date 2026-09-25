@@ -78,7 +78,15 @@ def approval_problems(rule: Rule, rs: RuleSet) -> list[str]:
         p.append(f"unknown measurement {c.measurement!r}")
     else:
         lim = rule.parameter(c.limit_parameter) if c.derived is None else None
-        if c.derived is not None:
+        if c.fact_requirement is not None:                         # M2.2B.2: structured-fact requirement
+            if c.fact_requirement.fact not in FACTS:
+                p.append(f"fact requirement on {c.fact_requirement.fact!r}, which FireAI cannot establish (not in FACTS)")
+            allowed = rule.parameter(c.fact_requirement.allowed_parameter)
+            vals = allowed.value if allowed is not None else None
+            if not isinstance(vals, list) or not vals or any(isinstance(v, (dict, list, Quantity)) for v in vals):
+                p.append(f"fact requirement: {c.fact_requirement.allowed_parameter!r} must be a non-empty list of "
+                         "scalar allowed values")
+        elif c.derived is not None:
             fac = rule.parameter(c.derived.factor_parameter)
             if fac is None or isinstance(fac.value, bool) or not isinstance(fac.value, (int, float)):
                 p.append(f"derived limit: factor {c.derived.factor_parameter!r} missing or not a dimensionless number")

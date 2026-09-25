@@ -246,7 +246,9 @@ def _conds(blockers):
 
 def test_16_the_exact_2019_envelope_combination_is_recognised(commercial):
     req = C.request(commercial, [empty_draft(NFPA13_2019_BASE)])
-    assert _blockers(req) == []
+    # M2.2B.2: every FACT matches; the only envelope blocker left is that the (empty) rule set has no rule
+    # evaluating the response type, which the envelope requires
+    assert [b.code for b in _blockers(req)] == ["REQUIRED_FACT_RULE_MISSING"]
     assert envelope_for("NFPA 13", "2019").envelope_id == "NFPA13-2019-DEV-ENVELOPE-1"
     r = run_design(req)                     # the envelope does not approve the (empty, draft) rule set
     codes = {i.code for i in r.refusals}

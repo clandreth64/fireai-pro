@@ -176,7 +176,8 @@ def test_11_a_rule_mapped_to_the_wrong_measurement_is_refused():
     rs = RuleSet(rule_set_id="X", version="1", layer="base_standard", governing_standard="NFPA 13", edition="E",
                  content_basis="authoritative", rules=[])
     assert any("only supports bound" in p for p in approval_problems(wrong.model_copy(), rs))
-    assert MEASUREMENT_BOUNDS == {"perpendicular_wall_distance": {"max"}, "min_perpendicular_wall_distance": {"min"}}
+    assert MEASUREMENT_BOUNDS == {"perpendicular_wall_distance": {"max"}, "min_perpendicular_wall_distance": {"min"},
+                                  "fact_requirement": {"in"}}
     assert (M22B_MAPPINGS["D"].measurement, M22B_MAPPINGS["D"].bound) == ("min_perpendicular_wall_distance", "min")
 
 

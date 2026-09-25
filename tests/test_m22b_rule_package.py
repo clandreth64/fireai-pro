@@ -68,6 +68,9 @@ CASES = {
               ("FAIL", grid(L1_U, L1_V), 0.02, 0.05, "10.75 - 10.73 = 0.02 < 0.05", 10.73)],
     "F_MAX": [("PASS", grid(L1_U, L1_V), 0.5, 0.7, "10.75 - 10.25 = 0.5 <= 0.7", 10.25),
               ("FAIL", grid(L1_U, L1_V), 0.8, 0.7, "10.75 - 9.95 = 0.8 > 0.7", 9.95)],
+    # M2.2B.2 fact requirement (synthetic response values, never real designations)
+    "G": [("PASS", C.SYNTHETIC_RESPONSE, "the listing states TEST_ONLY_SYNTHETIC_RESPONSE_A, which is allowed"),
+          ("FAIL", "TEST_ONLY_SYNTHETIC_RESPONSE_B", "the listing states ..._B, which is not in the allowed set")],
 }
 
 
@@ -85,6 +88,8 @@ def filled(edition=HYPO, units=None) -> dict:
             e["applies"] = True
         if mid == "C":
             e["derived"]["factor"] = PLACEHOLDER["C"]
+        elif mid == "G":
+            e["allowed_values"] = [C.SYNTHETIC_RESPONSE]
         else:
             v, u = PLACEHOLDER[mid]
             if units == "metric":
@@ -102,6 +107,17 @@ def hypo_envelope(monkeypatch):
 
 
 def _case(mid, n, spec):
+    if mid == "G":
+        outcome, value, calc = spec
+        return KnownAnswerCase(
+            case_id=f"KA-HYPO-G-{n}", rule_id="HYPO-G", rule_version="1", constraint_key=M22B_MAPPINGS["G"].key,
+            fixture={"builder": "commercial_2019", "width_ft": C.WIDTH_FT, "depth_ft": C.DEPTH_FT},
+            orientation={"branch_line_direction": [1.0, 0.0], "frame": "LOCAL"},
+            inputs={"positions_room_ft": grid(L1_U, L1_V), "deflector_elevation_ft": 10.25,
+                    "listing_response_type": value},
+            expected_fact_value=value, expected_allowed_values=[C.SYNTHETIC_RESPONSE], expected_outcome=outcome,
+            hand_calculation=calc, derivation="hand_calculation", author=CASE_AUTHOR, authored_at="2026-09-25",
+            provenance="stated by hand from the rule's allowed set (test)")
     outcome, positions, measured, limit, calc, *defl = spec
     m = M22B_MAPPINGS[mid]
     unit = "sf" if m.dimension == "area" else "ft"
@@ -224,7 +240,7 @@ def test_07_to_15_every_rule_reproduces_its_independent_known_answers(approved):
     store, ka, rs = approved
     assert rs.review_status == "approved"
     by = {c.case_id: c for c in ka.cases()}
-    assert len(by) == 14 and all(c.verifications[-1]["match"] for c in by.values())
+    assert len(by) == 16 and all(c.verifications[-1]["match"] for c in by.values())
     keys = {r.rule_id: (r.constraint.key, r.constraint.measurement, r.constraint.bound, r.constraint.reference_kinds)
             for r in rs.rules}
     assert keys["HYPO-A"][1] == "array_sxl_protection_area"                         # 7: S x L, not Voronoi
@@ -388,13 +404,17 @@ def test_26_imperial_metric_intake_gives_identical_constraints():
                  "sprinkler.type": "standard_spray", "sprinkler.orientation": "pendent",
                  "system.design_method": "hydraulically_calculated", "ceiling.surface": "flat",
                  "ceiling.construction_classification.scheme": catalog.NFPA13_2019_CONSTRUCTION_SCHEME,
-                 "ceiling.construction_classification": "noncombustible_unobstructed"}
+                 "ceiling.construction_classification": "noncombustible_unobstructed",
+                 "installation.context": "new_system"}
         return {c.key: (c.limit, c.unit) for c in resolve([rs_], facts, "engineering", "amendments_not_evaluated")
                 .constraints}
     a, b = limits(imp), limits(met)
-    assert a.keys() == b.keys() and len(a) == 7
+    assert a.keys() == b.keys() and len(a) == 8
     for k in a:
-        assert b[k][0] == pytest.approx(a[k][0], abs=1e-9) and a[k][1] == b[k][1]
+        if a[k][0] is None:                                     # G: a fact requirement (no quantity)
+            assert b[k] == a[k]
+        else:
+            assert b[k][0] == pytest.approx(a[k][0], abs=1e-9) and a[k][1] == b[k][1]
 
 
 def test_27_repeatable(tmp_path, approved):

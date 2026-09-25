@@ -1,7 +1,7 @@
 {
   "template": "fireai.sprinkler_listing/1",
   "status": "AWAITING_OWNER_INPUT",
-  "instructions": "Only from the manufacturer's current data sheet / listing document; leave unknown fields null. Until this exists, M2.2B designs run in rule_validation mode with a SYNTHETIC listing and are NOT product-specific designs.",
+  "instructions": "Only from the manufacturer's current data sheet / listing document; leave unknown fields null. response_type is REQUIRED for NFPA13-2019-DEV-ENVELOPE-1: enter it exactly as the document states it (no default is ever assumed); an approved Rule G must accept it or the design fails. Until a real listing exists, M2.2B designs run in rule_validation mode with a SYNTHETIC listing (TEST_ONLY response value) and are NOT product-specific designs.",
   "listing": {
     "listing_id": null,
     "version": "1",
@@ -14,6 +14,7 @@
     "orientation": "pendent",
     "installation_style": "exposed",
     "response_type": null,
+    "response_type_note": "REQUIRED (from the manufacturer document)",
     "k_factor": {
       "value": null,
       "unit": null

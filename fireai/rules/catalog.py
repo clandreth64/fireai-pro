@@ -57,6 +57,9 @@ class DevelopmentEnvelope(BaseModel):
     perimeter_boundary_kinds: Optional[list[str]] = None              # every boundary segment must be one of these
     wall_reference_kinds: Optional[list[str]] = None                  # exact reference kinds wall rules may use
     installation_styles: Optional[list[str]] = None                   # SprinklerListing.installation_style
+    # M2.2B.2
+    installation_contexts: Optional[list[str]] = None                 # InstallationContext.kind
+    required_fact_rules: Optional[list[str]] = None                   # facts an approved rule MUST evaluate
     not_included: list[str] = Field(default_factory=list)             # documented exclusions (refused)
     space_scope: str = "one simple known space at a time"
     note: str = ""
@@ -109,12 +112,15 @@ NFPA13_2019_FIRST_ENVELOPE = DevelopmentEnvelope(
     requires_branch_line_orientation=True, requires_orthogonal_geometry=True, requires_horizontal_ceiling=True,
     search_families=["room_axis_array/1"],
     perimeter_boundary_kinds=["wall"], wall_reference_kinds=["wall"], installation_styles=["exposed"],
+    installation_contexts=["new_system"], required_fact_rules=["sprinkler.response"],
     status_history=[{"status": "active_internal_rnd", "at": "2026-09-24", "by": "owner",
                      "reason": "M2.2A.1 decision; INTERNAL R&D only (source status INTERNAL_R_AND_D_ONLY)"}],
     not_included=["small-room provisions (eligible or undetermined)", "angled / irregular walls", "storage",
                   "door openings, open openings, windows or unknown segments on the space boundary (M2.2B: only "
                   "verified solid walls are wall references; window treatment deferred)",
                   "recessed / flush / concealed installation", "baffles, in-rack sprinklers",
+                  "existing-system modification / replacement work (and their exception paths)",
+                  "other sprinkler technologies / response exception paths",
                   "ceiling elevation changes",
                   "beams, soffits, clouds, known obstructions", "sloped / stepped / multi-plane ceilings",
                   "pipe-schedule design", "other hazards, system types, sprinkler types or orientations"],

@@ -19,8 +19,8 @@ from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field
 
-from fireai.rules.constraints import (DECLARED_MEASUREMENTS, MEASUREMENT_BOUNDS, MEASUREMENTS, Contribution,
-                                      EngineeringConstraint)
+from fireai.rules.constraints import (DECLARED_MEASUREMENTS, FACTS, MEASUREMENT_BOUNDS, MEASUREMENTS,
+                                      Contribution, EngineeringConstraint)
 from fireai.rules.model import LAYER_ORDER, UNSUPPORTED_MEASUREMENT, Condition, Quantity, Rule, RuleSet
 from fireai.rules.units import UnitError, dimension, to_canonical
 
@@ -388,6 +388,8 @@ def _resolve_key(key: str, members: list, replaced: dict[str, str], effective: d
                                   message=f"rules for {key} disagree on what is measured; only an explicit "
                                           "permitted replacement may change it"))
         return None
+    if c0.measurement == "fact_requirement":
+        return _resolve_fact_key(key, members, replaced, refusals)
     want = MEASUREMENTS[c0.measurement][0]
     contribs, bad = [], False
     for r, s in members:
@@ -415,3 +417,50 @@ def _resolve_key(key: str, members: list, replaced: dict[str, str], effective: d
     return EngineeringConstraint(key=key, measurement=c0.measurement, bound=c0.bound, limit=pick[2], unit=pick[3],
                                  reference_kinds=list(c0.reference_kinds), contributions=out_c,
                                  governing_rule_id=pick[0].rule_id)
+
+
+def _allowed(r: Rule, refusals: list[RuleIssue]) -> Optional[list]:
+    fr = r.constraint.fact_requirement
+    p = r.parameter(fr.allowed_parameter)
+    vals = p.value if p is not None else None
+    if not isinstance(vals, list) or not vals or any(isinstance(v, (dict, list, Quantity)) for v in vals):
+        refusals.append(RuleIssue(code="RULE_PARAMETER_MISSING", rule_id=r.rule_id,
+                                  message=f"{r.rule_id}: {fr.allowed_parameter!r} must be a non-empty list of scalar "
+                                          "allowed values (quantity-valued fact requirements are not supported yet)"))
+        return None
+    return list(vals)
+
+
+def _resolve_fact_key(key: str, members: list, replaced: dict[str, str], refusals: list[RuleIssue]):
+    """Fact requirements for one key combine MOST-RESTRICTIVELY: the effective allowed set is the
+    INTERSECTION of every live contribution (a later layer can only narrow unless it permitted-replaces)."""
+    live = [(r, s) for r, s in members if r.rule_id not in replaced]
+    facts = {r.constraint.fact_requirement.fact for r, _s in live}
+    if len(facts) != 1:
+        refusals.append(RuleIssue(code="CONSTRAINT_DEFINITION_CONFLICT",
+                                  message=f"rules for {key} test different facts {sorted(facts)}"))
+        return None
+    fact = facts.pop()
+    if fact not in FACTS:
+        refusals.append(RuleIssue(code="UNKNOWN_FACT", rule_id=live[0][0].rule_id,
+                                  message=f"{key}: fact {fact!r} is not in the FACTS vocabulary"))
+        return None
+    per = {}
+    for r, _s in members:
+        a = _allowed(r, refusals)
+        if a is None:
+            return None
+        per[r.rule_id] = a
+    eff = None
+    for r, _s in live:
+        eff = list(per[r.rule_id]) if eff is None else [v for v in eff if v in per[r.rule_id]]
+    gov = min(live, key=lambda rs: (len(per[rs[0].rule_id]), _layer_index(rs[1].layer)))[0]
+    contribs = [Contribution(rule_id=r.rule_id, rule_set_id=s.rule_set_id, rule_set_version=s.version, layer=s.layer,
+                             content_basis=s.content_basis, source_document=r.source.document,
+                             source_reference=r.source.reference, limit=None, unit="none",
+                             action=("replaced" if r.rule_id in replaced else "governs" if r is gov else
+                                     "less_restrictive"), allowed_values=per[r.rule_id],
+                             note=(f"replaced by {replaced[r.rule_id]}" if r.rule_id in replaced else ""))
+                for r, s in members]
+    return EngineeringConstraint(key=key, measurement="fact_requirement", bound="in", limit=None, unit="none",
+                                 fact=fact, allowed_values=eff, contributions=contribs, governing_rule_id=gov.rule_id)

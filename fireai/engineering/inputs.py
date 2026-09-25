@@ -225,6 +225,17 @@ class LayoutOrientation(BaseModel):
         return (-y, x)
 
 
+class InstallationContext(BaseModel):
+    """M2.2B.2: the WORK context of the design area — a new system, a modification of an existing one, or
+    a replacement. Explicit and attributed; FireAI never infers it from drawings. ``unknown`` is a valid
+    statement that makes any rule or envelope needing the context refuse. ``work_scope_refs`` lets later
+    project / work-scope records (phases, permits, demolition extents) attach without replacing this."""
+    kind: Literal["new_system", "existing_system_modification", "replacement", "unknown"]
+    work_scope_refs: list[str] = Field(default_factory=list)
+    reason: str = ""
+    source: InputSource
+
+
 class DeflectorPosition(BaseModel):
     """M2.2A: the sprinkler deflector elevation, as an explicit design input on an explicit datum.
     With it, placements carry a known Z; without it Z stays UNKNOWN and vertical rules refuse."""
@@ -271,4 +282,5 @@ class DesignRequest(BaseModel):
     eligibility: dict[str, EligibilityDecision] = Field(default_factory=dict)   # M2.2A, e.g. {"small_room": ...}
     deflector: Optional[DeflectorPosition] = None                               # M2.2A
     orientation: Optional[LayoutOrientation] = None                             # M2.2A.1: branch-line direction
+    installation: Optional[InstallationContext] = None                          # M2.2B.2: new / existing work
     requested_by: Optional[str] = None

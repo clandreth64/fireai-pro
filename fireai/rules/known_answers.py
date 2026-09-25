@@ -46,10 +46,12 @@ class KnownAnswerCase(BaseModel):
     fixture: dict[str, Any]                   # geometry spec, e.g. {"builder": "rectangular_room", "width_ft": ..}
     orientation: Optional[dict[str, Any]] = None          # explicit branch-line orientation used
     inputs: dict[str, Any]                    # positions (room frame), deflector elevation, ...
-    expected_measurement: float
-    expected_unit: str
-    expected_limit: float
-    expected_limit_unit: str
+    expected_measurement: Optional[float] = None       # geometric cases
+    expected_unit: str = ""
+    expected_limit: Optional[float] = None
+    expected_limit_unit: str = ""
+    expected_fact_value: Optional[str] = None          # M2.2B.2: fact-requirement cases
+    expected_allowed_values: Optional[list] = None
     expected_outcome: Literal["PASS", "FAIL"]
     hand_calculation: str                     # the derivation, step by step
     derivation: Literal["hand_calculation", "independent_software"]
@@ -63,6 +65,12 @@ class KnownAnswerCase(BaseModel):
 
     @model_validator(mode="after")
     def _independent(self):
+        if (self.expected_measurement is None) == (self.expected_fact_value is None):
+            raise ValueError("a case states EITHER an expected measurement (geometry) OR an expected fact value")
+        if self.expected_measurement is not None and self.expected_limit is None:
+            raise ValueError("a geometric case needs its expected limit")
+        if self.expected_fact_value is not None and not self.expected_allowed_values:
+            raise ValueError("a fact case needs the expected allowed values")
         if not self.hand_calculation.strip():
             raise ValueError("a known-answer case needs its hand calculation")
         for f in ("author", "provenance"):
@@ -148,18 +156,22 @@ class KnownAnswerStore:
 
     def record_verification(self, case_id: str, *, measured: Optional[float], limit: Optional[float],
                             outcome: str, engine: str, rule_set_digest: str, tolerance: float,
-                            rule_digest: str) -> dict:
+                            rule_digest: str, fact_value=None, allowed_values=None) -> dict:
         """Record what the deterministic engine produced for the case (the expected values are NOT
         changed): match = measurement and limit within tolerance and the same PASS / FAIL."""
         with _lock:
             c = self.get(case_id)
             if c is None:
                 raise KnownAnswerError(f"no case {case_id}")
-            match = (measured is not None and limit is not None and outcome == c.expected_outcome
-                     and abs(measured - c.expected_measurement) <= tolerance
-                     and abs(limit - c.expected_limit) <= tolerance)
+            if c.expected_fact_value is not None:
+                match = (outcome == c.expected_outcome and fact_value == c.expected_fact_value
+                         and sorted(allowed_values or []) == sorted(c.expected_allowed_values or []))
+            else:
+                match = (measured is not None and limit is not None and outcome == c.expected_outcome
+                         and abs(measured - c.expected_measurement) <= tolerance
+                         and abs(limit - c.expected_limit) <= tolerance)
             rec = {"at": datetime.now(timezone.utc).isoformat(), "engine": engine, "rule_set_digest": rule_set_digest,
-                   "rule_digest": rule_digest,
+                   "rule_digest": rule_digest, "fact_value": fact_value, "allowed_values": allowed_values,
                    "measured": measured, "limit": limit, "outcome": outcome, "tolerance": tolerance, "match": match}
             c = c.model_copy(update={"verifications": c.verifications + [rec]})
             self._write(c)

@@ -1,7 +1,7 @@
 {
   "template": "fireai.known_answer_cases/1",
   "status": "AWAITING_OWNER_INPUT",
-  "instructions": "Two cases per rule minimum, each worked BY HAND (or independent software) from the geometry, never copied from FireAI output. Positions are room-frame (u, v) feet from the space's min corner (u along LOCAL +x for the commercial fixture). The case author must not be the only author of the rule; the case reviewer must differ from the case author.",
+  "instructions": "Two cases per rule minimum, each worked BY HAND (or independent software) from the geometry or the stated facts, never copied from FireAI output. Geometric cases: positions are room-frame (u, v) feet from the space's min corner (u along LOCAL +x for the commercial fixture). Rule G (a fact requirement): state the listing response value the case uses, the allowed values you expect the rule to hold, and PASS / FAIL. The case author must not be the only author of the rule; the case reviewer must differ from the case author.",
   "cases": [
     {
       "case_id": "KA-2019-A-1",
@@ -448,6 +448,68 @@
       "expected_unit": "ft",
       "expected_limit": null,
       "expected_limit_unit": "ft",
+      "expected_outcome": "FAIL (suggested: one passing and one failing case per rule)",
+      "hand_calculation": null,
+      "derivation": "hand_calculation",
+      "author": null,
+      "reviewer": null,
+      "provenance": null
+    },
+    {
+      "case_id": "KA-2019-G-1",
+      "rule_id": null,
+      "rule_version": "1",
+      "constraint_key": "sprinkler.response_type",
+      "fixture": {
+        "builder": "commercial_2019",
+        "width_ft": 57.5,
+        "depth_ft": 38.0,
+        "note": "or {\"builder\": \"rectangular_room\", \"width_ft\": .., \"depth_ft\": .., \"unit\": \"ft\"}"
+      },
+      "orientation": {
+        "branch_line_direction": [
+          1.0,
+          0.0
+        ],
+        "frame": "LOCAL"
+      },
+      "inputs": {
+        "positions_room_ft": null,
+        "listing_response_type": null
+      },
+      "expected_fact_value": null,
+      "expected_allowed_values": null,
+      "expected_outcome": "PASS (suggested: one passing and one failing case per rule)",
+      "hand_calculation": null,
+      "derivation": "hand_calculation",
+      "author": null,
+      "reviewer": null,
+      "provenance": null
+    },
+    {
+      "case_id": "KA-2019-G-2",
+      "rule_id": null,
+      "rule_version": "1",
+      "constraint_key": "sprinkler.response_type",
+      "fixture": {
+        "builder": "commercial_2019",
+        "width_ft": 57.5,
+        "depth_ft": 38.0,
+        "note": "or {\"builder\": \"rectangular_room\", \"width_ft\": .., \"depth_ft\": .., \"unit\": \"ft\"}"
+      },
+      "orientation": {
+        "branch_line_direction": [
+          1.0,
+          0.0
+        ],
+        "frame": "LOCAL"
+      },
+      "inputs": {
+        "positions_room_ft": null,
+        "listing_response_type": null
+      },
+      "expected_fact_value": null,
+      "expected_allowed_values": null,
       "expected_outcome": "FAIL (suggested: one passing and one failing case per rule)",
       "hand_calculation": null,
       "derivation": "hand_calculation",

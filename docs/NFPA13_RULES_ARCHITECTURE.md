@@ -423,3 +423,37 @@ end (a re-entrant corner or an opening jamb) is nearer than every perpendicular 
 NOT EVALUABLE, which is never a pass. Door and open openings are not walls. Windows remain outside the
 2019 envelope. Unknown segments refuse (`BOUNDARY_KIND_UNKNOWN`), and so do angled walls. The
 rectangle fast path decides the minimum clearance exactly at the axis stage.
+
+## 11. Milestone 2.2B.2: installation context, fact requirements, completeness vs compliance
+
+**Installation context** (`InstallationContext.kind`: new_system / existing_system_modification /
+replacement / unknown, attributed): it becomes the fact `installation.context`. Unknown means the
+fact is absent, so rules that need it refuse. `work_scope_refs` leaves room for later project and
+work-scope records. The context is part of the request fingerprint, the result inputs and project
+`dependencies_of`, so changing it makes stored designs STALE. The 2019 envelope requires `new_system`.
+
+**Fact requirements** (`measurement = "fact_requirement"`, bound `in`, `FactRequirement(fact,
+allowed_parameter)`) are generic, not specific to response type.
+- The fact must be in `FACTS`. The allowed values are a list parameter of the rule, so they carry the
+  rule's provenance.
+- Layers combine most-restrictively, by intersection.
+- Outcomes:
+  - a missing fact refuses (`FACT_REQUIREMENT_UNKNOWN`);
+  - a value outside the allowed set fails every layout at the search's GLOBAL stage;
+  - otherwise the evaluation records the fact, its value, the allowed set and the governing rule.
+- There are no expressions, and an agent's proposal cannot change the outcome.
+
+**Rule G** (9.4.3.1) maps to a fact requirement on `sprinkler.response`, with owner-supplied values.
+The 2019 envelope requires a known listing response type and an approved rule that evaluates it
+(`REQUIRED_FACT_RULE_MISSING` otherwise). Known-answer cases can now be fact cases (expected fact value
+and allowed set).
+
+**Completeness** (`fireai/rules/completeness.py`) separates four answers:
+- rule approval;
+- rule-subset status: VALIDATED / PARTIAL / NOT_VALIDATED;
+- envelope completeness: ESTABLISHED only through a qualified, independently approved, edition- and
+  envelope-specific `CompletenessManifest`;
+- external release.
+
+`NFPA_COMPLIANCE` has one value: NOT_CLAIMED. `NFPA13_2019_DEV_MANIFEST` lists A–G and is
+DEVELOPMENT_INCOMPLETE / NOT_ESTABLISHED.

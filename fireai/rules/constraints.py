@@ -53,6 +53,9 @@ MEASUREMENTS: dict[str, tuple[str, str]] = {
                                                   "independent of neighbouring sprinklers. A nearer wall end (re-entrant "
                                                   "corner / jamb) makes it NOT EVALUABLE (MIN-WALL-CLEARANCE/1). MIN "
                                                   "bound only"),
+    # M2.2B.2: not geometry — membership of a structured fact in the rule's allowed values
+    "fact_requirement": ("fact", "the stated value of a structured fact (FACTS vocabulary) must be one of the "
+                                 "rule's allowed values; missing = UNKNOWN (refused)"),
     "ceiling_to_deflector_vertical_distance": ("length", "ceiling elevation minus sprinkler deflector elevation, on "
                                                          "one explicit datum (signed: positive = deflector below the "
                                                          "ceiling); single flat ceiling region only (VERT-DEFLECTOR/1)"),
@@ -67,7 +70,8 @@ BOUNDARY_MEASUREMENTS = {"point_to_boundary_min", "boundary_point_to_nearest_spr
 # MAPPING ERROR that the resolver and the approval check refuse (e.g. a minimum-wall rule mapped to the
 # end-condition measurement)
 MEASUREMENT_BOUNDS: dict[str, set[str]] = {"perpendicular_wall_distance": {"max"},
-                                           "min_perpendicular_wall_distance": {"min"}}
+                                           "min_perpendicular_wall_distance": {"min"},
+                                           "fact_requirement": {"in"}}
 # measurements that follow array directions to a wall reference: straight, room-frame-aligned
 # boundaries only; angled / irregular boundaries REFUSE (never evaluated with straight-wall logic)
 WALL_RAY_MEASUREMENTS = {"perpendicular_wall_distance"} | set(SXL_MEASUREMENTS)
@@ -107,6 +111,8 @@ FACTS: dict[str, str] = {
     "ceiling.construction_classification.scheme": "CeilingRegion.construction_classification.scheme",
     "ceiling.construction_classification": "CeilingRegion.construction_classification.value (the classification "
                                            "the standard uses — distinct from the geometric ceiling facts)",
+    "installation.context": "DesignRequest.installation.kind (new_system / existing_system_modification / "
+                            "replacement; 'unknown' = absent) — never inferred from drawings",
     "space.eligibility.small_room": "DesignRequest.eligibility['small_room'].status (human-attributed; never "
                                     "derived from area alone)",
 }
@@ -121,9 +127,10 @@ class Contribution(BaseModel):
     content_basis: str
     source_document: str
     source_reference: Optional[str] = None
-    limit: float                                     # canonical units
+    limit: Optional[float] = None                    # canonical units (None for fact requirements)
     unit: str
     action: Literal["governs", "less_restrictive", "replaced", "replaces"]
+    allowed_values: Optional[list] = None            # M2.2B.2: this rule's allowed values (fact requirements)
     note: str = ""
     # M2.2A: set when the limit is derived from another resolved constraint (provenance of the value)
     derived: Optional[dict] = None           # {op, from_key, from_limit, from_unit, from_governing_rule_id, factor}
@@ -132,15 +139,21 @@ class Contribution(BaseModel):
 class EngineeringConstraint(BaseModel):
     key: str
     measurement: str
-    bound: Literal["max", "min"]
-    limit: float                                     # effective limit, canonical units (ft / sf)
-    unit: Literal["ft", "sf"]
+    bound: Literal["max", "min", "in"]
+    limit: Optional[float] = None                    # effective limit, canonical units (ft / sf); None for facts
+    unit: Literal["ft", "sf", "none"]
     reference_kinds: list[str] = Field(default_factory=list)
+    fact: Optional[str] = None                       # M2.2B.2: fact requirements — the fact tested ...
+    allowed_values: Optional[list] = None            # ... and the effective allowed set (intersection)
     contributions: list[Contribution]
     governing_rule_id: str
 
     def explain(self) -> str:
         g = next(c for c in self.contributions if c.rule_id == self.governing_rule_id)
+        if self.measurement == "fact_requirement":
+            return (f"{self.key}: fact {self.fact} must be one of {self.allowed_values} (governed by {g.rule_id} "
+                    f"[{g.layer}, {g.rule_set_id} v{g.rule_set_version}]; contributions: "
+                    + ", ".join(f"{c.rule_id} {c.allowed_values}" for c in self.contributions) + ")")
         others = [c for c in self.contributions if c.rule_id != self.governing_rule_id]
         return (f"{self.key}: {self.bound} {self.limit:g} {self.unit} ({self.measurement}"
                 + (f" vs {'/'.join(self.reference_kinds)}" if self.reference_kinds else "") + f") governed by "

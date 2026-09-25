@@ -320,3 +320,14 @@ supplied (`docs/m2_2b/README.md`).
 | # | Decision | Implemented as |
 |---|---|---|
 | 39 | Rule D (minimum distance from walls) is the minimum perpendicular distance to ANY applicable solid wall, not the end-condition measurement. The two concepts are distinct and a mismatch is refused | `min_perpendicular_wall_distance`; `MEASUREMENT_BOUNDS`; `M22B_MAPPINGS["D"]` |
+
+---
+
+## M2.2B.2: owner decisions (2026-09-25)
+
+| # | Decision | Implemented as |
+|---|---|---|
+| 40 | The installation context (new / existing modification / replacement) is an explicit, attributed fact; the 2019 envelope requires `new_system` | `InstallationContext`; `installation.context` |
+| 41 | Non-geometric requirements are generic fact requirements | `FactRequirement` / `fact_requirement` |
+| 42 | Rule G (9.4.3.1): response / selection requirement for a new Light Hazard standard-spray installation; values are owner input; other technologies and existing-system exceptions are outside the envelope | `M22B_MAPPINGS["G"]`; envelope `required_fact_rules` |
+| 43 | An approved rule subset is not NFPA compliance; completeness needs a qualified, independently approved manifest; compliance is not claimed | `completeness.py`; `nfpa_status`; `NFPA13_2019_DEV_MANIFEST` |

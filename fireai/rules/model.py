@@ -125,6 +125,20 @@ class DerivedLimit(BaseModel):
     factor_parameter: str                           # name of a dimensionless RuleParameter of this rule
 
 
+FACT_REQUIREMENT = "fact_requirement"
+
+
+class FactRequirement(BaseModel):
+    """M2.2B.2: a rule that checks a STRUCTURED FACT instead of measuring geometry — e.g. a sprinkler's
+    response type, orientation, installation style, the system type or design method, a listing
+    characteristic. The fact must be in the ``FACTS`` vocabulary (explicit, attributed inputs only); the
+    allowed values are a list-valued RuleParameter of the same rule (provenance with the rule). No
+    expressions: the only test is membership. A missing fact is UNKNOWN and refuses; a present value
+    outside the allowed set FAILS every layout."""
+    fact: str
+    allowed_parameter: str = "allowed"
+
+
 class ConstraintTemplate(BaseModel):
     """What the rule asks the deterministic engines to check, in their measurement vocabulary
     (``fireai/rules/constraints.py``). The rule decides WHAT is measured and against which boundary
@@ -135,14 +149,21 @@ class ConstraintTemplate(BaseModel):
     approved for engineering, and an applicable one makes engineering REFUSE — it is never approximated."""
     key: str                                        # identity for layering, e.g. "sprinkler.max_boundary_distance"
     measurement: str                                # a MEASUREMENTS key, or UNSUPPORTED_MEASUREMENT
-    bound: Literal["max", "min"]
+    bound: Literal["max", "min", "in"]              # "in": membership (fact requirements only)
     limit_parameter: str = ""                       # name of the RuleParameter holding the limit ...
     derived: Optional[DerivedLimit] = None          # ... OR a limit derived from another constraint (M2.2A)
+    fact_requirement: Optional[FactRequirement] = None   # ... OR a structured-fact requirement (M2.2B.2)
     reference_kinds: list[str] = Field(default_factory=list)   # boundary segment kinds that participate
     unsupported_reason: Optional[str] = None
 
     @model_validator(mode="after")
     def _one_limit_source(self):
+        if (self.measurement == FACT_REQUIREMENT) != (self.fact_requirement is not None):
+            raise ValueError("a fact_requirement constraint needs a FactRequirement, and only it may have one")
+        if self.measurement == FACT_REQUIREMENT:
+            if self.limit_parameter or self.derived is not None or self.bound != "in":
+                raise ValueError("a fact requirement uses bound 'in' and no numeric limit")
+            return self
         if bool(self.limit_parameter) == (self.derived is not None) and self.measurement != UNSUPPORTED_MEASUREMENT:
             raise ValueError("a constraint takes its limit from exactly one of limit_parameter or derived")
         if self.derived is not None and self.derived.from_key == self.key:

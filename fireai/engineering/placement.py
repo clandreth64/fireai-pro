@@ -82,7 +82,8 @@ def request_fingerprint(req: DesignRequest) -> str:
                  "system": req.system.model_dump(mode="json") if req.system else None,
                  "eligibility": {k: v.model_dump(mode="json") for k, v in sorted(req.eligibility.items())},
                  "deflector": req.deflector.model_dump(mode="json") if req.deflector else None,
-                 "orientation": req.orientation.model_dump(mode="json") if req.orientation else None})
+                 "orientation": req.orientation.model_dump(mode="json") if req.orientation else None,
+                 "installation": req.installation.model_dump(mode="json") if req.installation else None})
 
 
 def _uid(ns: uuid.UUID, key: str) -> str:
@@ -131,6 +132,8 @@ def design_facts(req: DesignRequest, area_sf: float | None) -> dict[str, Any]:
         f["system.storage"] = req.system.storage
         if req.system.design_method != "unknown":
             f["system.design_method"] = req.system.design_method
+    if req.installation is not None and req.installation.kind != "unknown":
+        f["installation.context"] = req.installation.kind
     for name, dec in req.eligibility.items():       # "unknown" is a value that never equals "eligible"
         f[f"space.eligibility.{name}"] = dec.status
     if req.listing:
@@ -164,6 +167,8 @@ def _sources(req: DesignRequest) -> list[InputSource]:
                 + [r.construction_classification.source for r in req.ceiling.regions if r.construction_classification]
                 if s is not None]
     out += [d.source for d in req.eligibility.values()]
+    if req.installation is not None:
+        out.append(req.installation.source)
     if req.deflector and req.deflector.elevation.source:
         out.append(req.deflector.elevation.source)
     return out
@@ -186,6 +191,7 @@ class _State:
         self.excluded = [prep(Polygon(r)) for r in req.search.excluded_regions_local_ft]
         self.segments = [s for ring in region.boundary.rings for s in ring.segments]
         self.bsegs_uv = boundary_uv(self.frame, self.segments)
+        self.facts = design_facts(req, region.area_sf)
         self.s_axis = orientation_axis(self.frame, req.orientation, req.tolerances.length_ft) \
             if req.orientation is not None and req.orientation.frame == "LOCAL" else None
         order = {m: i for i, m in enumerate(MEASUREMENT_ORDER)}
@@ -277,6 +283,13 @@ def _measurement_blockers(req: DesignRequest, region, res: RuleResolution) -> li
     """M2.2A: conditions under which a resolved measurement cannot be made at all -> REFUSE up front."""
     out: list[DesignIssue] = []
     meas = {c.measurement for c in res.constraints}
+    facts = design_facts(req, region.area_sf if region is not None else None)
+    for c in res.constraints:
+        if c.measurement == "fact_requirement" and facts.get(c.fact) is None:
+            out.append(DesignIssue(code="FACT_REQUIREMENT_UNKNOWN",
+                                   message=f"{c.key} (rule {c.governing_rule_id}) requires fact {c.fact!r}, which was "
+                                           "not supplied: UNKNOWN is never a pass",
+                                   detail={"fact": c.fact, "rule_id": c.governing_rule_id}))
     if region is not None and req.tolerances is not None and meas & WALL_REFERENCE_MEASUREMENTS:
         segs = [s for ring in region.boundary.rings for s in ring.segments]
         frame = room_frame([tuple(p) for p in region.polygon_local_ft])
@@ -406,6 +419,20 @@ def _eval_constraint(st: _State, c: EngineeringConstraint, cells: list[dict], ar
         areas = [(g.area, i) for i, g in enumerate(nearest_cells(st.polygon, pts))]
         measured, idx = worst(areas)
         subject = {"sprinkler_index": idx}
+    elif c.measurement == "fact_requirement":
+        value = st.facts.get(c.fact)
+        if value is None:
+            return _not_evaluable(st, c, f"fact {c.fact!r} is unknown")
+        ok = value in (c.allowed_values or [])
+        return ConstraintEvaluation(
+            constraint_key=c.key, measurement=c.measurement, bound=c.bound, limit=None, unit=c.unit, tolerance=0.0,
+            passed=ok, outcome="pass" if ok else "fail", fact=c.fact, fact_value=value,
+            allowed_values=list(c.allowed_values or []),
+            worst_subject={"fact": c.fact, "value": value, "allowed": list(c.allowed_values or [])},
+            governing_rule_id=c.governing_rule_id, contributing_rule_ids=[x.rule_id for x in c.contributions],
+            references=sorted({x.source_document + (f" {x.source_reference}" if x.source_reference else "")
+                               for x in c.contributions}),
+            note=f"{c.fact} = {value!r} is {'' if ok else 'NOT '}one of {c.allowed_values}")
     elif c.measurement == "min_perpendicular_wall_distance":
         m = min_wall_clearance(st.bsegs_uv, [tuple(p["uv"]) for p in cells], c.reference_kinds,
                                st.req.tolerances.length_ft, worst)
@@ -598,7 +625,8 @@ def _inputs(req: DesignRequest) -> dict:
             "system": req.system.model_dump(mode="json") if req.system else None,
             "eligibility": {k: v.model_dump(mode="json") for k, v in sorted(req.eligibility.items())},
             "deflector": req.deflector.model_dump(mode="json") if req.deflector else None,
-            "orientation": req.orientation.model_dump(mode="json") if req.orientation else None}
+            "orientation": req.orientation.model_dump(mode="json") if req.orientation else None,
+            "installation": req.installation.model_dump(mode="json") if req.installation else None}
 
 
 def _finish(res: EngineeringDesignResult) -> EngineeringDesignResult:

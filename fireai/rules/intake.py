@@ -23,8 +23,8 @@ from typing import Any, Optional
 
 from fireai.rules.authorization import _screen
 from fireai.rules.catalog import NFPA13_2019_CONSTRUCTION_SCHEME
-from fireai.rules.model import (Condition, ConstraintTemplate, DerivedLimit, Quantity, Rule, RuleApplicability,
-                                RuleParameter, RuleSource)
+from fireai.rules.model import (Condition, ConstraintTemplate, DerivedLimit, FactRequirement, Quantity, Rule,
+                                RuleApplicability, RuleParameter, RuleSource)
 from fireai.rules.units import UnitError, dimension
 
 TEMPLATE_ID = "fireai.nfpa13_2019.first_rule_package/1"
@@ -38,6 +38,7 @@ _SSP = [Condition(fact="sprinkler.type", op="eq", value="standard_spray"),
 _ROW = [Condition(fact="system.design_method", op="eq", value="hydraulically_calculated"),
         Condition(fact="ceiling.construction_classification.scheme", op="eq", value=NFPA13_2019_CONSTRUCTION_SCHEME),
         Condition(fact="ceiling.construction_classification", op="eq", value="noncombustible_unobstructed")]
+_NEW = [Condition(fact="installation.context", op="eq", value="new_system")]
 _FLAT = [Condition(fact="ceiling.surface", op="eq", value="flat"),
          Condition(fact="ceiling.construction_classification", op="eq", value="noncombustible_unobstructed")]
 
@@ -51,10 +52,11 @@ class RuleMapping:
     bound: str
     category: str
     reference_kinds: tuple[str, ...]
-    dimension: str                            # "length" | "area" | "factor" (derived)
+    dimension: str                            # "length" | "area" | "factor" (derived) | "values" (fact)
     proposed_applicability: tuple[Condition, ...]
     derived_from_key: Optional[str] = None
     note: str = ""
+    fact: Optional[str] = None                # fact requirements (dimension "values")
 
 
 M22B_MAPPINGS: dict[str, RuleMapping] = {m.mapping_id: m for m in (
@@ -79,6 +81,12 @@ M22B_MAPPINGS: dict[str, RuleMapping] = {m.mapping_id: m for m in (
     RuleMapping("F_MAX", "10.2.6.1.1.1", "sprinkler.max_deflector_below_ceiling",
                 "ceiling_to_deflector_vertical_distance", "max", "ceiling_configuration", (), "length",
                 tuple(_SSP + _FLAT), note="as F_MIN"),
+    # M2.2B.2: a FACT requirement (not geometry): the allowed response characteristic(s) for a NEW Light Hazard
+    # standard-spray installation. Allowed values are OWNER input; other technologies and existing-system
+    # exception paths are outside the first envelope.
+    RuleMapping("G", "9.4.3.1", "sprinkler.response_type", "fact_requirement", "in", "sprinkler_selection", (),
+                "values", tuple(_LH + _SSP + _NEW), fact="sprinkler.response",
+                note="sprinkler response / selection requirement; evaluates the listing's stated response type"),
 )}
 
 
@@ -162,7 +170,16 @@ def load_rule_package(data: dict[str, Any], *, edition: str = "2019") -> RulePac
         if e.get("exceptions_outside_envelope_confirmed") is not True:
             p.append(f"{mid}: exceptions_outside_envelope_confirmed must be true")
         params, derived, limit_param = [], None, ""
-        if m.dimension == "factor":
+        fact_req = None
+        if m.dimension == "values":
+            vals = e.get("allowed_values")
+            if not isinstance(vals, list) or not vals or not all(isinstance(v, str) and v.strip() for v in vals):
+                p.append(f"{mid}: allowed_values (a non-empty list of response values as the listing states them) "
+                         "is required")
+            else:
+                params.append(RuleParameter(name="allowed", value=list(vals), meaning="owner-supplied allowed values"))
+                fact_req = FactRequirement(fact=m.fact, allowed_parameter="allowed")
+        elif m.dimension == "factor":
             fac = (e.get("derived") or {}).get("factor")
             if isinstance(fac, bool) or not isinstance(fac, (int, float)):
                 p.append(f"{mid}: derived.factor (a dimensionless number) is required")
@@ -196,7 +213,7 @@ def load_rule_package(data: dict[str, Any], *, edition: str = "2019") -> RulePac
             rule_id=e["rule_id"], category=m.category, title=e["title"], parameters=params,
             applicability=RuleApplicability(all_of=applic),
             constraint=ConstraintTemplate(key=m.key, measurement=m.measurement, bound=m.bound,
-                                          limit_parameter=limit_param, derived=derived,
+                                          limit_parameter=limit_param, derived=derived, fact_requirement=fact_req,
                                           reference_kinds=list(m.reference_kinds)),
             source=source.model_copy(update={"reference": m.locator}), author=people["author"],
             authored_at=src.get("accessed_at"), version=str(e.get("rule_version") or "1"),
@@ -225,6 +242,7 @@ def template() -> dict:
             {"mapping_id": m.mapping_id, "rule_id": None, "rule_version": "1", "locator": m.locator, "title": None,
              **({"applies": None, "not_applicable_reason": None} if m.mapping_id.startswith("F_") else {}),
              **({"derived": {"factor": None, "from_key": m.derived_from_key}} if m.dimension == "factor"
+                else {"allowed_values": None, "fact": m.fact} if m.dimension == "values"
                 else {"limit": {"value": None, "unit": None, "dimension": m.dimension}}),
              "mapping_read_only": {"constraint_key": m.key, "measurement": m.measurement, "bound": m.bound,
                                    "reference_kinds": list(m.reference_kinds), "note": m.note},

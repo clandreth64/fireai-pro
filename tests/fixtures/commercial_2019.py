@@ -11,6 +11,7 @@ rules (and a real approved listing) and hand-worked expected answers against thi
   Light Hazard (person-decided) · wet pipe · hydraulically calculated · non-storage · smooth / flat /
   horizontal single-plane ceiling at a known elevation · noncombustible unobstructed construction
   classification · no beams / soffits / clouds / obstructions · small-room: NOT eligible (explicit) ·
+  installation context: NEW system (explicit, M2.2B.2) ·
   branch lines along LOCAL +x (explicit design input).
 * The listing slot is a TEST ONLY synthetic standard-spray pendent placeholder until a real, approved
   listing exists; engineering mode therefore still refuses on the listing — by design.
@@ -23,12 +24,13 @@ from pathlib import Path
 from fireai.engineering import (CeilingCondition, CeilingRegion, DesignClassification, DesignRequest, Elevation,
                                 EngineeringTolerances, InputSource, PlacementSearchSpace, Slope)
 from fireai.engineering.inputs import (ConstructionClassification, EligibilityCriterion, EligibilityDecision,
-                                       LayoutOrientation, SystemCondition)
+                                       InstallationContext, LayoutOrientation, SystemCondition)
 from fireai.rules.catalog import NFPA13_2019_CONSTRUCTION_SCHEME
 from fixtures import builders as B
 from fixtures import synthetic_design as S
 
 WIDTH_FT, DEPTH_FT = 57.5, 38.0
+SYNTHETIC_RESPONSE = "TEST_ONLY_SYNTHETIC_RESPONSE_A"      # never a real response designation
 CEILING_ELEVATION_FT = 10.75
 DATUM = "finished floor of the space"
 FIXTURE_SOURCE = InputSource(kind="human_decision", by="M2.2B fixture author (generated space; not a real project)",
@@ -38,7 +40,9 @@ FIXTURE_SOURCE = InputSource(kind="human_decision", by="M2.2B fixture author (ge
 def listing_placeholder():
     """TEST ONLY: a synthetic standard-spray pendent listing (no manufacturer data)."""
     return S.listing().model_copy(update={"sprinkler_type": "standard_spray", "orientation": "pendent",
-                                          "installation_style": "exposed"})
+                                          "installation_style": "exposed",
+                                          # TEST_ONLY / SYNTHETIC response value, solely to exercise the evaluator
+                                          "response_type": SYNTHETIC_RESPONSE})
 
 
 def space(tmp: Path):
@@ -67,6 +71,7 @@ def facts(space_uid: str, src: InputSource = FIXTURE_SOURCE) -> dict:
         eligibility={"small_room": EligibilityDecision(
             status="not_eligible", reason="fixture statement: small-room provisions are not part of this envelope",
             criteria=[EligibilityCriterion(fact="space.area_sf", value=WIDTH_FT * DEPTH_FT)], source=src)},
+        installation=InstallationContext(kind="new_system", reason="fixture statement: new installation", source=src),
         orientation=LayoutOrientation(branch_line_direction=(1.0, 0.0), strategy="explicit_design_input", source=src,
                                       note="fixture: branch lines along LOCAL +x"),
         tolerances=EngineeringTolerances(length_ft=1e-6, area_sf=1e-6, source=src),

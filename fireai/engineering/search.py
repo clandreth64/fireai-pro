@@ -37,7 +37,7 @@ from fireai.engineering.geometry import dist_point_segment, nearest_cells, worst
 from fireai.rules.constraints import WALL_RAY_MEASUREMENTS
 
 PIPELINE = ("global", "axis", "count", "points", "pair", "cover", "full")
-GLOBAL_MEAS = {"ceiling_to_deflector_vertical_distance"}
+GLOBAL_MEAS = {"ceiling_to_deflector_vertical_distance", "fact_requirement"}
 AXIS_MEAS = {"array_axis_spacing"}
 POINT_MEAS = {"point_to_boundary_min"}
 COVER_MEAS = {"boundary_point_to_nearest_sprinkler_max", "space_point_to_nearest_sprinkler_max"}
@@ -95,8 +95,12 @@ def search(st) -> SearchOutcome:
 
     # 0. GLOBAL ----------------------------------------------------------------------------------
     for c in [c for c in cons if c.measurement in GLOBAL_MEAS]:
-        m = full_measure(st, c, [], None)
-        if m is None or _viol(c, m, _tol(st, c)):
+        if c.measurement == "fact_requirement":           # a stated fact outside the allowed set fails ALL layouts
+            failed = st.facts.get(c.fact) not in (c.allowed_values or [])
+        else:
+            m = full_measure(st, c, [], None)
+            failed = m is None or _viol(c, m, _tol(st, c))
+        if failed:
             first = next(((u, v) for u in axis_sets(st.ku, 1) for v in axis_sets(st.kv, 1)), None)
             note("global", c.key, size, first)
             return SearchOutcome(valid=[], rejected_by=dict(rejected), pruned_by_stage=dict(stages),

@@ -370,6 +370,57 @@
       "exceptions_outside_envelope": [],
       "exceptions_outside_envelope_confirmed": false,
       "notes": ""
+    },
+    {
+      "mapping_id": "G",
+      "rule_id": null,
+      "rule_version": "1",
+      "locator": "9.4.3.1",
+      "title": null,
+      "allowed_values": null,
+      "fact": "sprinkler.response",
+      "mapping_read_only": {
+        "constraint_key": "sprinkler.response_type",
+        "measurement": "fact_requirement",
+        "bound": "in",
+        "reference_kinds": [],
+        "note": "sprinkler response / selection requirement; evaluates the listing's stated response type"
+      },
+      "proposed_applicability": [
+        {
+          "fact": "hazard.scheme",
+          "op": "eq",
+          "value": "NFPA 13 occupancy hazard classification"
+        },
+        {
+          "fact": "hazard.classification",
+          "op": "eq",
+          "value": "Light Hazard"
+        },
+        {
+          "fact": "sprinkler.type",
+          "op": "eq",
+          "value": "standard_spray"
+        },
+        {
+          "fact": "sprinkler.orientation",
+          "op": "in",
+          "value": [
+            "pendent",
+            "upright"
+          ]
+        },
+        {
+          "fact": "installation.context",
+          "op": "eq",
+          "value": "new_system"
+        }
+      ],
+      "applicability_confirmed": false,
+      "applicability_override": null,
+      "exceptions_outside_envelope": [],
+      "exceptions_outside_envelope_confirmed": false,
+      "notes": ""
     }
   ]
 }

@@ -171,7 +171,7 @@ def dependencies_of(req: DesignRequest) -> DesignDependencies:
         inputs={k: (_digest(getattr(req, a)) if getattr(req, a) is not None else None)
                 for k, a in (("ceiling", "ceiling"), ("classification", "classification"), ("system", "system"),
                              ("tolerances", "tolerances"), ("search", "search"), ("deflector", "deflector"),
-                             ("orientation", "orientation"))}
+                             ("orientation", "orientation"), ("installation", "installation"))}
         | {"jurisdiction": req.jurisdiction}
         | ({"eligibility": _digest({k: v.model_dump(mode="json") for k, v in sorted(req.eligibility.items())})}
            if req.eligibility else {}),

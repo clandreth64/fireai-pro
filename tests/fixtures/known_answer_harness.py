@@ -44,6 +44,8 @@ def run_case(case: KnownAnswerCase, rule_set, tmp: Path, *, mode: str = "rule_re
     if "deflector_elevation_ft" in case.inputs:
         over["deflector"] = DeflectorPosition(elevation=Elevation(status="known", value_ft=case.inputs["deflector_elevation_ft"],
                                                                   datum=C.DATUM, source=C.FIXTURE_SOURCE))
+    if "listing_response_type" in case.inputs:                     # fact cases: the stated listing fact
+        over["listing"] = C.listing_placeholder().model_copy(update={"response_type": case.inputs["listing_response_type"]})
     req = C.request(pkg, [rule_set], mode=mode, **over)
     positions = [fr.to_xy(u, v) for u, v in case.inputs["positions_room_ft"]]
     prop = CandidateProposal(proposed_by=f"known-answer case {case.case_id}",
@@ -57,6 +59,7 @@ def run_case(case: KnownAnswerCase, rule_set, tmp: Path, *, mode: str = "rule_re
     e = next((x for x in ev.evaluations if x.constraint_key == case.constraint_key), None)
     return {"verdict": ev.verdict, "reasons": [r.code for r in ev.reasons],
             "measured": e.measured if e else None, "limit": e.limit if e else None,
+            "fact_value": e.fact_value if e else None, "allowed_values": e.allowed_values if e else None,
             "outcome": ("PASS" if e.outcome == "pass" else "FAIL" if e.outcome == "fail" else "NOT_EVALUABLE")
             if e else "REFUSED"}
 
@@ -67,4 +70,5 @@ def verify(store: KnownAnswerStore, case_id: str, rule_set, tmp: Path, tolerance
     got = run_case(case, rule_set, tmp)
     return store.record_verification(case_id, measured=got["measured"], limit=got["limit"], outcome=got["outcome"],
                                      engine=PLACEMENT_ENGINE_VERSION, rule_set_digest=rule_set.digest(),
-                                     tolerance=tolerance, rule_digest=rule_content_digest(rule))
+                                     tolerance=tolerance, rule_digest=rule_content_digest(rule),
+                                     fact_value=got["fact_value"], allowed_values=got["allowed_values"])
